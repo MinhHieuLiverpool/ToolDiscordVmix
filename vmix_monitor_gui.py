@@ -1,103 +1,199 @@
+
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 import subprocess
 import threading
 import queue
-import re
-import os
-import sys
-import json
+import tkinter as tk
+from tkinter import scrolledtext
+import threading
+import queue
 from datetime import datetime
 
+
 class VmixMonitorGUI:
+    def get_local_ip(self):
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
+
     def __init__(self, root):
         self.root = root
-        self.root.title("Vmix tool")
-        self.root.geometry("700x600")
-        self.root.resizable(False, False)
-        
-        # Set icon
-        try:
-            icon_path = os.path.join(os.path.dirname(__file__), "Discord-Logo.png")
-            if os.path.exists(icon_path):
-                self.root.iconphoto(True, tk.PhotoImage(file=icon_path))
-        except Exception as e:
-            pass  # If icon fails, continue without it
-        
-        # Variables
-        self.webhook_var = tk.StringVar(value="")
-        self.prefix_var = tk.StringVar(value="")
-        self.scan_speed_var = tk.IntVar(value=1000)
-        self.check_ip_var = tk.IntVar(value=300)
-        
-        self.process = None
+        self.root.title("Vmix Monitor Tool")
+        self.root.geometry("320x200")
+        self.ip_var = tk.StringVar(value=self.get_local_ip())
+        self.port_var = tk.StringVar(value="")
         self.is_running = False
         self.log_queue = queue.Queue()
-        
-        # Camera list - empty by default
-        self.cameras = []
-        
         self.setup_ui()
         self.check_log_queue()
-        
+
     def setup_ui(self):
-        # Navigation bar at top
-        nav_frame = tk.Frame(self.root, relief=tk.RAISED, borderwidth=2, bg='#e0e0e0')
-        nav_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        tk.Button(nav_frame, text="OPEN", command=self.open_config, 
-                  bg='#2196F3', fg='white', width=12, font=('Arial', 10, 'bold')).pack(side=tk.LEFT, padx=5, pady=5)
-        
-        tk.Button(nav_frame, text="SAVE", command=self.save_config, 
-                  bg='#FF9800', fg='white', width=12, font=('Arial', 10, 'bold')).pack(side=tk.LEFT, padx=5, pady=5)
-        
-        # Main container with border
+        # Cố định kích thước cửa sổ
+        win_w, win_h = 420, 240
+        self.root.geometry(f"{win_w}x{win_h}")
+        self.root.resizable(False, False)
+        self.root.update_idletasks()
+        x = (self.root.winfo_screenwidth() // 2) - (win_w // 2)
+        y = (self.root.winfo_screenheight() // 2) - (win_h // 2)
+        self.root.geometry(f"{win_w}x{win_h}+{x}+{y}")
+
         main_frame = tk.Frame(self.root, relief=tk.RIDGE, borderwidth=2, bg='#f0f0f0')
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Dùng pack để căn giữa các thành phần
+        input_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        input_frame.pack(pady=10)
+        row1 = tk.Frame(input_frame, bg='#f0f0f0')
+        row1.pack(fill=tk.X, pady=4)
+        tk.Label(row1, text="IP máy:", bg='#f0f0f0', anchor='e', width=10).pack(side=tk.LEFT)
+        self.ip_entry = tk.Entry(row1, textvariable=self.ip_var, width=22, justify='center')
+        self.ip_entry.pack(side=tk.LEFT, padx=8)
+        row2 = tk.Frame(input_frame, bg='#f0f0f0')
+        row2.pack(fill=tk.X, pady=4)
+        tk.Label(row2, text="Port:", bg='#f0f0f0', anchor='e', width=10).pack(side=tk.LEFT)
+        self.port_entry = tk.Entry(row2, textvariable=self.port_var, width=22, justify='center')
+        self.port_entry.pack(side=tk.LEFT, padx=8)
+
+        # Nút Start căn giữa
+        self.start_btn = tk.Button(main_frame, text="START", command=self.toggle_monitoring, bg='#4CAF50', fg='white', width=16, font=('Arial', 11, 'bold'))
+        self.start_btn.pack(pady=8)
+
+        # Log nhỏ gọn phía dưới
+        log_frame = tk.LabelFrame(main_frame, text="LOGS:", relief=tk.RIDGE, borderwidth=2, bg='#f0f0f0', labelanchor='nw')
+        log_frame.pack(fill=tk.X, padx=2, pady=2)
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=3, bg='black', fg='#00ff00', font=('Consolas', 10), state=tk.DISABLED)
+        self.log_text.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+        # (Đã loại bỏ các dòng dùng grid để tránh lỗi mix pack và grid)
+
+    def log(self, message):
+        timestamp = datetime.now().strftime("[%H:%M:%S]")
+        self.log_queue.put(f"{timestamp} {message}")
+
+    def check_log_queue(self):
+        try:
+            while True:
+                msg = self.log_queue.get_nowait()
+                self.log_text.config(state=tk.NORMAL)
+                self.log_text.insert(tk.END, msg + "\n")
+                self.log_text.see(tk.END)
+                self.log_text.config(state=tk.DISABLED)
+        except queue.Empty:
+            pass
+        finally:
+            self.root.after(100, self.check_log_queue)
+
+    def toggle_monitoring(self):
+        if not self.is_running:
+            self.is_running = True
+            self.start_btn.config(text="STOP", bg="#f44336")
+            # Disable IP và Port khi đang chạy
+            self.ip_entry.config(state=tk.DISABLED)
+            self.port_entry.config(state=tk.DISABLED)
+            self.log("Bắt đầu gửi dữ liệu...")
+            self.monitor_thread = threading.Thread(target=self.monitor_loop, daemon=True)
+            self.monitor_thread.start()
+        else:
+            self.is_running = False
+            self.start_btn.config(text="START", bg="#4CAF50")
+            # Enable IP và Port khi dừng
+            self.ip_entry.config(state=tk.NORMAL)
+            self.port_entry.config(state=tk.NORMAL)
+            self.log("Đã dừng gửi dữ liệu.")
+
+    def get_wan_ip(self):
+        import requests
+        urls = [
+            'https://api.ipify.org',
+            'https://ifconfig.me/ip',
+            'https://ipinfo.io/ip',
+            'https://checkip.amazonaws.com'
+        ]
+        for u in urls:
+            try:
+                ip = requests.get(u, timeout=5).text.strip()
+                if ip and ('.' in ip or ':' in ip):
+                    return ip
+            except Exception:
+                pass
+        return "unknown"
+
+    def monitor_loop(self):
+        import requests
         
-        # Webhook and Prefix section
-        config_frame = tk.LabelFrame(main_frame, text="", relief=tk.RIDGE, borderwidth=2, bg='#f0f0f0')
-        config_frame.pack(fill=tk.X, padx=5, pady=5)
+        # Kiểm tra IP và Port có hợp lệ không
+        ip = self.ip_var.get().strip()
+        port_str = self.port_var.get().strip()
         
-        tk.Label(config_frame, text="WEBHOOK URL: [", bg='#f0f0f0').grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        webhook_entry = tk.Entry(config_frame, textvariable=self.webhook_var, width=50, show="*")
-        webhook_entry.grid(row=0, column=1, padx=5, pady=5)
-        tk.Label(config_frame, text="]", bg='#f0f0f0').grid(row=0, column=2, sticky=tk.W)
+        if not ip or not port_str:
+            self.log("ERROR: IP và Port không được để trống!")
+            self.is_running = False
+            self.start_btn.config(text="START", bg="#4CAF50")
+            self.ip_entry.config(state=tk.NORMAL)
+            self.port_entry.config(state=tk.NORMAL)
+            return
         
-        tk.Label(config_frame, text="PREFIX:", bg='#f0f0f0').grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        tk.Entry(config_frame, textvariable=self.prefix_var, width=10).grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        try:
+            port = int(port_str)
+            if port < 1 or port > 65535:
+                raise ValueError()
+        except:
+            self.log("ERROR: Port phải là số từ 1-65535!")
+            self.is_running = False
+            self.start_btn.config(text="START", bg="#4CAF50")
+            self.ip_entry.config(state=tk.NORMAL)
+            self.port_entry.config(state=tk.NORMAL)
+            return
         
-        # Monitor List section
-        monitor_frame = tk.LabelFrame(main_frame, text="MONITOR LIST:", relief=tk.RIDGE, borderwidth=2, bg='#f0f0f0')
-        monitor_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        # Table headers
-        header_frame = tk.Frame(monitor_frame, bg='#f0f0f0')
-        header_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        tk.Label(header_frame, text="NAME", width=20, anchor=tk.W, relief=tk.RIDGE, borderwidth=1, bg='#f0f0f0').pack(side=tk.LEFT, padx=2)
-        tk.Label(header_frame, text="PORT", width=15, anchor=tk.W, relief=tk.RIDGE, borderwidth=1, bg='#f0f0f0').pack(side=tk.LEFT, padx=2)
-        
-        # Camera list container with scrollbar
-        list_container = tk.Frame(monitor_frame, bg='#f0f0f0')
-        list_container.pack(fill=tk.BOTH, expand=True, padx=5)
-        
-        self.camera_canvas = tk.Canvas(list_container, bg='#f0f0f0', highlightthickness=0, height=120)
-        self.camera_scrollbar = tk.Scrollbar(list_container, orient="vertical", command=self.camera_canvas.yview)
-        self.camera_list_frame = tk.Frame(self.camera_canvas, bg='#f0f0f0')
-        
-        self.camera_list_frame.bind(
-            "<Configure>",
-            lambda e: self.camera_canvas.configure(scrollregion=self.camera_canvas.bbox("all"))
-        )
-        
-        self.canvas_frame = self.camera_canvas.create_window((0, 0), window=self.camera_list_frame, anchor="nw")
-        self.camera_canvas.configure(yscrollcommand=self.camera_scrollbar.set)
-        
-        self.camera_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.camera_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        self.refresh_camera_list()
+        wan_ip = self.get_wan_ip()
+        name = "MÁY CHÍNH"  # hoặc cho phép nhập tên nếu cần
+        while self.is_running:
+            try:
+                data = {
+                    "name": name,
+                    "ip": ip,
+                    "ipwan": wan_ip,
+                    "status": "ON",
+                    "port": port
+                }
+                url = "http://localhost:8088"
+                headers = {"Content-Type": "application/json"}
+                response = requests.post(url, json=data, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    self.log(f"Đã gửi: {ip}:{port} - {data['status']}")
+                else:
+                    self.log(f"Lỗi gửi: {response.status_code} {response.content}")
+            except Exception as e:
+                self.log(f"ERROR gửi HTTP: {str(e)}")
+            import time
+            for _ in range(10):
+                if not self.is_running:
+                    # Gửi trạng thái OFF khi dừng
+                    try:
+                        data = {
+                            "name": name,
+                            "ip": ip,
+                            "ipwan": wan_ip,
+                            "status": "OFF",
+                            "port": port
+                        }
+                        url = "http://localhost:8088"
+                        headers = {"Content-Type": "application/json"}
+                        requests.post(url, json=data, headers=headers, timeout=5)
+                        self.log(f"Đã gửi: {ip}:{port} - OFF")
+                    except Exception:
+                        pass
+                    break
+                time.sleep(0.5)
+
+
+        # Đã loại bỏ code camera list/canvas/scrollbar vì GUI tối giản
         
         # Add button
         add_btn_frame = tk.Frame(monitor_frame, bg='#f0f0f0')
@@ -105,38 +201,10 @@ class VmixMonitorGUI:
         tk.Button(add_btn_frame, text="[ + Add New Camera ]", command=self.add_camera, bg='#e0e0e0').pack(anchor=tk.W)
         
         # Advanced section
-        advanced_frame = tk.LabelFrame(main_frame, text="ADVANCED:", relief=tk.RIDGE, borderwidth=2, bg='#f0f0f0')
-        advanced_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        tk.Label(advanced_frame, text="Scan Speed: [", bg='#f0f0f0').grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
-        tk.Entry(advanced_frame, textvariable=self.scan_speed_var, width=8).grid(row=0, column=1, sticky=tk.W)
-        tk.Label(advanced_frame, text="] ms    Check IP: [", bg='#f0f0f0').grid(row=0, column=2, sticky=tk.W, padx=5)
-        tk.Entry(advanced_frame, textvariable=self.check_ip_var, width=8).grid(row=0, column=3, sticky=tk.W)
-        tk.Label(advanced_frame, text="] sec", bg='#f0f0f0').grid(row=0, column=4, sticky=tk.W)
-        
-        # Logs section
-        log_frame = tk.LabelFrame(main_frame, text="LOGS:", relief=tk.RIDGE, borderwidth=2, bg='#f0f0f0')
-        log_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=8, bg='black', fg='#00ff00', 
-                                                   font=('Consolas', 9), state=tk.DISABLED)
-        self.log_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        # Control buttons
-        btn_frame = tk.Frame(main_frame, bg='#f0f0f0')
-        btn_frame.pack(fill=tk.X, padx=5, pady=5)
-        
-        self.start_btn = tk.Button(btn_frame, text="START", command=self.start_monitoring, 
-                                    bg='#4CAF50', fg='white', width=15, font=('Arial', 10, 'bold'))
-        self.start_btn.pack(side=tk.LEFT, padx=5)
-        
+
         tk.Button(btn_frame, text="Clear Logs", command=self.clear_logs, 
                   bg='#9E9E9E', fg='white', width=15).pack(side=tk.LEFT, padx=5)
-        
-    def refresh_camera_list(self):
-        # Clear existing widgets
-        for widget in self.camera_list_frame.winfo_children():
-            widget.destroy()
+            # Nút Start/Stop đã được thêm ở trên, không cần btn_frame hoặc nút Clear Logs nữa
         
         # Store entry widgets to read current values
         self.camera_entries = []
@@ -294,53 +362,29 @@ class VmixMonitorGUI:
         thread.start()
     
     def run_monitoring_script(self):
+        import requests
         try:
-            # Build PowerShell command
-            ports = ",".join([str(cam['port']) for cam in self.cameras])
-            names = ",".join([f"'{cam['name']}'" for cam in self.cameras])
-            
-            script_path = os.path.join(os.path.dirname(__file__), "monitor_script.ps1")
-            
-            cmd = [
-                "powershell.exe",
-                "-WindowStyle", "Hidden",
-                "-ExecutionPolicy", "Bypass",
-                "-File", script_path,
-                "-Ports", ports,
-                "-Names", names,
-                "-Webhook", self.webhook_var.get(),
-                "-Prefix", self.prefix_var.get(),
-                "-PollMs", str(self.scan_speed_var.get()),
-                "-WanRefreshSec", str(self.check_ip_var.get())
-            ]
-            
-            # Hide console window on Windows
-            startupinfo = None
-            if sys.platform == 'win32':
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = subprocess.SW_HIDE
-            
-            self.process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                startupinfo=startupinfo,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-            )
-            
-            for line in self.process.stdout:
-                line = line.strip()
-                if line:
-                    self.log(line)
-            
-            self.process.wait()
-            self.log("Notification sent.")
-            
+            wan_ip = self.get_wan_ip()
+            open_ports = self.scan_udp_ports(10000, 90000)
+            # Chuẩn bị dữ liệu gửi lên server
+            data = {
+                "webhook": self.webhook_var.get(),
+                "prefix": self.prefix_var.get(),
+                "scan_speed_ms": self.scan_speed_var.get(),
+                "check_ip_sec": self.check_ip_var.get(),
+                "cameras": self.cameras,
+                "ipwan": wan_ip,
+                "open_ports": open_ports
+            }
+            url = "http://localhost:8088"  # Địa chỉ server nhận dữ liệu
+            headers = {"Content-Type": "application/json"}
+            response = requests.post(url, json=data, headers=headers, timeout=15)
+            if response.status_code == 200:
+                self.log(f"Gửi dữ liệu thành công tới server! IP WAN: {wan_ip}, Open UDP Ports: {open_ports}")
+            else:
+                self.log(f"Lỗi gửi dữ liệu: {response.status_code} {response.content}")
         except Exception as e:
-            self.log(f"ERROR: {str(e)}")
+            self.log(f"ERROR gửi HTTP: {str(e)}")
     
     def clear_logs(self):
         self.log_text.config(state=tk.NORMAL)
