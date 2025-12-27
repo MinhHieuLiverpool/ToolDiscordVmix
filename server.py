@@ -57,6 +57,24 @@ def send_discord_notification(name, ipwan, port, status):
         print(f"✗ Discord notification failed: {e}")
 
 class VmixRequestHandler(http.server.BaseHTTPRequestHandler):
+    def do_HEAD(self):
+        """Handle HEAD requests for health checks (UptimeRobot, etc.)"""
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+    
+    def do_GET(self):
+        """Handle GET requests for health checks"""
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        response = {
+            "status": "online",
+            "service": "vMix Monitor Server",
+            "timestamp": datetime.now().isoformat()
+        }
+        self.wfile.write(json.dumps(response).encode('utf-8'))
+    
     def do_POST(self):
         # Kiểm tra path để phân biệt endpoint
         if self.path == '/update_name':
