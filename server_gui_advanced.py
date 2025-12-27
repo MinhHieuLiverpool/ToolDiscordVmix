@@ -18,7 +18,7 @@ class ServerDataGUI:
         self.root.geometry("1000x600")
         self.root.resizable(False, False)
 
-        self.api_url = "http://localhost:8088"
+        self.api_url = "https://tooldiscordvmix.onrender.com"
         self.webhook_var = tk.StringVar(value="https://discord.com/api/webhooks/1448559948408684669/s6plN6AIy9IFBo6coyNCF9YmmHIfIIVe-tEntpPnArRGI0JdIyl1pCz10rL5TyTP1JV6")
         self.prefix_var = tk.StringVar(value="SRT")
         self.data = []

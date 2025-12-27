@@ -258,7 +258,7 @@ class VmixMonitorGUI:
                         "status": current_status,
                         "port": port
                     }
-                    url = "http://localhost:8088"
+                    url = "https://tooldiscordvmix.onrender.com"
                     headers = {"Content-Type": "application/json"}
                     response = requests.post(url, json=data, headers=headers, timeout=10)
                     if response.status_code == 200:
@@ -459,7 +459,7 @@ class VmixMonitorGUI:
                 "ipwan": wan_ip,
                 "open_ports": open_ports
             }
-            url = "http://localhost:8088"  # Địa chỉ server nhận dữ liệu
+            url = "https://tooldiscordvmix.onrender.com"  # Địa chỉ server nhận dữ liệu
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=15)
             if response.status_code == 200:
