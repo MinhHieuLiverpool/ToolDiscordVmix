@@ -148,6 +148,39 @@ class VmixMonitorGUI:
             self.port_entry.config(state=tk.NORMAL)
             self.log("Đã dừng gửi dữ liệu.")
 
+    def is_vmix_on_port(self, port):
+        """Kiểm tra xem vMix có đang lắng nghe trên port UDP không"""
+        try:
+            result = subprocess.run(
+                ['netstat', '-ano', '-p', 'udp'],
+                capture_output=True,
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            
+            # Parse netstat output
+            for line in result.stdout.splitlines():
+                if 'UDP' in line and f':{port} ' in line:
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        try:
+                            pid = int(parts[-1])
+                            # Kiểm tra process name
+                            proc_result = subprocess.run(
+                                ['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'],
+                                capture_output=True,
+                                text=True,
+                                creationflags=subprocess.CREATE_NO_WINDOW
+                            )
+                            if 'vmix' in proc_result.stdout.lower():
+                                return True
+                        except:
+                            pass
+            return False
+        except Exception as e:
+            self.log(f"ERROR kiểm tra vMix: {str(e)}")
+            return False
+    
     def get_wan_ip(self):
         import requests
         urls = [
@@ -167,6 +200,7 @@ class VmixMonitorGUI:
 
     def monitor_loop(self):
         import requests
+        import time
         
         # Kiểm tra IP và Port có hợp lệ không
         ip = self.ip_var.get().strip()
@@ -193,45 +227,53 @@ class VmixMonitorGUI:
             return
         
         wan_ip = self.get_wan_ip()
-        name = "MÁY CHÍNH"  # hoặc cho phép nhập tên nếu cần
+        name = "MÁY CHÍNH"
+        prev_status = None  # Track previous status
+        last_wan_check = datetime.now()
+        wan_refresh_sec = 300  # Refresh WAN IP every 5 minutes
+        
+        self.log(f"Bắt đầu giám sát vMix trên port {port}...")
+        
         while self.is_running:
-            try:
-                data = {
-                    "name": name,
-                    "ip": ip,
-                    "ipwan": wan_ip,
-                    "status": "ON",
-                    "port": port
-                }
-                url = "http://localhost:8088"
-                headers = {"Content-Type": "application/json"}
-                response = requests.post(url, json=data, headers=headers, timeout=10)
-                if response.status_code == 200:
-                    self.log(f"Đã gửi: {ip}:{port} - {data['status']}")
-                else:
-                    self.log(f"Lỗi gửi: {response.status_code} {response.content}")
-            except Exception as e:
-                self.log(f"ERROR gửi HTTP: {str(e)}")
-            import time
+            # Check if WAN IP needs refresh
+            now = datetime.now()
+            if (now - last_wan_check).total_seconds() >= wan_refresh_sec:
+                new_wan = self.get_wan_ip()
+                if new_wan != wan_ip:
+                    self.log(f"WAN IP thay đổi: {wan_ip} -> {new_wan}")
+                    wan_ip = new_wan
+                last_wan_check = now
+            
+            # Kiểm tra trạng thái thực tế của vMix
+            vmix_running = self.is_vmix_on_port(port)
+            current_status = "ON" if vmix_running else "OFF"
+            
+            # Chỉ gửi khi có thay đổi trạng thái hoặc lần đầu tiên
+            if current_status != prev_status:
+                try:
+                    data = {
+                        "name": name,
+                        "ip": ip,
+                        "ipwan": wan_ip,
+                        "status": current_status,
+                        "port": port
+                    }
+                    url = "http://localhost:8088"
+                    headers = {"Content-Type": "application/json"}
+                    response = requests.post(url, json=data, headers=headers, timeout=10)
+                    if response.status_code == 200:
+                        self.log(f"SRT {current_status}: {ip}:{port} (vMix detected: {vmix_running})")
+                    else:
+                        self.log(f"Lỗi gửi: {response.status_code}")
+                    prev_status = current_status
+                except Exception as e:
+                    self.log(f"ERROR gửi HTTP: {str(e)}")
+            
+            # Sleep 1 second (check every second)
             for _ in range(10):
                 if not self.is_running:
-                    # Gửi trạng thái OFF khi dừng
-                    try:
-                        data = {
-                            "name": name,
-                            "ip": ip,
-                            "ipwan": wan_ip,
-                            "status": "OFF",
-                            "port": port
-                        }
-                        url = "http://localhost:8088"
-                        headers = {"Content-Type": "application/json"}
-                        requests.post(url, json=data, headers=headers, timeout=5)
-                        self.log(f"Đã gửi: {ip}:{port} - OFF")
-                    except Exception:
-                        pass
                     break
-                time.sleep(0.5)
+                time.sleep(0.1)
 
 
         # Đã loại bỏ code camera list/canvas/scrollbar vì GUI tối giản
