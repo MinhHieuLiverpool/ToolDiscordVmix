@@ -4,11 +4,9 @@ from tkinter import ttk, scrolledtext, messagebox, filedialog
 import subprocess
 import threading
 import queue
-import tkinter as tk
-from tkinter import scrolledtext
-import threading
-import queue
 from datetime import datetime
+from PIL import Image, ImageDraw
+import pystray
 
 
 class VmixMonitorGUI:
@@ -31,8 +29,13 @@ class VmixMonitorGUI:
         self.port_var = tk.StringVar(value="")
         self.is_running = False
         self.log_queue = queue.Queue()
+        self.tray_icon = None
         self.setup_ui()
+        self.setup_tray()
         self.check_log_queue()
+        
+        # Override close button để ẩn xuống tray thay vì đóng
+        self.root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
 
     def setup_ui(self):
         # Cố định kích thước cửa sổ
@@ -71,6 +74,44 @@ class VmixMonitorGUI:
         self.log_text = scrolledtext.ScrolledText(log_frame, height=3, bg='black', fg='#00ff00', font=('Consolas', 10), state=tk.DISABLED)
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         # (Đã loại bỏ các dòng dùng grid để tránh lỗi mix pack và grid)
+    
+    def create_tray_image(self):
+        """Tạo icon cho system tray"""
+        # Tạo icon đơn giản (hình vuông màu xanh)
+        image = Image.new('RGB', (64, 64), color='green')
+        draw = ImageDraw.Draw(image)
+        draw.rectangle([16, 16, 48, 48], fill='white')
+        return image
+    
+    def setup_tray(self):
+        """Thiết lập system tray icon"""
+        image = self.create_tray_image()
+        menu = pystray.Menu(
+            pystray.MenuItem("Mở", self.show_window),
+            pystray.MenuItem("Thoát", self.quit_app)
+        )
+        self.tray_icon = pystray.Icon("VmixMonitor", image, "Vmix Monitor", menu)
+    
+    def hide_to_tray(self):
+        """Ẩn cửa sổ xuống system tray"""
+        self.root.withdraw()  # Ẩn cửa sổ
+        if self.tray_icon and not self.tray_icon.visible:
+            # Chạy tray icon trong thread riêng
+            threading.Thread(target=self.tray_icon.run, daemon=True).start()
+    
+    def show_window(self, icon=None, item=None):
+        """Hiện lại cửa sổ từ system tray"""
+        self.root.deiconify()  # Hiện cửa sổ
+        self.root.lift()  # Đưa lên trên cùng
+        self.root.focus_force()  # Focus vào cửa sổ
+    
+    def quit_app(self, icon=None, item=None):
+        """Thoát hoàn toàn ứng dụng"""
+        self.is_running = False
+        if self.tray_icon:
+            self.tray_icon.stop()
+        self.root.quit()
+        self.root.destroy()
 
     def log(self, message):
         timestamp = datetime.now().strftime("[%H:%M:%S]")
