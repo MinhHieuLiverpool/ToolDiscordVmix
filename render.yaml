@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: vmix-monitor-server
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      - key: PORT
+        value: 8088
+      - key: MONGODB_URI
+        sync: false
+      - key: DATABASE_NAME
+        value: vmix_monitor
+      - key: COLLECTION_NAME
+        value: logs
+      - key: DISCORD_WEBHOOK
+        sync: false
+      - key: PREFIX
+        value: SRT

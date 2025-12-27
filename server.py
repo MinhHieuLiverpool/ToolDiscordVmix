@@ -5,11 +5,22 @@ import json
 from datetime import datetime
 import threading
 import sys
+import os
 from pymongo import MongoClient, DESCENDING
 import requests
-from config import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME, DISCORD_WEBHOOK, PREFIX
 
-PORT = 8088
+# Try to import from config.py, fallback to environment variables
+try:
+    from config import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME, DISCORD_WEBHOOK, PREFIX
+except ImportError:
+    MONGODB_URI = os.getenv('MONGODB_URI', '')
+    DATABASE_NAME = os.getenv('DATABASE_NAME', 'vmix_monitor')
+    COLLECTION_NAME = os.getenv('COLLECTION_NAME', 'logs')
+    DISCORD_WEBHOOK = os.getenv('DISCORD_WEBHOOK', '')
+    PREFIX = os.getenv('PREFIX', 'SRT')
+
+# Port configuration - support Render's dynamic port
+PORT = int(os.getenv('PORT', 8088))
 
 # Kết nối MongoDB với TLS
 try:
@@ -191,9 +202,12 @@ class VmixRequestHandler(http.server.BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     from http.server import ThreadingHTTPServer
-    server_address = ('', PORT)
+    # Bind to 0.0.0.0 to accept connections from anywhere (required for cloud deployment)
+    server_address = ('0.0.0.0', PORT)
     httpd = ThreadingHTTPServer(server_address, VmixRequestHandler)
-    print(f"Serving at port {PORT}")
+    print(f"Server starting on 0.0.0.0:{PORT}")
+    print(f"MongoDB: {DATABASE_NAME}.{COLLECTION_NAME}")
+    print(f"Prefix: {PREFIX}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
