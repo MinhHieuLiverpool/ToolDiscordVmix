@@ -97,7 +97,7 @@ class VmixRequestHandler(http.server.BaseHTTPRequestHandler):
             
             if existing:
                 # So sánh từng field quan trọng (ngoại trừ timestamp)
-                fields_to_check = ['ip', 'ipwan', 'status', 'port', 'name']
+                fields_to_check = ['ip', 'ipwan', 'status', 'port', 'name', 'statusapp']
                 for field in fields_to_check:
                     old_val = existing.get(field)
                     new_val = data.get(field)
@@ -116,6 +116,7 @@ class VmixRequestHandler(http.server.BaseHTTPRequestHandler):
                 "ipwan": data.get('ipwan'),
                 "status": data.get('status'),
                 "port": data.get('port'),
+                "statusapp": data.get('statusapp', 0),  # App status: 1=ON, 0=OFF
                 "timestamp": timestamp,
                 "last_updated": timestamp
             }
@@ -196,7 +197,8 @@ class VmixRequestHandler(http.server.BaseHTTPRequestHandler):
                         "ip": doc.get("ip", ""),
                         "ipwan": doc.get("ipwan", ""),
                         "status": doc.get("status", ""),
-                        "port": doc.get("port", "")
+                        "port": doc.get("port", ""),
+                        "statusapp": doc.get("statusapp", 0)
                     }
                 }
                 entries.append(entry)

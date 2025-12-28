@@ -139,6 +139,41 @@ class VmixMonitorGUI:
         finally:
             self.root.after(100, self.check_log_queue)
 
+    def send_app_status(self, status_value):
+        """Gửi trạng thái app (1=ON, 0=OFF) lên database"""
+        import requests
+        try:
+            name = self.name_var.get().strip()
+            ip = self.ip_var.get().strip()
+            port_str = self.port_var.get().strip()
+            
+            if not name or not ip:
+                return
+            
+            try:
+                port = int(port_str) if port_str else 0
+            except:
+                port = 0
+            
+            wan_ip = self.get_wan_ip()
+            
+            data = {
+                "name": name,
+                "ip": ip,
+                "ipwan": wan_ip,
+                "status": "OFF",  # vMix status (will be updated in monitor_loop)
+                "port": port,
+                "statusapp": status_value  # App status: 1=ON, 0=OFF
+            }
+            url = "https://tooldiscordvmix.onrender.com"
+            headers = {"Content-Type": "application/json"}
+            response = requests.post(url, json=data, headers=headers, timeout=10)
+            if response.status_code == 200:
+                status_text = "ON" if status_value == 1 else "OFF"
+                self.log(f"App status: {status_text}")
+        except Exception as e:
+            self.log(f"ERROR gửi app status: {str(e)}")
+
     def toggle_monitoring(self):
         if not self.is_running:
             self.is_running = True
@@ -148,10 +183,14 @@ class VmixMonitorGUI:
             self.ip_entry.config(state=tk.DISABLED)
             self.port_entry.config(state=tk.DISABLED)
             self.log("Bắt đầu gửi dữ liệu...")
+            # Gửi statusapp = 1 (ON)
+            threading.Thread(target=lambda: self.send_app_status(1), daemon=True).start()
             self.monitor_thread = threading.Thread(target=self.monitor_loop, daemon=True)
             self.monitor_thread.start()
         else:
             self.is_running = False
+            # Gửi statusapp = 0 (OFF)
+            threading.Thread(target=lambda: self.send_app_status(0), daemon=True).start()
             self.start_btn.config(text="START", bg="#4CAF50")
             # Enable các trường input khi dừng
             self.name_entry.config(state=tk.NORMAL)
@@ -269,7 +308,8 @@ class VmixMonitorGUI:
                         "ip": ip,
                         "ipwan": wan_ip,
                         "status": current_status,
-                        "port": port
+                        "port": port,
+                        "statusapp": 1  # App is running (1=ON)
                     }
                     url = "https://tooldiscordvmix.onrender.com"
                     headers = {"Content-Type": "application/json"}
