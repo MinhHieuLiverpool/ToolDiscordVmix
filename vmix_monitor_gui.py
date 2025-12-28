@@ -25,6 +25,7 @@ class VmixMonitorGUI:
         self.root = root
         self.root.title("Vmix Monitor Tool")
         self.root.geometry("320x200")
+        self.name_var = tk.StringVar(value="MÁY CHÍNH")
         self.ip_var = tk.StringVar(value=self.get_local_ip())
         self.port_var = tk.StringVar(value="")
         self.is_running = False
@@ -39,7 +40,7 @@ class VmixMonitorGUI:
 
     def setup_ui(self):
         # Cố định kích thước cửa sổ
-        win_w, win_h = 420, 240
+        win_w, win_h = 420, 280
         self.root.geometry(f"{win_w}x{win_h}")
         self.root.resizable(False, False)
         self.root.update_idletasks()
@@ -53,6 +54,14 @@ class VmixMonitorGUI:
         # Dùng pack để căn giữa các thành phần
         input_frame = tk.Frame(main_frame, bg='#f0f0f0')
         input_frame.pack(pady=10)
+        
+        # Row 0: Tên máy
+        row0 = tk.Frame(input_frame, bg='#f0f0f0')
+        row0.pack(fill=tk.X, pady=4)
+        tk.Label(row0, text="Tên máy:", bg='#f0f0f0', anchor='e', width=10).pack(side=tk.LEFT)
+        self.name_entry = tk.Entry(row0, textvariable=self.name_var, width=22, justify='center')
+        self.name_entry.pack(side=tk.LEFT, padx=8)
+        
         row1 = tk.Frame(input_frame, bg='#f0f0f0')
         row1.pack(fill=tk.X, pady=4)
         tk.Label(row1, text="IP máy:", bg='#f0f0f0', anchor='e', width=10).pack(side=tk.LEFT)
@@ -134,7 +143,8 @@ class VmixMonitorGUI:
         if not self.is_running:
             self.is_running = True
             self.start_btn.config(text="STOP", bg="#f44336")
-            # Disable IP và Port khi đang chạy
+            # Disable các trường input khi đang chạy
+            self.name_entry.config(state=tk.DISABLED)
             self.ip_entry.config(state=tk.DISABLED)
             self.port_entry.config(state=tk.DISABLED)
             self.log("Bắt đầu gửi dữ liệu...")
@@ -143,7 +153,8 @@ class VmixMonitorGUI:
         else:
             self.is_running = False
             self.start_btn.config(text="START", bg="#4CAF50")
-            # Enable IP và Port khi dừng
+            # Enable các trường input khi dừng
+            self.name_entry.config(state=tk.NORMAL)
             self.ip_entry.config(state=tk.NORMAL)
             self.port_entry.config(state=tk.NORMAL)
             self.log("Đã dừng gửi dữ liệu.")
@@ -202,14 +213,16 @@ class VmixMonitorGUI:
         import requests
         import time
         
-        # Kiểm tra IP và Port có hợp lệ không
+        # Kiểm tra các trường input có hợp lệ không
+        name = self.name_var.get().strip()
         ip = self.ip_var.get().strip()
         port_str = self.port_var.get().strip()
         
-        if not ip or not port_str:
-            self.log("ERROR: IP và Port không được để trống!")
+        if not name or not ip or not port_str:
+            self.log("ERROR: Tên máy, IP và Port không được để trống!")
             self.is_running = False
             self.start_btn.config(text="START", bg="#4CAF50")
+            self.name_entry.config(state=tk.NORMAL)
             self.ip_entry.config(state=tk.NORMAL)
             self.port_entry.config(state=tk.NORMAL)
             return
@@ -222,12 +235,12 @@ class VmixMonitorGUI:
             self.log("ERROR: Port phải là số từ 1-65535!")
             self.is_running = False
             self.start_btn.config(text="START", bg="#4CAF50")
+            self.name_entry.config(state=tk.NORMAL)
             self.ip_entry.config(state=tk.NORMAL)
             self.port_entry.config(state=tk.NORMAL)
             return
         
         wan_ip = self.get_wan_ip()
-        name = "MÁY CHÍNH"
         prev_status = None  # Track previous status
         last_wan_check = datetime.now()
         wan_refresh_sec = 300  # Refresh WAN IP every 5 minutes
