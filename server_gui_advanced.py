@@ -49,7 +49,7 @@ class ServerDataGUI:
         tk.Button(row2, text="Clear Table", command=self.clear_table, bg="#f44336", fg="white").pack(side=tk.LEFT, padx=5)
 
         # Table
-        columns = ("stt", "name", "ip", "ipwan", "status", "port", "timestamp")
+        columns = ("stt", "name", "ip", "ipwan", "status", "port", "statusapp", "timestamp")
         self.tree = ttk.Treeview(self.root, columns=columns, show="headings", height=20)
         self.tree.heading("stt", text="STT")
         self.tree.heading("name", text="Tên")
@@ -57,6 +57,7 @@ class ServerDataGUI:
         self.tree.heading("ipwan", text="IP WAN")
         self.tree.heading("status", text="Status SRT")
         self.tree.heading("port", text="Port")
+        self.tree.heading("statusapp", text="Status App")
         self.tree.heading("timestamp", text="Time")
         self.tree.column("stt", width=50, anchor=tk.CENTER)
         self.tree.column("name", width=120, anchor=tk.CENTER)
@@ -64,8 +65,13 @@ class ServerDataGUI:
         self.tree.column("ipwan", width=120, anchor=tk.CENTER)
         self.tree.column("status", width=90, anchor=tk.CENTER)
         self.tree.column("port", width=80, anchor=tk.CENTER)
+        self.tree.column("statusapp", width=90, anchor=tk.CENTER)
         self.tree.column("timestamp", width=150, anchor=tk.CENTER)
         self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # Cấu hình màu cho các tag
+        self.tree.tag_configure('app_on', foreground='green')
+        self.tree.tag_configure('app_off', foreground='red')
         
         # Bind double-click để edit tên
         self.tree.bind("<Double-1>", self.on_double_click)
@@ -225,7 +231,10 @@ class ServerDataGUI:
                     ip = cam.get("ip", d.get("ip", ""))
                     port = cam.get("port", "")
                     status = cam.get("status", "")
-                    self.tree.insert("", tk.END, values=(stt, name, ip, ipwan, status, port, ts))
+                    statusapp = d.get("statusapp", 0)
+                    statusapp_text = "ON" if statusapp == 1 else "OFF"
+                    tag = 'app_on' if statusapp == 1 else 'app_off'
+                    self.tree.insert("", tk.END, values=(stt, name, ip, ipwan, status, port, statusapp_text, ts), tags=(tag,))
                     stt += 1
             # Nếu là dạng đơn giản (dạng mới)
             else:
@@ -237,7 +246,10 @@ class ServerDataGUI:
                 ipwan = d.get("ipwan", "")
                 status = d.get("status", "")
                 port = d.get("port", "")
-                self.tree.insert("", tk.END, values=(stt, name, ip, ipwan, status, port, ts))
+                statusapp = d.get("statusapp", 0)
+                statusapp_text = "ON" if statusapp == 1 else "OFF"
+                tag = 'app_on' if statusapp == 1 else 'app_off'
+                self.tree.insert("", tk.END, values=(stt, name, ip, ipwan, status, port, statusapp_text, ts), tags=(tag,))
                 stt += 1
 
     def on_double_click(self, event):
