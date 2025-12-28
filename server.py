@@ -64,7 +64,49 @@ class VmixRequestHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
     
     def do_GET(self):
-        """Handle GET requests for health checks"""
+        """Handle GET requests"""
+        # Parse URL and query parameters
+        from urllib.parse import urlparse, parse_qs
+        parsed_url = urlparse(self.path)
+        
+        # Endpoint để lấy dữ liệu theo IP
+        if parsed_url.path == '/get_by_ip':
+            query_params = parse_qs(parsed_url.query)
+            ip = query_params.get('ip', [None])[0]
+            
+            if ip:
+                try:
+                    # Lấy tất cả documents có IP này
+                    documents = collection.find({"ip": ip}).sort("last_updated", DESCENDING)
+                    entries = []
+                    
+                    for doc in documents:
+                        entry = {
+                            "timestamp": doc.get("last_updated", doc.get("timestamp", "")),
+                            "data": {
+                                "name": doc.get("name", ""),
+                                "ip": doc.get("ip", ""),
+                                "ipwan": doc.get("ipwan", ""),
+                                "status": doc.get("status", ""),
+                                "port": doc.get("port", ""),
+                                "statusapp": doc.get("statusapp", 0)
+                            }
+                        }
+                        entries.append(entry)
+                    
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps(entries, ensure_ascii=False).encode('utf-8'))
+                    return
+                except Exception as e:
+                    self.send_response(500)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+                    return
+        
+        # Default health check response
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.end_headers()

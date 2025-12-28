@@ -30,17 +30,20 @@ class VmixMonitorGUI:
         self.is_running = False
         self.log_queue = queue.Queue()
         self.tray_icon = None
-        self.port_list = []  # Danh sách các port entries: [{"name": "...", "port": ...}, ...]
+        self.port_list = []  # Danh sách các port entries
         self.setup_ui()
         self.setup_tray()
         self.check_log_queue()
+        
+        # Load dữ liệu từ database khi khởi động
+        self.load_data_from_database()
         
         # Override close button để ẩn xuống tray thay vì đóng
         self.root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
 
     def setup_ui(self):
         # Cố định kích thước cửa sổ lớn hơn
-        win_w, win_h = 650, 550
+        win_w, win_h = 750, 600
         self.root.geometry(f"{win_w}x{win_h}")
         self.root.resizable(False, False)
         self.root.update_idletasks()
@@ -80,21 +83,24 @@ class VmixMonitorGUI:
                           bg='#2196F3', fg='white', width=10, font=('Arial', 10, 'bold'))
         add_btn.grid(row=0, column=4, padx=10, pady=5)
         
-        # === TABLE SECTION: List of ports ===
+        # === TABLE SECTION: List of ports (CHIỀU CAO GIẢM) ===
         table_frame = tk.LabelFrame(main_frame, text="Danh sách Port", bg='#f0f0f0', 
                                    font=('Arial', 10, 'bold'))
-        table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        table_frame.pack(fill=tk.BOTH, padx=10, pady=5)
         
-        # Create Treeview
+        # Create Treeview với chiều cao thấp hơn (height=6)
         columns = ("name", "ip", "ipwan", "port")
-        self.tree = ttk.Treeview(table_frame, columns=columns, show='headings', height=10)
-        self.tree.heading("name", text="Tên máy")
-        self.tree.heading("ip", text="IP")
-        self.tree.heading("ipwan", text="IP WAN")
-        self.tree.heading("port", text="Port")
-        self.tree.column("name", width=200, anchor='w')
-        self.tree.column("ip", width=120, anchor='center')
-        self.tree.column("ipwan", width=140, anchor='center')
+        self.tree = ttk.Treeview(table_frame, columns=columns, show='headings', height=6)
+        
+        # Căn giữa title và các giá trị
+        self.tree.heading("name", text="Tên máy", anchor='center')
+        self.tree.heading("ip", text="IP", anchor='center')
+        self.tree.heading("ipwan", text="IP WAN", anchor='center')
+        self.tree.heading("port", text="Port", anchor='center')
+        
+        self.tree.column("name", width=250, anchor='center')
+        self.tree.column("ip", width=150, anchor='center')
+        self.tree.column("ipwan", width=150, anchor='center')
         self.tree.column("port", width=100, anchor='center')
         
         # Scrollbar
@@ -104,9 +110,9 @@ class VmixMonitorGUI:
         self.tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Nút Xóa (delete selected item)
-        delete_btn = tk.Button(table_frame, text="Xóa mục đã chọn", command=self.delete_selected, 
+        self.delete_btn = tk.Button(table_frame, text="Xóa mục đã chọn", command=self.delete_selected, 
                              bg='#f44336', fg='white', font=('Arial', 9, 'bold'))
-        delete_btn.pack(pady=5)
+        self.delete_btn.pack(pady=5)
         
         # === CONTROL SECTION: Start/Stop button ===
         control_frame = tk.Frame(main_frame, bg='#f0f0f0')
@@ -116,11 +122,11 @@ class VmixMonitorGUI:
                                   bg='#4CAF50', fg='white', width=20, height=2, font=('Arial', 12, 'bold'))
         self.start_btn.pack()
 
-        # === LOG SECTION ===
+        # === LOG SECTION (HIỂN THỊ RÕ) ===
         log_frame = tk.LabelFrame(main_frame, text="LOGS:", relief=tk.RIDGE, borderwidth=2, 
-                                 bg='#f0f0f0', labelanchor='nw')
-        log_frame.pack(fill=tk.X, padx=2, pady=5)
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=4, bg='black', fg='#00ff00', 
+                                 bg='#f0f0f0', labelanchor='nw', font=('Arial', 10, 'bold'))
+        log_frame.pack(fill=tk.BOTH, expand=True, padx=2, pady=5)
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=5, bg='black', fg='#00ff00', 
                                                  font=('Consolas', 9), state=tk.DISABLED)
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
     
@@ -162,6 +168,49 @@ class VmixMonitorGUI:
         self.root.quit()
         self.root.destroy()
 
+    def load_data_from_database(self):
+        """Load dữ liệu từ database dựa vào IP máy"""
+        import requests
+        try:
+            ip = self.ip_var.get().strip()
+            url = f"https://tooldiscordvmix.onrender.com/get_by_ip?ip={ip}"
+            response = requests.get(url, timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data and isinstance(data, list):
+                    # Clear existing data
+                    self.port_list.clear()
+                    for item in self.tree.get_children():
+                        self.tree.delete(item)
+                    
+                    # Load data from database
+                    loaded_count = 0
+                    for entry in data:
+                        entry_data = entry.get('data', {})
+                        name = entry_data.get('name', '')
+                        port = entry_data.get('port', 0)
+                        entry_ip = entry_data.get('ip', ip)
+                        ipwan = entry_data.get('ipwan', 'unknown')
+                        
+                        if name and port:
+                            # Add to list
+                            self.port_list.append({"name": name, "port": port, "ip": entry_ip, "ipwan": ipwan})
+                            # Add to tree
+                            self.tree.insert("", tk.END, values=(name, entry_ip, ipwan, port))
+                            loaded_count += 1
+                    
+                    if loaded_count > 0:
+                        self.log(f"Đã tải {loaded_count} port từ database")
+                    else:
+                        self.log("Không có dữ liệu cũ trong database")
+                else:
+                    self.log("Không có dữ liệu cũ trong database")
+            else:
+                self.log(f"Không thể tải dữ liệu: {response.status_code}")
+        except Exception as e:
+            self.log(f"Lỗi khi load dữ liệu: {str(e)}")
+    
     def log(self, message):
         timestamp = datetime.now().strftime("[%H:%M:%S]")
         self.log_queue.put(f"{timestamp} {message}")
@@ -200,18 +249,20 @@ class VmixMonitorGUI:
             messagebox.showerror("Lỗi", "Port phải là số từ 1-65535!")
             return
         
-        # Get IP and WAN IP
         ip = self.ip_var.get().strip()
         wan_ip = self.get_wan_ip()
         
-        # Check duplicate
+        # Check duplicate - Kiểm tra trùng TÊN MÁY hoặc trùng PORT
         for entry in self.port_list:
-            if entry['name'] == name and entry['port'] == port:
-                messagebox.showwarning("Cảnh báo", "Entry này đã tồn tại!")
+            if entry['name'] == name:
+                messagebox.showwarning("Cảnh báo", f"Tên máy '{name}' đã tồn tại!")
+                return
+            if entry['port'] == port:
+                messagebox.showwarning("Cảnh báo", f"Port {port} đã được sử dụng!")
                 return
         
         # Add to list
-        self.port_list.append({"name": name, "ip": ip, "ipwan": wan_ip, "port": port})
+        self.port_list.append({"name": name, "port": port, "ip": ip, "ipwan": wan_ip})
         
         # Add to tree
         self.tree.insert("", tk.END, values=(name, ip, wan_ip, port))
@@ -266,33 +317,27 @@ class VmixMonitorGUI:
         except Exception as e:
             self.log(f"ERROR xóa DB: {str(e)}")
 
-
-
-    def delete_from_database(self):
-        """Xóa dữ liệu của tất cả các port entries khỏi database"""
+    def delete_all_from_database(self):
+        """Xóa dữ liệu của tất cả các port entries khỏi database (khi STOP)"""
         import requests
         
         if not self.port_list:
             return
         
         try:
-            # Gửi từng port entry để xóa khỏi database
             for entry in self.port_list:
                 data = {
                     "name": entry['name'],
-                    "ip": entry['ip'],
-                    "port": entry['port'],
-                    "action": "delete"  # Signal to delete from database
+                    "ip": entry.get('ip', self.ip_var.get()),
+                    "port": entry['port']
                 }
                 url = "https://tooldiscordvmix.onrender.com/delete"
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, json=data, headers=headers, timeout=10)
                 if response.status_code == 200:
-                    self.log(f"Đã xóa database: {entry['name']} - Port {entry['port']}")
-                else:
-                    self.log(f"Lỗi xóa {entry['name']}: {response.status_code}")
+                    self.log(f"Đã xóa DB: {entry['name']} - Port {entry['port']}")
         except Exception as e:
-            self.log(f"ERROR xóa database: {str(e)}")
+            self.log(f"ERROR xóa DB: {str(e)}")
 
     def send_app_status(self, status_value):
         """Gửi trạng thái app (1=ON, 0=OFF) cho tất cả các port entries"""
@@ -338,6 +383,7 @@ class VmixMonitorGUI:
             
             self.is_running = True
             self.start_btn.config(text="STOP", bg="#f44336")
+            self.delete_btn.config(state=tk.DISABLED)  # Disable nút xóa khi START
             self.log("Bắt đầu gửi dữ liệu...")
             # Gửi statusapp = 1 (ON)
             threading.Thread(target=lambda: self.send_app_status(1), daemon=True).start()
@@ -345,11 +391,14 @@ class VmixMonitorGUI:
             self.monitor_thread.start()
         else:
             self.is_running = False
-            # Gửi statusapp = 0 (OFF) và xóa khỏi database
+            # Xóa tất cả dữ liệu trên database khi STOP
+            threading.Thread(target=self.delete_all_from_database, daemon=True).start()
+            # Gửi statusapp = 0 (OFF)
             threading.Thread(target=lambda: self.send_app_status(0), daemon=True).start()
-            threading.Thread(target=self.delete_from_database, daemon=True).start()
             self.start_btn.config(text="START", bg="#4CAF50")
-            self.log("Đã dừng gửi dữ liệu và xóa khỏi database.")
+            self.delete_btn.config(state=tk.NORMAL)  # Enable lại nút xóa khi STOP
+            self.log("Đã dừng gửi dữ liệu.")
+
 
     def is_vmix_on_port(self, port):
         """Kiểm tra xem vMix có đang lắng nghe trên port UDP không"""
