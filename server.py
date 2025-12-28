@@ -80,6 +80,9 @@ class VmixRequestHandler(http.server.BaseHTTPRequestHandler):
         if self.path == '/update_name':
             self.handle_update_name()
             return
+        elif self.path == '/delete':
+            self.handle_delete()
+            return
         
         try:
             content_length = int(self.headers.get('Content-Length', 0))
@@ -181,6 +184,44 @@ class VmixRequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+
+    def handle_delete(self):
+        """Xử lý xóa dữ liệu từ database"""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            name = data.get('name')
+            ip = data.get('ip')
+            port = data.get('port')
+            
+            # Xóa document theo name, ip và port
+            result = collection.delete_one({
+                "name": name,
+                "ip": ip,
+                "port": port
+            })
+            
+            if result.deleted_count > 0:
+                print(f"✓ Đã xóa: {name} - {ip}:{port}")
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "deleted": True}).encode('utf-8'))
+            else:
+                print(f"⚠ Không tìm thấy để xóa: {name} - {ip}:{port}")
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "ok", "deleted": False}).encode('utf-8'))
+        except Exception as e:
+            print(f"✗ Lỗi xóa: {e}")
+            self.send_response(400)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+
 
     def do_GET(self):
         try:

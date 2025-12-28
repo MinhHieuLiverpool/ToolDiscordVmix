@@ -24,13 +24,13 @@ class VmixMonitorGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Vmix Monitor Tool")
-        self.root.geometry("320x200")
-        self.name_var = tk.StringVar(value="MÁY CHÍNH")
         self.ip_var = tk.StringVar(value=self.get_local_ip())
+        self.name_var = tk.StringVar(value="")
         self.port_var = tk.StringVar(value="")
         self.is_running = False
         self.log_queue = queue.Queue()
         self.tray_icon = None
+        self.port_list = []  # Danh sách các port entries: [{"name": "...", "port": ...}, ...]
         self.setup_ui()
         self.setup_tray()
         self.check_log_queue()
@@ -39,8 +39,8 @@ class VmixMonitorGUI:
         self.root.protocol("WM_DELETE_WINDOW", self.hide_to_tray)
 
     def setup_ui(self):
-        # Cố định kích thước cửa sổ
-        win_w, win_h = 420, 280
+        # Cố định kích thước cửa sổ lớn hơn
+        win_w, win_h = 650, 550
         self.root.geometry(f"{win_w}x{win_h}")
         self.root.resizable(False, False)
         self.root.update_idletasks()
@@ -51,38 +51,78 @@ class VmixMonitorGUI:
         main_frame = tk.Frame(self.root, relief=tk.RIDGE, borderwidth=2, bg='#f0f0f0')
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # Dùng pack để căn giữa các thành phần
-        input_frame = tk.Frame(main_frame, bg='#f0f0f0')
-        input_frame.pack(pady=10)
+        # === TOP SECTION: IP máy (read-only) ===
+        top_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        top_frame.pack(pady=8)
         
-        # Row 0: Tên máy
-        row0 = tk.Frame(input_frame, bg='#f0f0f0')
-        row0.pack(fill=tk.X, pady=4)
-        tk.Label(row0, text="Tên máy:", bg='#f0f0f0', anchor='e', width=10).pack(side=tk.LEFT)
-        self.name_entry = tk.Entry(row0, textvariable=self.name_var, width=22, justify='center')
-        self.name_entry.pack(side=tk.LEFT, padx=8)
+        tk.Label(top_frame, text="IP máy:", bg='#f0f0f0', font=('Arial', 11, 'bold')).pack(side=tk.LEFT, padx=5)
+        self.ip_entry = tk.Entry(top_frame, textvariable=self.ip_var, width=20, justify='center', 
+                                state='readonly', font=('Arial', 11), relief=tk.SUNKEN, bd=2)
+        self.ip_entry.pack(side=tk.LEFT, padx=5)
         
-        row1 = tk.Frame(input_frame, bg='#f0f0f0')
-        row1.pack(fill=tk.X, pady=4)
-        tk.Label(row1, text="IP máy:", bg='#f0f0f0', anchor='e', width=10).pack(side=tk.LEFT)
-        self.ip_entry = tk.Entry(row1, textvariable=self.ip_var, width=22, justify='center')
-        self.ip_entry.pack(side=tk.LEFT, padx=8)
-        row2 = tk.Frame(input_frame, bg='#f0f0f0')
-        row2.pack(fill=tk.X, pady=4)
-        tk.Label(row2, text="Port:", bg='#f0f0f0', anchor='e', width=10).pack(side=tk.LEFT)
-        self.port_entry = tk.Entry(row2, textvariable=self.port_var, width=22, justify='center')
-        self.port_entry.pack(side=tk.LEFT, padx=8)
+        # === INPUT SECTION: Add new port entry ===
+        input_frame = tk.LabelFrame(main_frame, text="Thêm Port mới", bg='#f0f0f0', 
+                                    font=('Arial', 10, 'bold'), padx=10, pady=10)
+        input_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Tên máy
+        tk.Label(input_frame, text="Tên máy:", bg='#f0f0f0', width=10, anchor='e').grid(row=0, column=0, padx=5, pady=5)
+        self.name_entry = tk.Entry(input_frame, textvariable=self.name_var, width=25, font=('Arial', 10))
+        self.name_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        # Port
+        tk.Label(input_frame, text="Port:", bg='#f0f0f0', width=10, anchor='e').grid(row=0, column=2, padx=5, pady=5)
+        self.port_entry = tk.Entry(input_frame, textvariable=self.port_var, width=15, font=('Arial', 10))
+        self.port_entry.grid(row=0, column=3, padx=5, pady=5)
+        
+        # Nút Thêm
+        add_btn = tk.Button(input_frame, text="Thêm", command=self.add_port_entry, 
+                          bg='#2196F3', fg='white', width=10, font=('Arial', 10, 'bold'))
+        add_btn.grid(row=0, column=4, padx=10, pady=5)
+        
+        # === TABLE SECTION: List of ports ===
+        table_frame = tk.LabelFrame(main_frame, text="Danh sách Port", bg='#f0f0f0', 
+                                   font=('Arial', 10, 'bold'))
+        table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # Create Treeview
+        columns = ("name", "ip", "ipwan", "port")
+        self.tree = ttk.Treeview(table_frame, columns=columns, show='headings', height=10)
+        self.tree.heading("name", text="Tên máy")
+        self.tree.heading("ip", text="IP")
+        self.tree.heading("ipwan", text="IP WAN")
+        self.tree.heading("port", text="Port")
+        self.tree.column("name", width=200, anchor='w')
+        self.tree.column("ip", width=120, anchor='center')
+        self.tree.column("ipwan", width=140, anchor='center')
+        self.tree.column("port", width=100, anchor='center')
+        
+        # Scrollbar
+        scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Nút Xóa (delete selected item)
+        delete_btn = tk.Button(table_frame, text="Xóa mục đã chọn", command=self.delete_selected, 
+                             bg='#f44336', fg='white', font=('Arial', 9, 'bold'))
+        delete_btn.pack(pady=5)
+        
+        # === CONTROL SECTION: Start/Stop button ===
+        control_frame = tk.Frame(main_frame, bg='#f0f0f0')
+        control_frame.pack(pady=10)
+        
+        self.start_btn = tk.Button(control_frame, text="START", command=self.toggle_monitoring, 
+                                  bg='#4CAF50', fg='white', width=20, height=2, font=('Arial', 12, 'bold'))
+        self.start_btn.pack()
 
-        # Nút Start căn giữa
-        self.start_btn = tk.Button(main_frame, text="START", command=self.toggle_monitoring, bg='#4CAF50', fg='white', width=16, font=('Arial', 11, 'bold'))
-        self.start_btn.pack(pady=8)
-
-        # Log nhỏ gọn phía dưới
-        log_frame = tk.LabelFrame(main_frame, text="LOGS:", relief=tk.RIDGE, borderwidth=2, bg='#f0f0f0', labelanchor='nw')
-        log_frame.pack(fill=tk.X, padx=2, pady=2)
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=3, bg='black', fg='#00ff00', font=('Consolas', 10), state=tk.DISABLED)
+        # === LOG SECTION ===
+        log_frame = tk.LabelFrame(main_frame, text="LOGS:", relief=tk.RIDGE, borderwidth=2, 
+                                 bg='#f0f0f0', labelanchor='nw')
+        log_frame.pack(fill=tk.X, padx=2, pady=5)
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=4, bg='black', fg='#00ff00', 
+                                                 font=('Consolas', 9), state=tk.DISABLED)
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
-        # (Đã loại bỏ các dòng dùng grid để tránh lỗi mix pack và grid)
     
     def create_tray_image(self):
         """Tạo icon cho system tray"""
@@ -139,49 +179,165 @@ class VmixMonitorGUI:
         finally:
             self.root.after(100, self.check_log_queue)
 
-    def send_app_status(self, status_value):
-        """Gửi trạng thái app (1=ON, 0=OFF) lên database"""
+    def add_port_entry(self):
+        """Thêm một port entry vào danh sách"""
+        name = self.name_var.get().strip()
+        port_str = self.port_var.get().strip()
+        
+        if not name:
+            messagebox.showwarning("Cảnh báo", "Vui lòng nhập tên máy!")
+            return
+        
+        if not port_str:
+            messagebox.showwarning("Cảnh báo", "Vui lòng nhập port!")
+            return
+        
+        try:
+            port = int(port_str)
+            if port < 1 or port > 65535:
+                raise ValueError()
+        except:
+            messagebox.showerror("Lỗi", "Port phải là số từ 1-65535!")
+            return
+        
+        # Get IP and WAN IP
+        ip = self.ip_var.get().strip()
+        wan_ip = self.get_wan_ip()
+        
+        # Check duplicate
+        for entry in self.port_list:
+            if entry['name'] == name and entry['port'] == port:
+                messagebox.showwarning("Cảnh báo", "Entry này đã tồn tại!")
+                return
+        
+        # Add to list
+        self.port_list.append({"name": name, "ip": ip, "ipwan": wan_ip, "port": port})
+        
+        # Add to tree
+        self.tree.insert("", tk.END, values=(name, ip, wan_ip, port))
+        
+        # Clear input fields
+        self.name_var.set("")
+        self.port_var.set("")
+        
+        self.log(f"Đã thêm: {name} - {ip} - Port {port}")
+    
+    def delete_selected(self):
+        """Xóa mục đã chọn trong table và xóa trên database"""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Cảnh báo", "Vui lòng chọn một mục để xóa!")
+            return
+        
+        for item in selected:
+            values = self.tree.item(item, 'values')
+            if values:
+                name = values[0]
+                ip = values[1]
+                port = int(values[3])
+                
+                # Remove from list
+                self.port_list = [e for e in self.port_list if not (e['name'] == name and e['port'] == port)]
+                
+                # Remove from tree
+                self.tree.delete(item)
+                
+                # Xóa trên database ngay lập tức
+                threading.Thread(target=lambda n=name, i=ip, p=port: self.delete_single_from_database(n, i, p), daemon=True).start()
+                
+                self.log(f"Đã xóa: {name} - {ip} - Port {port}")
+
+    def delete_single_from_database(self, name, ip, port):
+        """Xóa một entry cụ thể khỏi database"""
         import requests
         try:
-            name = self.name_var.get().strip()
-            ip = self.ip_var.get().strip()
-            port_str = self.port_var.get().strip()
-            
-            if not name or not ip:
-                return
-            
-            try:
-                port = int(port_str) if port_str else 0
-            except:
-                port = 0
-            
-            wan_ip = self.get_wan_ip()
-            
             data = {
                 "name": name,
                 "ip": ip,
-                "ipwan": wan_ip,
-                "status": "OFF",  # vMix status (will be updated in monitor_loop)
-                "port": port,
-                "statusapp": status_value  # App status: 1=ON, 0=OFF
+                "port": port
             }
-            url = "https://tooldiscordvmix.onrender.com"
+            url = "https://tooldiscordvmix.onrender.com/delete"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=10)
             if response.status_code == 200:
-                status_text = "ON" if status_value == 1 else "OFF"
-                self.log(f"App status: {status_text}")
+                self.log(f"Đã xóa trên DB: {name} - Port {port}")
+            else:
+                self.log(f"Lỗi xóa trên DB: {response.status_code}")
+        except Exception as e:
+            self.log(f"ERROR xóa DB: {str(e)}")
+
+
+
+    def delete_from_database(self):
+        """Xóa dữ liệu của tất cả các port entries khỏi database"""
+        import requests
+        
+        if not self.port_list:
+            return
+        
+        try:
+            # Gửi từng port entry để xóa khỏi database
+            for entry in self.port_list:
+                data = {
+                    "name": entry['name'],
+                    "ip": entry['ip'],
+                    "port": entry['port'],
+                    "action": "delete"  # Signal to delete from database
+                }
+                url = "https://tooldiscordvmix.onrender.com/delete"
+                headers = {"Content-Type": "application/json"}
+                response = requests.post(url, json=data, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    self.log(f"Đã xóa database: {entry['name']} - Port {entry['port']}")
+                else:
+                    self.log(f"Lỗi xóa {entry['name']}: {response.status_code}")
+        except Exception as e:
+            self.log(f"ERROR xóa database: {str(e)}")
+
+    def send_app_status(self, status_value):
+        """Gửi trạng thái app (1=ON, 0=OFF) cho tất cả các port entries"""
+        import requests
+        
+        if not self.port_list:
+            self.log("Không có port nào trong danh sách!")
+            return
+        
+        ip = self.ip_var.get().strip()
+        if not ip:
+            return
+        
+        try:
+            wan_ip = self.get_wan_ip()
+            
+            # Gửi từng port entry lên server
+            for entry in self.port_list:
+                data = {
+                    "name": entry['name'],
+                    "ip": ip,
+                    "ipwan": wan_ip,
+                    "status": "OFF",  # vMix status (will be updated in monitor_loop)
+                    "port": entry['port'],
+                    "statusapp": status_value  # App status: 1=ON, 0=OFF
+                }
+                url = "https://tooldiscordvmix.onrender.com"
+                headers = {"Content-Type": "application/json"}
+                response = requests.post(url, json=data, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    status_text = "ON" if status_value == 1 else "OFF"
+                    self.log(f"App status {status_text}: {entry['name']} - Port {entry['port']}")
+                else:
+                    self.log(f"Lỗi gửi {entry['name']}: {response.status_code}")
         except Exception as e:
             self.log(f"ERROR gửi app status: {str(e)}")
 
     def toggle_monitoring(self):
         if not self.is_running:
+            if not self.port_list:
+                messagebox.showwarning("Cảnh báo", "Vui lòng thêm ít nhất một port!")
+                return
+            
             self.is_running = True
             self.start_btn.config(text="STOP", bg="#f44336")
-            # Disable các trường input khi đang chạy
-            self.name_entry.config(state=tk.DISABLED)
-            self.ip_entry.config(state=tk.DISABLED)
-            self.port_entry.config(state=tk.DISABLED)
             self.log("Bắt đầu gửi dữ liệu...")
             # Gửi statusapp = 1 (ON)
             threading.Thread(target=lambda: self.send_app_status(1), daemon=True).start()
@@ -189,14 +345,11 @@ class VmixMonitorGUI:
             self.monitor_thread.start()
         else:
             self.is_running = False
-            # Gửi statusapp = 0 (OFF)
+            # Gửi statusapp = 0 (OFF) và xóa khỏi database
             threading.Thread(target=lambda: self.send_app_status(0), daemon=True).start()
+            threading.Thread(target=self.delete_from_database, daemon=True).start()
             self.start_btn.config(text="START", bg="#4CAF50")
-            # Enable các trường input khi dừng
-            self.name_entry.config(state=tk.NORMAL)
-            self.ip_entry.config(state=tk.NORMAL)
-            self.port_entry.config(state=tk.NORMAL)
-            self.log("Đã dừng gửi dữ liệu.")
+            self.log("Đã dừng gửi dữ liệu và xóa khỏi database.")
 
     def is_vmix_on_port(self, port):
         """Kiểm tra xem vMix có đang lắng nghe trên port UDP không"""
@@ -252,39 +405,21 @@ class VmixMonitorGUI:
         import requests
         import time
         
-        # Kiểm tra các trường input có hợp lệ không
-        name = self.name_var.get().strip()
         ip = self.ip_var.get().strip()
-        port_str = self.port_var.get().strip()
         
-        if not name or not ip or not port_str:
-            self.log("ERROR: Tên máy, IP và Port không được để trống!")
+        if not ip or not self.port_list:
+            self.log("ERROR: IP hoặc danh sách port trống!")
             self.is_running = False
             self.start_btn.config(text="START", bg="#4CAF50")
-            self.name_entry.config(state=tk.NORMAL)
-            self.ip_entry.config(state=tk.NORMAL)
-            self.port_entry.config(state=tk.NORMAL)
-            return
-        
-        try:
-            port = int(port_str)
-            if port < 1 or port > 65535:
-                raise ValueError()
-        except:
-            self.log("ERROR: Port phải là số từ 1-65535!")
-            self.is_running = False
-            self.start_btn.config(text="START", bg="#4CAF50")
-            self.name_entry.config(state=tk.NORMAL)
-            self.ip_entry.config(state=tk.NORMAL)
-            self.port_entry.config(state=tk.NORMAL)
             return
         
         wan_ip = self.get_wan_ip()
-        prev_status = None  # Track previous status
+        # Track previous status for each port
+        prev_status = {}  # {port: "ON"/"OFF"}
         last_wan_check = datetime.now()
         wan_refresh_sec = 300  # Refresh WAN IP every 5 minutes
         
-        self.log(f"Bắt đầu giám sát vMix trên port {port}...")
+        self.log(f"Bắt đầu giám sát {len(self.port_list)} port(s)...")
         
         while self.is_running:
             # Check if WAN IP needs refresh
@@ -296,31 +431,36 @@ class VmixMonitorGUI:
                     wan_ip = new_wan
                 last_wan_check = now
             
-            # Kiểm tra trạng thái thực tế của vMix
-            vmix_running = self.is_vmix_on_port(port)
-            current_status = "ON" if vmix_running else "OFF"
-            
-            # Chỉ gửi khi có thay đổi trạng thái hoặc lần đầu tiên
-            if current_status != prev_status:
-                try:
-                    data = {
-                        "name": name,
-                        "ip": ip,
-                        "ipwan": wan_ip,
-                        "status": current_status,
-                        "port": port,
-                        "statusapp": 1  # App is running (1=ON)
-                    }
-                    url = "https://tooldiscordvmix.onrender.com"
-                    headers = {"Content-Type": "application/json"}
-                    response = requests.post(url, json=data, headers=headers, timeout=10)
-                    if response.status_code == 200:
-                        self.log(f"SRT {current_status}: {ip}:{port} (vMix detected: {vmix_running})")
-                    else:
-                        self.log(f"Lỗi gửi: {response.status_code}")
-                    prev_status = current_status
-                except Exception as e:
-                    self.log(f"ERROR gửi HTTP: {str(e)}")
+            # Check each port
+            for entry in self.port_list:
+                port = entry['port']
+                name = entry['name']
+                
+                # Kiểm tra trạng thái thực tế của vMix
+                vmix_running = self.is_vmix_on_port(port)
+                current_status = "ON" if vmix_running else "OFF"
+                
+                # Chỉ gửi khi có thay đổi trạng thái hoặc lần đầu tiên
+                if prev_status.get(port) != current_status:
+                    try:
+                        data = {
+                            "name": name,
+                            "ip": ip,
+                            "ipwan": wan_ip,
+                            "status": current_status,
+                            "port": port,
+                            "statusapp": 1  # App is running (1=ON)
+                        }
+                        url = "https://tooldiscordvmix.onrender.com"
+                        headers = {"Content-Type": "application/json"}
+                        response = requests.post(url, json=data, headers=headers, timeout=10)
+                        if response.status_code == 200:
+                            self.log(f"SRT {current_status}: {name} {ip}:{port}")
+                        else:
+                            self.log(f"Lỗi gửi {name}: {response.status_code}")
+                        prev_status[port] = current_status
+                    except Exception as e:
+                        self.log(f"ERROR gửi HTTP ({name}): {str(e)}")
             
             # Sleep 1 second (check every second)
             for _ in range(10):
@@ -328,274 +468,6 @@ class VmixMonitorGUI:
                     break
                 time.sleep(0.1)
 
-
-        # Đã loại bỏ code camera list/canvas/scrollbar vì GUI tối giản
-        
-        # Add button
-        add_btn_frame = tk.Frame(monitor_frame, bg='#f0f0f0')
-        add_btn_frame.pack(fill=tk.X, padx=5, pady=5)
-        tk.Button(add_btn_frame, text="[ + Add New Camera ]", command=self.add_camera, bg='#e0e0e0').pack(anchor=tk.W)
-        
-        # Advanced section
-
-        tk.Button(btn_frame, text="Clear Logs", command=self.clear_logs, 
-                  bg='#9E9E9E', fg='white', width=15).pack(side=tk.LEFT, padx=5)
-            # Nút Start/Stop đã được thêm ở trên, không cần btn_frame hoặc nút Clear Logs nữa
-        
-        # Store entry widgets to read current values
-        self.camera_entries = []
-        
-        # Display cameras
-        for idx, cam in enumerate(self.cameras):
-            cam_frame = tk.Frame(self.camera_list_frame, bg='#f0f0f0')
-            cam_frame.pack(fill=tk.X, pady=2)
-            
-            # Editable name entry (without brackets)
-            name_var = tk.StringVar(value=cam['name'])
-            name_entry = tk.Entry(cam_frame, textvariable=name_var, width=22, 
-                                  relief=tk.RIDGE, borderwidth=1, bg='white')
-            name_entry.pack(side=tk.LEFT, padx=2)
-            name_entry.bind('<FocusOut>', lambda e, i=idx, v=name_var: self.update_camera_name(i, v.get()))
-            name_entry.bind('<Return>', lambda e, i=idx, v=name_var: self.update_camera_name(i, v.get()))
-            
-            # Editable port entry (without brackets)
-            port_var = tk.StringVar(value=str(cam['port']))
-            port_entry = tk.Entry(cam_frame, textvariable=port_var, width=17, 
-                                  relief=tk.RIDGE, borderwidth=1, bg='white')
-            port_entry.pack(side=tk.LEFT, padx=2)
-            port_entry.bind('<FocusOut>', lambda e, i=idx, v=port_var: self.update_camera_port(i, v.get()))
-            port_entry.bind('<Return>', lambda e, i=idx, v=port_var: self.update_camera_port(i, v.get()))
-            
-            # Store entry widgets
-            self.camera_entries.append({'name_var': name_var, 'port_var': port_var})
-            
-            delete_btn = tk.Button(cam_frame, text="XÓA", command=lambda i=idx: self.delete_camera(i), 
-                                   bg='#f44336', fg='white', font=('Arial', 9, 'bold'), 
-                                   relief=tk.FLAT, cursor='hand2')
-            delete_btn.pack(side=tk.LEFT, padx=5)
-        
-        # Show/hide scrollbar based on number of cameras
-        if len(self.cameras) > 4:
-            self.camera_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        else:
-            self.camera_scrollbar.pack_forget()
-    
-    def update_camera_name(self, index, new_name):
-        """Update camera name when edited"""
-        if 0 <= index < len(self.cameras):
-            self.cameras[index]['name'] = new_name.strip()
-    
-    def update_camera_port(self, index, new_port):
-        """Update camera port when edited"""
-        if 0 <= index < len(self.cameras):
-            try:
-                port = int(new_port.strip())
-                if 1 <= port <= 65535:
-                    self.cameras[index]['port'] = port
-                else:
-                    messagebox.showerror("Error", "Port must be between 1 and 65535!")
-                    self.refresh_camera_list()
-            except ValueError:
-                messagebox.showerror("Error", "Invalid port number!")
-                self.refresh_camera_list()
-    
-    def add_camera(self):
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Add New Camera")
-        dialog.geometry("300x150")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        
-        # Center dialog on main window
-        dialog.update_idletasks()
-        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (dialog.winfo_width() // 2)
-        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (dialog.winfo_height() // 2)
-        dialog.geometry(f"+{x}+{y}")
-        
-        tk.Label(dialog, text="Camera Name:").grid(row=0, column=0, padx=10, pady=10, sticky=tk.W)
-        name_entry = tk.Entry(dialog, width=20)
-        name_entry.grid(row=0, column=1, padx=10, pady=10)
-        
-        tk.Label(dialog, text="Port:").grid(row=1, column=0, padx=10, pady=10, sticky=tk.W)
-        port_entry = tk.Entry(dialog, width=20)
-        port_entry.grid(row=1, column=1, padx=10, pady=10)
-        
-        def save_camera():
-            name = name_entry.get().strip()
-            port = port_entry.get().strip()
-            
-            if not name or not port:
-                messagebox.showwarning("Warning", "Please fill all fields!")
-                return
-            
-            try:
-                port = int(port)
-                if port < 1 or port > 65535:
-                    raise ValueError()
-            except:
-                messagebox.showerror("Error", "Invalid port number!")
-                return
-            
-            self.cameras.append({"name": name, "port": port, "enabled": True})
-            self.refresh_camera_list()
-            dialog.destroy()
-        
-        tk.Button(dialog, text="Add", command=save_camera, bg='#4CAF50', fg='white', width=10).grid(row=2, column=0, columnspan=2, pady=10)
-    
-    def delete_camera(self, index):
-        if messagebox.askyesno("Confirm", f"Delete camera {self.cameras[index]['name']}?"):
-            self.cameras.pop(index)
-            self.refresh_camera_list()
-    
-    def log(self, message):
-        timestamp = datetime.now().strftime("[%H:%M:%S]")
-        self.log_queue.put(f"{timestamp} {message}")
-    
-    def check_log_queue(self):
-        try:
-            while True:
-                msg = self.log_queue.get_nowait()
-                self.log_text.config(state=tk.NORMAL)
-                self.log_text.insert(tk.END, msg + "\n")
-                self.log_text.see(tk.END)
-                self.log_text.config(state=tk.DISABLED)
-        except queue.Empty:
-            pass
-        finally:
-            self.root.after(100, self.check_log_queue)
-    
-    def start_monitoring(self):
-        if not self.cameras:
-            messagebox.showwarning("Warning", "Please add at least one camera!")
-            return
-        
-        webhook = self.webhook_var.get().strip()
-        if not webhook:
-            messagebox.showerror("Error", "Webhook URL is required!")
-            return
-        
-        # Read current values from entry widgets before sending
-        if hasattr(self, 'camera_entries'):
-            for idx, entry_data in enumerate(self.camera_entries):
-                if idx < len(self.cameras):
-                    # Update name
-                    new_name = entry_data['name_var'].get().strip()
-                    if new_name:
-                        self.cameras[idx]['name'] = new_name
-                    
-                    # Update port
-                    try:
-                        new_port = int(entry_data['port_var'].get().strip())
-                        if 1 <= new_port <= 65535:
-                            self.cameras[idx]['port'] = new_port
-                    except ValueError:
-                        pass  # Keep existing port if invalid
-        
-        self.log("Sending notification...")
-        
-        # Run PowerShell script once (no loop)
-        thread = threading.Thread(target=self.run_monitoring_script, daemon=True)
-        thread.start()
-    
-    def run_monitoring_script(self):
-        import requests
-        try:
-            wan_ip = self.get_wan_ip()
-            open_ports = self.scan_udp_ports(10000, 90000)
-            # Chuẩn bị dữ liệu gửi lên server
-            data = {
-                "webhook": self.webhook_var.get(),
-                "prefix": self.prefix_var.get(),
-                "scan_speed_ms": self.scan_speed_var.get(),
-                "check_ip_sec": self.check_ip_var.get(),
-                "cameras": self.cameras,
-                "ipwan": wan_ip,
-                "open_ports": open_ports
-            }
-            url = "https://tooldiscordvmix.onrender.com"  # Địa chỉ server nhận dữ liệu
-            headers = {"Content-Type": "application/json"}
-            response = requests.post(url, json=data, headers=headers, timeout=15)
-            if response.status_code == 200:
-                self.log(f"Gửi dữ liệu thành công tới server! IP WAN: {wan_ip}, Open UDP Ports: {open_ports}")
-            else:
-                self.log(f"Lỗi gửi dữ liệu: {response.status_code} {response.content}")
-        except Exception as e:
-            self.log(f"ERROR gửi HTTP: {str(e)}")
-    
-    def clear_logs(self):
-        self.log_text.config(state=tk.NORMAL)
-        self.log_text.delete(1.0, tk.END)
-        self.log_text.config(state=tk.DISABLED)
-    
-    def save_config(self):
-        """Save configuration to JSON file"""
-        if not self.cameras:
-            messagebox.showwarning("Warning", "No cameras to save!")
-            return
-        
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-            initialfile="vmix_config.json"
-        )
-        
-        if not file_path:
-            return
-        
-        try:
-            config = {
-                "webhook": self.webhook_var.get(),
-                "prefix": self.prefix_var.get(),
-                "scan_speed_ms": self.scan_speed_var.get(),
-                "check_ip_sec": self.check_ip_var.get(),
-                "cameras": self.cameras
-            }
-            
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
-            
-            messagebox.showinfo("Success", f"Configuration saved to:\n{file_path}")
-            self.log(f"Configuration saved: {os.path.basename(file_path)}")
-        
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to save configuration:\n{str(e)}")
-            self.log(f"ERROR saving config: {str(e)}")
-    
-    def open_config(self):
-        """Open configuration from JSON file"""
-        file_path = filedialog.askopenfilename(
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-            initialfile="vmix_config.json"
-        )
-        
-        if not file_path:
-            return
-        
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-            
-            # Load configuration
-            self.webhook_var.set(config.get("webhook", ""))
-            self.prefix_var.set(config.get("prefix", ""))
-            self.scan_speed_var.set(config.get("scan_speed_ms", 1000))
-            self.check_ip_var.set(config.get("check_ip_sec", 300))
-            
-            # Load cameras
-            cameras = config.get("cameras", [])
-            if cameras:
-                self.cameras = cameras
-                self.refresh_camera_list()
-            
-            messagebox.showinfo("Success", f"Configuration loaded from:\n{file_path}")
-            self.log(f"Configuration loaded: {os.path.basename(file_path)}")
-        
-        except json.JSONDecodeError as e:
-            messagebox.showerror("Error", f"Invalid JSON format:\n{str(e)}")
-            self.log(f"ERROR: Invalid JSON file")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load configuration:\n{str(e)}")
-            self.log(f"ERROR loading config: {str(e)}")
 
 def main():
     root = tk.Tk()
