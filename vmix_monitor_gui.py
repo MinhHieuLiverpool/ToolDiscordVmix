@@ -5,8 +5,12 @@ import subprocess
 import threading
 import queue
 from datetime import datetime
+import pytz
 from PIL import Image, ImageDraw
 import pystray
+
+# Timezone configuration - Vietnam
+VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 
 
 class VmixMonitorGUI:
@@ -212,7 +216,7 @@ class VmixMonitorGUI:
             self.log(f"Lỗi khi load dữ liệu: {str(e)}")
     
     def log(self, message):
-        timestamp = datetime.now().strftime("[%H:%M:%S]")
+        timestamp = datetime.now(VIETNAM_TZ).strftime("[%H:%M:%S]")
         self.log_queue.put(f"{timestamp} {message}")
 
     def check_log_queue(self):
@@ -465,14 +469,14 @@ class VmixMonitorGUI:
         wan_ip = self.get_wan_ip()
         # Track previous status for each port
         prev_status = {}  # {port: "ON"/"OFF"}
-        last_wan_check = datetime.now()
+        last_wan_check = datetime.now(VIETNAM_TZ)
         wan_refresh_sec = 300  # Refresh WAN IP every 5 minutes
         
         self.log(f"Bắt đầu giám sát {len(self.port_list)} port(s)...")
         
         while self.is_running:
             # Check if WAN IP needs refresh
-            now = datetime.now()
+            now = datetime.now(VIETNAM_TZ)
             if (now - last_wan_check).total_seconds() >= wan_refresh_sec:
                 new_wan = self.get_wan_ip()
                 if new_wan != wan_ip:

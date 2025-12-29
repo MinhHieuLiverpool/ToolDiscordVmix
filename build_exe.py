@@ -36,6 +36,7 @@ def build_vmix_monitor_exe():
         "--hidden-import=pystray",
         "--hidden-import=PIL.Image",
         "--hidden-import=PIL.ImageDraw",
+        "--hidden-import=pytz",
         "vmix_monitor_gui.py"
     ]
     
@@ -57,6 +58,7 @@ def build_server_gui_exe():
         "--add-data=config.py;.",
         "--hidden-import=tkinter",
         "--hidden-import=requests",
+        "--hidden-import=pytz",
         "server_gui_advanced.py"
     ]
     
@@ -77,6 +79,7 @@ def build_server_exe():
         "--add-data=config.py;.",
         "--hidden-import=pymongo",
         "--hidden-import=requests",
+        "--hidden-import=pytz",
         "server.py"
     ]
     

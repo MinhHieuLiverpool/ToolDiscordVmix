@@ -4,10 +4,18 @@ import requests
 import threading
 import json
 from datetime import datetime
+import pytz
+
+# Timezone configuration - Vietnam
+VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 
 def pretty_time(ts):
     try:
-        return datetime.fromisoformat(ts).strftime('%d/%m/%Y %H:%M:%S')
+        dt = datetime.fromisoformat(ts)
+        # Convert to Vietnam timezone if aware, otherwise assume it's already in Vietnam time
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(VIETNAM_TZ)
+        return dt.strftime('%d/%m/%Y %H:%M:%S')
     except Exception:
         return ts
 

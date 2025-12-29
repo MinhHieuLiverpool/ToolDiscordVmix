@@ -3,6 +3,7 @@ import http.server
 import socketserver
 import json
 from datetime import datetime
+import pytz
 import threading
 import sys
 import os
@@ -21,6 +22,9 @@ except ImportError:
 
 # Port configuration - support Render's dynamic port
 PORT = int(os.getenv('PORT', 8088))
+
+# Timezone configuration - Vietnam
+VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 
 # Kết nối MongoDB với TLS
 try:
@@ -113,7 +117,7 @@ class VmixRequestHandler(http.server.BaseHTTPRequestHandler):
         response = {
             "status": "online",
             "service": "vMix Monitor Server",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now(VIETNAM_TZ).isoformat()
         }
         self.wfile.write(json.dumps(response).encode('utf-8'))
     
@@ -130,7 +134,7 @@ class VmixRequestHandler(http.server.BaseHTTPRequestHandler):
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
             data = json.loads(post_data.decode('utf-8'))
-            timestamp = datetime.now().isoformat()
+            timestamp = datetime.now(VIETNAM_TZ).isoformat()
             
             # Lấy name làm key để identify máy
             machine_name = data.get('name', data.get('ip', 'Unknown'))
@@ -205,7 +209,7 @@ class VmixRequestHandler(http.server.BaseHTTPRequestHandler):
             # Update tên trong MongoDB
             result = collection.update_one(
                 {"name": old_name},
-                {"$set": {"name": new_name, "last_updated": datetime.now().isoformat()}}
+                {"$set": {"name": new_name, "last_updated": datetime.now(VIETNAM_TZ).isoformat()}}
             )
             
             if result.matched_count > 0:
