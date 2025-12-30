@@ -1,10 +1,17 @@
+import customtkinter as ctk
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox
+from tkinter import ttk, messagebox, filedialog
 import requests
 import threading
 import json
 from datetime import datetime
 import pytz
+import websocket
+import time
+
+# Set appearance mode and color theme
+ctk.set_appearance_mode("dark")  # Modes: "dark", "light", "system"
+ctk.set_default_color_theme("blue")  # Themes: "blue", "green", "dark-blue"
 
 # Timezone configuration - Vietnam
 VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
@@ -22,104 +29,230 @@ def pretty_time(ts):
 class ServerDataGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Server Log Viewer")
-        self.root.geometry("1000x600")
-        self.root.resizable(False, False)
+        self.root.title("Server Log Viewer - Dual Panel")
+        self.root.geometry("1800x700")
 
-        self.api_url = "https://tooldiscordvmix.onrender.com"
-        self.webhook_var = tk.StringVar(value="https://discord.com/api/webhooks/1448559948408684669/s6plN6AIy9IFBo6coyNCF9YmmHIfIIVe-tEntpPnArRGI0JdIyl1pCz10rL5TyTP1JV6")
-        self.prefix_var = tk.StringVar(value="SRT")
-        self.data = []
+        self.api_url = "http://localhost:8088"
+        self.ws_url = "ws://localhost:8088/ws"
+        self.webhook_var = ctk.StringVar(value="https://discord.com/api/webhooks/1448559948408684669/s6plN6AIy9IFBo6coyNCF9YmmHIfIIVe-tEntpPnArRGI0JdIyl1pCz10rL5TyTP1JV6")
+        self.prefix_var = ctk.StringVar(value="SRT")
+        self.data = []  # All data from database
+        self.selected_data = []  # Selected items to monitor
         self.previous_data = []
         self.auto_send_enabled = False
         self.is_sending = False  # Flag để tránh gửi duplicate
+        
+        # WebSocket variables
+        self.ws = None
+        self.ws_connected = False
+        self.ws_thread = None
+        self.use_websocket = True  # Set False to fallback to REST API
 
         # Top controls
-        top_frame = tk.Frame(self.root)
-        top_frame.pack(fill=tk.X, padx=10, pady=5)
+        top_frame = ctk.CTkFrame(self.root)
+        top_frame.pack(fill="x", padx=10, pady=5)
         
         # Row 1: Webhook
-        row1 = tk.Frame(top_frame)
-        row1.pack(fill=tk.X, pady=2)
-        tk.Label(row1, text="Discord Webhook:").pack(side=tk.LEFT)
-        self.webhook_entry = tk.Entry(row1, textvariable=self.webhook_var, width=60)
-        self.webhook_entry.pack(side=tk.LEFT, padx=5)
+        row1 = ctk.CTkFrame(top_frame, fg_color="transparent")
+        row1.pack(fill="x", pady=2)
+        ctk.CTkLabel(row1, text="Discord Webhook:", font=("Arial", 12, "bold")).pack(side="left", padx=5)
+        self.webhook_entry = ctk.CTkEntry(row1, textvariable=self.webhook_var, width=600)
+        self.webhook_entry.pack(side="left", padx=5, fill="x", expand=True)
         
         # Row 2: Prefix and buttons
-        row2 = tk.Frame(top_frame)
-        row2.pack(fill=tk.X, pady=2)
-        tk.Label(row2, text="Prefix:").pack(side=tk.LEFT)
-        self.prefix_entry = tk.Entry(row2, textvariable=self.prefix_var, width=10)
-        self.prefix_entry.pack(side=tk.LEFT, padx=5)
-        tk.Button(row2, text="Refresh", command=self.refresh_data, bg="#4CAF50", fg="white").pack(side=tk.LEFT, padx=5)
-        self.toggle_btn = tk.Button(row2, text="AUTO SEND: OFF", command=self.toggle_auto_send, bg="#9E9E9E", fg="white", width=15, font=('Arial', 9, 'bold'))
-        self.toggle_btn.pack(side=tk.LEFT, padx=5)
-        tk.Button(row2, text="Clear Table", command=self.clear_table, bg="#f44336", fg="white").pack(side=tk.LEFT, padx=5)
+        row2 = ctk.CTkFrame(top_frame, fg_color="transparent")
+        row2.pack(fill="x", pady=5)
+        ctk.CTkLabel(row2, text="Prefix:", font=("Arial", 12, "bold")).pack(side="left", padx=5)
+        self.prefix_entry = ctk.CTkEntry(row2, textvariable=self.prefix_var, width=80)
+        self.prefix_entry.pack(side="left", padx=5)
+        
+        ctk.CTkButton(row2, text="� Scan máy", command=self.refresh_data, fg_color="#4CAF50", hover_color="#45a049", width=110, font=("Arial", 12, "bold")).pack(side="left", padx=3)
+        self.toggle_btn = ctk.CTkButton(row2, text="AUTO SEND: OFF", command=self.toggle_auto_send, fg_color="#9E9E9E", hover_color="#757575", width=140, font=("Arial", 12, "bold"))
+        self.toggle_btn.pack(side="left", padx=3)
+        ctk.CTkButton(row2, text="➡️ Add", command=self.add_to_selected, fg_color="#2196F3", hover_color="#1976D2", width=90).pack(side="left", padx=3)
+        ctk.CTkButton(row2, text="🗑️ Clear", command=self.clear_selected, fg_color="#f44336", hover_color="#d32f2f", width=90).pack(side="left", padx=3)
+        ctk.CTkButton(row2, text="💾 Save", command=self.save_selected_to_file, fg_color="#9C27B0", hover_color="#7B1FA2", width=90).pack(side="left", padx=3)
+        ctk.CTkButton(row2, text="📂 Open", command=self.load_selected_from_file, fg_color="#673AB7", hover_color="#512DA8", width=90).pack(side="left", padx=3)
 
-        # Table
-        columns = ("stt", "name", "ip", "ipwan", "status", "port", "statusapp", "timestamp")
-        self.tree = ttk.Treeview(self.root, columns=columns, show="headings", height=20)
-        self.tree.heading("stt", text="STT")
-        self.tree.heading("name", text="Tên")
-        self.tree.heading("ip", text="IP máy")
-        self.tree.heading("ipwan", text="IP WAN")
-        self.tree.heading("status", text="Status SRT")
-        self.tree.heading("port", text="Port")
-        self.tree.heading("statusapp", text="Status App")
-        self.tree.heading("timestamp", text="Time")
-        self.tree.column("stt", width=50, anchor=tk.CENTER)
-        self.tree.column("name", width=120, anchor=tk.CENTER)
-        self.tree.column("ip", width=120, anchor=tk.CENTER)
-        self.tree.column("ipwan", width=120, anchor=tk.CENTER)
-        self.tree.column("status", width=90, anchor=tk.CENTER)
-        self.tree.column("port", width=80, anchor=tk.CENTER)
-        self.tree.column("statusapp", width=90, anchor=tk.CENTER)
-        self.tree.column("timestamp", width=150, anchor=tk.CENTER)
-        self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        # Main content area - Split into 2 panels
+        main_frame = ctk.CTkFrame(self.root)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
-        # Cấu hình màu cho các tag
-        self.tree.tag_configure('app_on', foreground='green')
-        self.tree.tag_configure('app_off', foreground='red')
+        # Configure grid
+        main_frame.grid_columnconfigure(0, weight=1)
+        main_frame.grid_columnconfigure(1, weight=2)
+        main_frame.grid_rowconfigure(0, weight=1)
+
+        # LEFT PANEL - All logs from database (scan)
+        left_frame = ctk.CTkFrame(main_frame)
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         
-        # Bind double-click để edit tên
-        self.tree.bind("<Double-1>", self.on_double_click)
+        ctk.CTkLabel(left_frame, text="📡 ALL LOGS FROM DATABASE", font=("Arial", 14, "bold")).pack(pady=10)
+        
+        # Left table - Custom with checkboxes
+        self.table_frame_left = ctk.CTkScrollableFrame(left_frame, fg_color="#2b2b2b")
+        self.table_frame_left.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Header
+        header_frame = ctk.CTkFrame(self.table_frame_left, fg_color="#1a1a1a", height=40)
+        header_frame.pack(fill="x", pady=(0, 5))
+        header_frame.pack_propagate(False)
+        
+        ctk.CTkLabel(header_frame, text="☑", font=("Arial", 14, "bold"), width=50).pack(side="left", padx=5)
+        ctk.CTkLabel(header_frame, text="STT", font=("Arial", 14, "bold"), width=60).pack(side="left", padx=5)
+        ctk.CTkLabel(header_frame, text="IP MÁY", font=("Arial", 14, "bold"), width=180).pack(side="left", padx=5)
+        ctk.CTkLabel(header_frame, text="PORT", font=("Arial", 14, "bold"), width=100).pack(side="left", padx=5)
+        
+        self.left_table_rows = []
+        self.left_table_checkboxes = {}
+
+        # RIGHT PANEL - Selected logs to monitor
+        right_frame = ctk.CTkFrame(main_frame)
+        right_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        
+        ctk.CTkLabel(right_frame, text="⭐ SELECTED MONITOR LIST", font=("Arial", 14, "bold")).pack(pady=10)
+        
+        # Right table - Custom scrollable
+        self.table_frame_right = ctk.CTkScrollableFrame(right_frame, fg_color="#2b2b2b")
+        self.table_frame_right.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Header
+        header_frame_right = ctk.CTkFrame(self.table_frame_right, fg_color="#1a1a1a", height=40)
+        header_frame_right.pack(fill="x", pady=(0, 5))
+        header_frame_right.pack_propagate(False)
+        
+        ctk.CTkLabel(header_frame_right, text="STT", font=("Arial", 13, "bold"), width=50).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="TÊN", font=("Arial", 13, "bold"), width=120).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="IP MÁY", font=("Arial", 13, "bold"), width=130).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="IP WAN", font=("Arial", 13, "bold"), width=130).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="STATUS", font=("Arial", 13, "bold"), width=90).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="PORT", font=("Arial", 13, "bold"), width=80).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="APP", font=("Arial", 13, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="TIME", font=("Arial", 13, "bold"), width=150).pack(side="left", padx=2)
+        
+        self.right_table_rows = []
 
         # Detail area
-        detail_frame = tk.LabelFrame(self.root, text="Detail (select a row)")
-        detail_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        self.detail_text = scrolledtext.ScrolledText(detail_frame, height=8, font=("Consolas", 10), bg="#222", fg="#00FF00")
-        self.detail_text.pack(fill=tk.BOTH, expand=True)
-        self.detail_text.config(state=tk.DISABLED)
+        detail_frame = ctk.CTkFrame(self.root)
+        detail_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        
+        ctk.CTkLabel(detail_frame, text="📄 DETAIL (select a row)", font=("Arial", 12, "bold")).pack(pady=5)
+        
+        self.detail_text = ctk.CTkTextbox(detail_frame, height=100, font=("Consolas", 10), fg_color="#1e1e1e", text_color="#00ff00")
+        self.detail_text.pack(fill="both", expand=True, padx=5, pady=5)
 
-        self.tree.bind("<<TreeviewSelect>>", self.show_detail)
-        self.auto_refresh()
+        # Load initial data once
+        self.refresh_data()
+        
+        # Start WebSocket connection if enabled
+        if self.use_websocket:
+            self.connect_websocket()
+
+    def connect_websocket(self):
+        """Kết nối WebSocket để nhận realtime updates"""
+        def on_message(ws, message):
+            try:
+                data = json.loads(message)
+                print(f"📩 WebSocket received: {len(data)} items")
+                
+                # Update data
+                if isinstance(data, list):
+                    # Check if có thay đổi về danh sách IP+Port
+                    has_list_changed = self.has_data_changed(self.data, data)
+                    
+                    self.data = data
+                    
+                    # Nếu có thay đổi danh sách -> update bảng trái
+                    if has_list_changed:
+                        print("✓ WebSocket: Danh sách máy thay đổi, update bảng trái")
+                        self.root.after(0, self.update_all_table)
+                    
+                    # Luôn update selected data và bảng phải
+                    self.update_selected_data()
+                    self.root.after(0, self.update_selected_table)
+                    
+                    # Check for changes and send Discord
+                    if self.auto_send_enabled:
+                        current_snapshot = self.get_data_snapshot()
+                        if current_snapshot != self.previous_data:
+                            print("⚠ WebSocket: Phát hiện thay đổi! Gửi Discord...")
+                            self.send_to_discord_auto()
+                            self.previous_data = current_snapshot
+            except json.JSONDecodeError as e:
+                print(f"✗ WebSocket JSON error: {e}")
+            except Exception as e:
+                print(f"✗ WebSocket message error: {e}")
+        
+        def on_error(ws, error):
+            print(f"✗ WebSocket error: {error}")
+            self.ws_connected = False
+        
+        def on_close(ws, close_status_code, close_msg):
+            print(f"⚠ WebSocket closed: {close_status_code} - {close_msg}")
+            self.ws_connected = False
+            # Auto reconnect after 5 seconds
+            if self.use_websocket:
+                print("🔄 Reconnecting in 5 seconds...")
+                time.sleep(5)
+                self.connect_websocket()
+        
+        def on_open(ws):
+            print("✓ WebSocket connected!")
+            self.ws_connected = True
+        
+        def run_ws():
+            try:
+                self.ws = websocket.WebSocketApp(
+                    self.ws_url,
+                    on_message=on_message,
+                    on_error=on_error,
+                    on_close=on_close,
+                    on_open=on_open
+                )
+                self.ws.run_forever()
+            except Exception as e:
+                print(f"✗ WebSocket connection failed: {e}")
+                print("⚠ Falling back to REST API polling...")
+                self.ws_connected = False
+                self.use_websocket = False
+                # Start REST API polling as fallback
+                self.start_rest_polling()
+        
+        self.ws_thread = threading.Thread(target=run_ws, daemon=True)
+        self.ws_thread.start()
+    
+    def start_rest_polling(self):
+        """Fallback: Polling REST API nếu WebSocket không hoạt động"""
+        if self.auto_send_enabled and not self.ws_connected:
+            self.check_for_changes()
 
     def toggle_auto_send(self):
         """Bật/Tắt chế độ tự động gửi Discord khi có thay đổi"""
         self.auto_send_enabled = not self.auto_send_enabled
         if self.auto_send_enabled:
-            self.toggle_btn.config(text="AUTO SEND: ON", bg="#4CAF50")
+            self.toggle_btn.configure(text="AUTO SEND: ON", fg_color="#4CAF50")
             print("✓ Auto-send to Discord: ENABLED")
             # Disable editing khi đang ON
-            self.webhook_entry.config(state=tk.DISABLED)
-            self.prefix_entry.config(state=tk.DISABLED)
+            self.webhook_entry.configure(state="disabled")
+            self.prefix_entry.configure(state="disabled")
             # Lấy snapshot ban đầu
             self.previous_data = self.get_data_snapshot()
             # Gửi ngay lập tức 1 lần trước
             self.send_to_discord_auto()
-            # Bắt đầu auto-check
-            self.check_for_changes()
+            # Bắt đầu auto-check (chỉ nếu không dùng WebSocket)
+            if not self.ws_connected:
+                self.check_for_changes()
         else:
-            self.toggle_btn.config(text="AUTO SEND: OFF", bg="#9E9E9E")
+            self.toggle_btn.configure(text="AUTO SEND: OFF", fg_color="#9E9E9E")
             print("✗ Auto-send to Discord: DISABLED")
             # Enable editing khi tắt OFF
-            self.webhook_entry.config(state=tk.NORMAL)
-            self.prefix_entry.config(state=tk.NORMAL)
+            self.webhook_entry.configure(state="normal")
+            self.prefix_entry.configure(state="normal")
     
     def get_data_snapshot(self):
-        """Lấy snapshot của dữ liệu hiện tại (không bao gồm timestamp)"""
+        """Lấy snapshot của dữ liệu hiện tại (không bao gồm timestamp) - CHỈ từ selected list"""
         snapshot = []
-        for entry in self.data:
+        for entry in self.selected_data:
             d = entry.get("data", {})
             snapshot.append({
                 "name": d.get("name", ""),
@@ -131,11 +264,11 @@ class ServerDataGUI:
         return snapshot
     
     def check_for_changes(self):
-        """Kiểm tra thay đổi và tự động gửi Discord"""
+        """Kiểm tra thay đổi và tự động gửi Discord - CHỈ monitor selected list, KHÔNG refresh bảng trái"""
         if not self.auto_send_enabled:
             return
         
-        # Refresh data
+        # Chỉ check status của selected items, không update bảng trái
         def check():
             url = self.api_url
             try:
@@ -144,7 +277,9 @@ class ServerDataGUI:
                     data = resp.json()
                     if isinstance(data, list):
                         self.data = data
-                        self.update_table()
+                        # CHỈ update selected data và bảng phải, KHÔNG update bảng trái
+                        self.update_selected_data()
+                        self.update_selected_table()
                         
                         # So sánh với dữ liệu cũ
                         current_snapshot = self.get_data_snapshot()
@@ -162,14 +297,14 @@ class ServerDataGUI:
             self.root.after(5000, self.check_for_changes)
     
     def send_to_discord_auto(self):
-        """Gửi toàn bộ trạng thái hiện tại lên Discord (tự động)"""
+        """Gửi toàn bộ trạng thái hiện tại lên Discord (tự động) - CHỈ gửi selected list"""
         # Tránh gửi duplicate nếu đang trong quá trình gửi
         if self.is_sending:
             print("⏳ Đang gửi, bỏ qua request...")
             return
         
         webhook = self.webhook_var.get().strip()
-        if not webhook or not self.data:
+        if not webhook or not self.selected_data:
             return
         
         self.is_sending = True
@@ -179,7 +314,7 @@ class ServerDataGUI:
                 prefix = self.prefix_var.get().strip()
                 messages = []
                 
-                for entry in self.data:
+                for entry in self.selected_data:
                     d = entry.get("data", {})
                     name = d.get("name", "Unknown")
                     ipwan = d.get("ipwan", "unknown")
@@ -204,6 +339,7 @@ class ServerDataGUI:
         threading.Thread(target=send, daemon=True).start()
 
     def refresh_data(self):
+        """Refresh all logs from database"""
         def fetch():
             url = self.api_url
             try:
@@ -212,10 +348,20 @@ class ServerDataGUI:
                     try:
                         data = resp.json()
                         if isinstance(data, list):
-                            self.data = data
+                            # So sánh data mới với data cũ
+                            if self.has_data_changed(self.data, data):
+                                print("✓ Data changed, refreshing table...")
+                                self.data = data
+                                self.update_all_table()
+                                # Also update selected data with new info
+                                self.update_selected_data()
+                                self.update_selected_table()
+                            else:
+                                # Chỉ update selected table (để cập nhật status realtime)
+                                self.update_selected_data()
+                                self.update_selected_table()
                         else:
                             self.data = []
-                        self.update_table()
                     except Exception as e:
                         messagebox.showerror("Error", f"JSON decode error: {e}")
                 else:
@@ -223,141 +369,336 @@ class ServerDataGUI:
             except Exception as e:
                 messagebox.showerror("Error", f"ERROR: {str(e)}")
         threading.Thread(target=fetch, daemon=True).start()
+    
+    def has_data_changed(self, old_data, new_data):
+        """Check if data has changed (compare IP+Port list)"""
+        if len(old_data) != len(new_data):
+            return True
+        
+        # So sánh danh sách IP+Port
+        old_set = set()
+        for entry in old_data:
+            d = entry.get("data", {})
+            old_set.add(f"{d.get('ip', '')}:{d.get('port', '')}")
+        
+        new_set = set()
+        for entry in new_data:
+            d = entry.get("data", {})
+            new_set.add(f"{d.get('ip', '')}:{d.get('port', '')}")
+        
+        return old_set != new_set
 
-    def update_table(self):
-        for row in self.tree.get_children():
-            self.tree.delete(row)
+    def update_all_table(self):
+        """Update left table with all logs - Custom view with checkboxes"""
+        # Clear old rows
+        for row in self.left_table_rows:
+            row.destroy()
+        self.left_table_rows = []
+        self.left_table_checkboxes = {}
+        
         stt = 1
-        for entry in self.data:
+        for idx, entry in enumerate(self.data):
+            d = entry.get("data", {})
+            ip = d.get("ip", "")
+            port = d.get("port", "")
+            statusapp = d.get("statusapp", 0)
+            
+            # Create row frame
+            row_frame = ctk.CTkFrame(self.table_frame_left, 
+                                     fg_color="#3a3a3a" if stt % 2 == 0 else "#2b2b2b", 
+                                     height=45)
+            row_frame.pack(fill="x", pady=1)
+            row_frame.pack_propagate(False)
+            
+            # Checkbox
+            is_selected = self.is_in_selected(entry)
+            checkbox_var = ctk.BooleanVar(value=is_selected)
+            checkbox = ctk.CTkCheckBox(row_frame, text="", variable=checkbox_var, width=50,
+                                       command=lambda e=entry, v=checkbox_var: self.on_checkbox_toggle(e, v))
+            checkbox.pack(side="left", padx=5)
+            self.left_table_checkboxes[idx] = (checkbox, checkbox_var, entry)
+            
+            # STT
+            stt_label = ctk.CTkLabel(row_frame, text=str(stt), font=("Arial", 13, "bold"), width=60)
+            stt_label.pack(side="left", padx=5)
+            
+            # IP
+            ip_color = "#4CAF50" if statusapp == 1 else "#f44336"
+            ip_label = ctk.CTkLabel(row_frame, text=ip, font=("Arial", 13, "bold"), width=180, text_color=ip_color)
+            ip_label.pack(side="left", padx=5)
+            
+            # Port
+            port_label = ctk.CTkLabel(row_frame, text=port, font=("Arial", 13, "bold"), width=100)
+            port_label.pack(side="left", padx=5)
+            
+            # Bind click event for details (only on labels, not checkbox)
+            for widget in [row_frame, stt_label, ip_label, port_label]:
+                widget.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
+            
+            self.left_table_rows.append(row_frame)
+            stt += 1
+
+    def update_selected_table(self):
+        """Update right table with selected logs - Custom view"""
+        # Clear old rows
+        for row in self.right_table_rows:
+            row.destroy()
+        self.right_table_rows = []
+        
+        stt = 1
+        for entry in self.selected_data:
             ts = pretty_time(entry.get("timestamp", ""))
             d = entry.get("data", {})
-            # Nếu có trường 'cameras' (dạng cũ), hiển thị từng camera
-            if isinstance(d.get("cameras", None), list):
-                ipwan = d.get("ipwan", "")
-                for cam in d["cameras"]:
-                    name = cam.get("name", "")
-                    ip = cam.get("ip", d.get("ip", ""))
-                    port = cam.get("port", "")
-                    status = cam.get("status", "")
-                    statusapp = d.get("statusapp", 0)
-                    statusapp_text = "ON" if statusapp == 1 else "OFF"
-                    tag = 'app_on' if statusapp == 1 else 'app_off'
-                    self.tree.insert("", tk.END, values=(stt, name, ip, ipwan, status, port, statusapp_text, ts), tags=(tag,))
-                    stt += 1
-            # Nếu là dạng đơn giản (dạng mới)
-            else:
-                name = d.get("name", "").strip()
-                # Nếu tên trống, đặt mặc định là MÁY + STT
-                if not name:
-                    name = f"MÁY {stt}"
-                ip = d.get("ip", "")
-                ipwan = d.get("ipwan", "")
-                status = d.get("status", "")
-                port = d.get("port", "")
-                statusapp = d.get("statusapp", 0)
-                statusapp_text = "ON" if statusapp == 1 else "OFF"
-                tag = 'app_on' if statusapp == 1 else 'app_off'
-                self.tree.insert("", tk.END, values=(stt, name, ip, ipwan, status, port, statusapp_text, ts), tags=(tag,))
-                stt += 1
+            name = d.get("name", "").strip()
+            if not name:
+                name = f"MÁY {stt}"
+            ip = d.get("ip", "")
+            ipwan = d.get("ipwan", "")
+            status = d.get("status", "")
+            port = d.get("port", "")
+            statusapp = d.get("statusapp", 0)
+            statusapp_text = "ON" if statusapp == 1 else "OFF"
+            
+            # Create row frame
+            row_frame = ctk.CTkFrame(self.table_frame_right,
+                                     fg_color="#3a3a3a" if stt % 2 == 0 else "#2b2b2b",
+                                     height=45)
+            row_frame.pack(fill="x", pady=1)
+            row_frame.pack_propagate(False)
+            
+            # STT
+            ctk.CTkLabel(row_frame, text=str(stt), font=("Arial", 12, "bold"), width=50).pack(side="left", padx=2)
+            
+            # Name (editable on double-click)
+            name_label = ctk.CTkLabel(row_frame, text=name, font=("Arial", 12, "bold"), width=120, anchor="w")
+            name_label.pack(side="left", padx=2)
+            name_label.bind("<Double-1>", lambda e, idx=stt-1: self.edit_name_dialog(idx))
+            
+            # IP
+            ctk.CTkLabel(row_frame, text=ip, font=("Arial", 12, "bold"), width=130).pack(side="left", padx=2)
+            
+            # IP WAN
+            ctk.CTkLabel(row_frame, text=ipwan, font=("Arial", 12, "bold"), width=130).pack(side="left", padx=2)
+            
+            # Status
+            status_color = "#4CAF50" if status == "ON" else "#f44336"
+            ctk.CTkLabel(row_frame, text=status, font=("Arial", 12, "bold"), width=90, text_color=status_color).pack(side="left", padx=2)
+            
+            # Port
+            ctk.CTkLabel(row_frame, text=port, font=("Arial", 12, "bold"), width=80).pack(side="left", padx=2)
+            
+            # Status App
+            app_color = "#4CAF50" if statusapp == 1 else "#f44336"
+            ctk.CTkLabel(row_frame, text=statusapp_text, font=("Arial", 12, "bold"), width=70, text_color=app_color).pack(side="left", padx=2)
+            
+            # Time
+            ctk.CTkLabel(row_frame, text=ts, font=("Arial", 11), width=150).pack(side="left", padx=2)
+            
+            # Delete button
+            delete_btn = ctk.CTkButton(row_frame, text="❌", width=30, height=30, fg_color="#f44336", hover_color="#d32f2f",
+                                       command=lambda idx=stt-1: self.remove_single_item(idx))
+            delete_btn.pack(side="right", padx=5)
+            
+            # Bind click for details
+            row_frame.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
+            
+            self.right_table_rows.append(row_frame)
+            stt += 1
+
+    def is_in_selected(self, entry):
+        """Check if entry is in selected list - Check by IP + PORT"""
+        d = entry.get("data", {})
+        ip = d.get("ip", "")
+        port = d.get("port", "")
+        for sel in self.selected_data:
+            sel_d = sel.get("data", {})
+            if sel_d.get("ip", "") == ip and sel_d.get("port", "") == port:
+                return True
+        return False
+
+    def on_checkbox_toggle(self, entry, checkbox_var):
+        """Handle checkbox toggle - Just mark, don't add yet"""
+        # Chỉ đánh dấu, không add/remove ngay
+        # User sẽ phải ấn button "Add" để chuyển sang list
+        pass
+    
+    def add_to_selected(self, event=None):
+        """Add checked items to selected list"""
+        added_count = 0
+        print(f"\n=== ADD TO SELECTED DEBUG ===")
+        print(f"Total checkboxes: {len(self.left_table_checkboxes)}")
+        
+        for idx, (checkbox, var, entry) in self.left_table_checkboxes.items():
+            ip = entry.get("data", {}).get("ip", "")
+            port = entry.get("data", {}).get("port", "")
+            is_checked = var.get()
+            already_in = self.is_in_selected(entry)
+            print(f"  [{idx}] IP:{ip} Port:{port} - Checked:{is_checked} AlreadyIn:{already_in}")
+            
+            if is_checked and not already_in:
+                self.selected_data.append(entry)
+                added_count += 1
+                print(f"    → ADDED!")
+        
+        print(f"Total added: {added_count}")
+        
+        if added_count > 0:
+            print(f"✓ Successfully added: {added_count} item(s)")
+            self.update_all_table()  # Refresh to update checkbox states
+            self.update_selected_table()
+        else:
+            messagebox.showinfo("Info", "No new items to add. Check the boxes first!")
+
+    def remove_single_item(self, idx):
+        """Remove single item from selected list"""
+        if idx < len(self.selected_data):
+            removed = self.selected_data.pop(idx)
+            print(f"✗ Removed: {removed.get('data', {}).get('name', 'Unknown')}")
+            self.update_all_table()
+            self.update_selected_table()
+    
+    def remove_from_selected(self):
+        """Remove all selected items"""
+        if not self.selected_data:
+            messagebox.showwarning("Warning", "No items in the selected list")
+            return
+        
+        result = messagebox.askyesno("Confirm", f"Remove all {len(self.selected_data)} items?")
+        if result:
+            self.selected_data = []
+            self.update_all_table()
+            self.update_selected_table()
+            print("✓ Cleared all selected items")
+    
+    def edit_name_dialog(self, idx):
+        """Edit name via dialog"""
+        if idx >= len(self.selected_data):
+            return
+        
+        old_name = self.selected_data[idx].get("data", {}).get("name", "")
+        
+        dialog = ctk.CTkInputDialog(text=f"Edit name for {self.selected_data[idx].get('data', {}).get('ip', '')}:",
+                                     title="Edit Name")
+        new_name = dialog.get_input()
+        
+        if new_name and new_name.strip() and new_name != old_name:
+            old_ip = self.selected_data[idx].get("data", {}).get("ip", "")
+            self.selected_data[idx]["data"]["name"] = new_name.strip()
+            
+            # Update to server
+            def update_name():
+                try:
+                    update_data = {
+                        "old_name": old_name,
+                        "new_name": new_name.strip(),
+                        "ip": old_ip
+                    }
+                    resp = requests.post(f"{self.api_url}/update_name", json=update_data, timeout=5)
+                    if resp.status_code == 200:
+                        print(f"✓ Updated: {old_name} → {new_name}")
+                        self.refresh_data()
+                    else:
+                        print(f"✗ Update error: {resp.status_code}")
+                except Exception as e:
+                    print(f"✗ Error: {e}")
+            
+            threading.Thread(target=update_name, daemon=True).start()
+            self.update_selected_table()
+
+    def update_selected_data(self):
+        """Update selected data with latest info from database - Match by IP + PORT"""
+        for i, sel_entry in enumerate(self.selected_data):
+            sel_d = sel_entry.get("data", {})
+            sel_ip = sel_d.get("ip", "")
+            sel_port = sel_d.get("port", "")
+            # Find matching entry in data by IP + PORT
+            for entry in self.data:
+                entry_d = entry.get("data", {})
+                if entry_d.get("ip", "") == sel_ip and entry_d.get("port", "") == sel_port:
+                    # Update with latest info
+                    self.selected_data[i] = entry
+                    break
+
+    def clear_selected(self):
+        """Clear selected list"""
+        self.selected_data = []
+        self.update_selected_table()
+        self.update_all_table()
+        self.detail_text.delete("1.0", "end")
+
+    def save_selected_to_file(self):
+        """Save selected list to JSON file"""
+        if not self.selected_data:
+            messagebox.showwarning("Warning", "No data to save. Please add items to the monitor list first.")
+            return
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialfile="selected_monitors.json"
+        )
+        
+        if filename:
+            try:
+                with open(filename, 'w', encoding='utf-8') as f:
+                    json.dump(self.selected_data, f, indent=2, ensure_ascii=False)
+                messagebox.showinfo("Success", f"Saved {len(self.selected_data)} items to:\n{filename}")
+                print(f"✓ Saved {len(self.selected_data)} items to: {filename}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save file:\n{str(e)}")
+                print(f"✗ Save error: {e}")
+
+    def load_selected_from_file(self):
+        """Load selected list from JSON file"""
+        filename = filedialog.askopenfilename(
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            title="Open Monitor List"
+        )
+        
+        if filename:
+            try:
+                with open(filename, 'r', encoding='utf-8') as f:
+                    loaded_data = json.load(f)
+                
+                if not isinstance(loaded_data, list):
+                    messagebox.showerror("Error", "Invalid file format. Expected a JSON array.")
+                    return
+                
+                # Replace current selected data
+                self.selected_data = loaded_data
+                self.update_selected_table()
+                self.update_all_table()
+                
+                messagebox.showinfo("Success", f"Loaded {len(self.selected_data)} items from:\n{filename}")
+                print(f"✓ Loaded {len(self.selected_data)} items from: {filename}")
+            except json.JSONDecodeError as e:
+                messagebox.showerror("Error", f"Invalid JSON file:\n{str(e)}")
+                print(f"✗ JSON decode error: {e}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load file:\n{str(e)}")
+                print(f"✗ Load error: {e}")
 
     def on_double_click(self, event):
-        """Xử lý double-click để edit tên"""
-        region = self.tree.identify("region", event.x, event.y)
-        if region != "cell":
-            return
-        
-        column = self.tree.identify_column(event.x)
-        # Chỉ cho edit cột "name" (column #1)
-        if column != "#2":
-            return
-        
-        selected = self.tree.selection()
-        if not selected:
-            return
-        
-        item = selected[0]
-        idx = self.tree.index(item)
-        
-        if idx >= len(self.data):
-            return
-        
-        # Lấy giá trị hiện tại
-        values = self.tree.item(item, "values")
-        old_name = values[1]
-        
-        # Tạo Entry widget để edit
-        x, y, width, height = self.tree.bbox(item, column)
-        entry = tk.Entry(self.tree, justify="center")
-        entry.place(x=x, y=y, width=width, height=height)
-        entry.insert(0, old_name)
-        entry.select_range(0, tk.END)
-        entry.focus()
-        
-        def save_edit(event=None):
-            new_name = entry.get().strip()
-            entry.destroy()
-            if new_name and new_name != old_name:
-                # Cập nhật vào MongoDB
-                entry_data = self.data[idx]
-                old_data = entry_data.get("data", {})
-                old_ip = old_data.get("ip", "")
-                
-                # Gửi request update name
-                def update_name():
-                    try:
-                        # Cập nhật local
-                        self.data[idx]["data"]["name"] = new_name
-                        
-                        # Gửi lên server để update MongoDB
-                        update_data = {
-                            "old_name": old_name,
-                            "new_name": new_name,
-                            "ip": old_ip
-                        }
-                        resp = requests.post(f"{self.api_url}/update_name", json=update_data, timeout=5)
-                        if resp.status_code == 200:
-                            print(f"✓ Đã đổi tên: {old_name} → {new_name}")
-                            # Refresh lại data từ server
-                            self.refresh_data()
-                        else:
-                            print(f"✗ Lỗi đổi tên: {resp.status_code}")
-                    except Exception as e:
-                        print(f"✗ Lỗi: {e}")
-                
-                threading.Thread(target=update_name, daemon=True).start()
-        
-        def cancel_edit(event=None):
-            entry.destroy()
-        
-        entry.bind("<Return>", save_edit)
-        entry.bind("<Escape>", cancel_edit)
+        """Not used with custom table"""
+        pass
     
-    def show_detail(self, event):
-        selected = self.tree.selection()
-        if not selected:
-            return
-        idx = self.tree.index(selected[0])
-        entry = self.data[idx] if idx < len(self.data) else None
-        self.detail_text.config(state=tk.NORMAL)
-        self.detail_text.delete(1.0, tk.END)
+    def show_detail_from_entry(self, entry):
+        """Show detail from entry object"""
+        self.detail_text.delete("1.0", "end")
         if entry:
-            self.detail_text.insert(tk.END, json.dumps(entry, indent=2, ensure_ascii=False))
-        self.detail_text.config(state=tk.DISABLED)
+            self.detail_text.insert("1.0", json.dumps(entry, indent=2, ensure_ascii=False))
+    
+    def show_detail_all(self, event):
+        """Show detail when selecting from left table"""
+        # Not used anymore with custom table
+        pass
 
-    def clear_table(self):
-        self.data = []
-        for row in self.tree.get_children():
-            self.tree.delete(row)
-        self.detail_text.config(state=tk.NORMAL)
-        self.detail_text.delete(1.0, tk.END)
-        self.detail_text.config(state=tk.DISABLED)
-
-    def auto_refresh(self):
-        self.refresh_data()
-        self.root.after(10000, self.auto_refresh)
+    def show_detail_selected(self, event):
+        """Not used with custom table"""
+        pass
 
 def main():
-    root = tk.Tk()
+    root = ctk.CTk()
     app = ServerDataGUI(root)
     root.mainloop()
 

@@ -1,32 +1,30 @@
-
-import http.server
-import socketserver
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+import asyncio
 import json
 from datetime import datetime
 import pytz
-import threading
-import sys
-import os
 from pymongo import MongoClient, DESCENDING
-import requests
+import os
+import sys
+from typing import List
 
-# Try to import from config.py, fallback to environment variables
+# Try to import from config.py
 try:
-    from config import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME, DISCORD_WEBHOOK, PREFIX
+    from config import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME
 except ImportError:
     MONGODB_URI = os.getenv('MONGODB_URI', '')
     DATABASE_NAME = os.getenv('DATABASE_NAME', 'vmix_monitor')
     COLLECTION_NAME = os.getenv('COLLECTION_NAME', 'logs')
-    DISCORD_WEBHOOK = os.getenv('DISCORD_WEBHOOK', '')
-    PREFIX = os.getenv('PREFIX', 'SRT')
 
-# Port configuration - support Render's dynamic port
+# Port configuration
 PORT = int(os.getenv('PORT', 8088))
 
 # Timezone configuration - Vietnam
 VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 
-# Kết nối MongoDB với TLS
+# MongoDB connection
 try:
     client = MongoClient(
         MONGODB_URI, 
@@ -36,287 +34,203 @@ try:
     )
     db = client[DATABASE_NAME]
     collection = db[COLLECTION_NAME]
-    # Test connection
     client.admin.command('ping')
-    print("✓ Đã kết nối MongoDB thành công!")
+    print("✓ Connected to MongoDB successfully!")
 except Exception as e:
-    print(f"✗ Lỗi kết nối MongoDB: {e}")
-    print(f"Kiểm tra lại:")
-    print("  1. Mật khẩu trong config.py")
-    print("  2. IP Address whitelist trên MongoDB Atlas")
-    print("  3. Kết nối internet")
+    print(f"✗ MongoDB connection error: {e}")
     sys.exit(1)
 
-def send_discord_notification(name, ipwan, port, status):
-    """Gửi thông báo lên Discord webhook"""
+app = FastAPI()
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Store active WebSocket connections
+active_connections: List[WebSocket] = []
+
+def get_all_logs():
+    """Get all logs from MongoDB - Compatible với format cũ"""
     try:
-        message = f"[{PREFIX}][{name}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
-        payload = {"content": message}
-        resp = requests.post(DISCORD_WEBHOOK, json=payload, timeout=5)
-        if resp.status_code in [200, 204]:
-            print(f"✓ Discord notification sent: {name} - {status}")
-        else:
-            print(f"✗ Discord error: {resp.status_code}")
-    except Exception as e:
-        print(f"✗ Discord notification failed: {e}")
-
-class VmixRequestHandler(http.server.BaseHTTPRequestHandler):
-    def do_HEAD(self):
-        """Handle HEAD requests for health checks (UptimeRobot, etc.)"""
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.end_headers()
-    
-    def do_GET(self):
-        """Handle GET requests"""
-        # Parse URL and query parameters
-        from urllib.parse import urlparse, parse_qs
-        parsed_url = urlparse(self.path)
+        # Sort theo last_updated (format cũ) hoặc timestamp
+        documents = collection.find().sort("last_updated", DESCENDING).limit(200)
+        entries = []
         
-        # Endpoint để lấy dữ liệu theo IP
-        if parsed_url.path == '/get_by_ip':
-            query_params = parse_qs(parsed_url.query)
-            ip = query_params.get('ip', [None])[0]
-            
-            if ip:
-                try:
-                    # Lấy tất cả documents có IP này
-                    documents = collection.find({"ip": ip}).sort("last_updated", DESCENDING)
-                    entries = []
-                    
-                    for doc in documents:
-                        entry = {
-                            "timestamp": doc.get("last_updated", doc.get("timestamp", "")),
-                            "data": {
-                                "name": doc.get("name", ""),
-                                "ip": doc.get("ip", ""),
-                                "ipwan": doc.get("ipwan", ""),
-                                "status": doc.get("status", ""),
-                                "port": doc.get("port", ""),
-                                "statusapp": doc.get("statusapp", 0)
-                            }
-                        }
-                        entries.append(entry)
-                    
-                    self.send_response(200)
-                    self.send_header('Content-type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps(entries, ensure_ascii=False).encode('utf-8'))
-                    return
-                except Exception as e:
-                    self.send_response(500)
-                    self.send_header('Content-type', 'application/json')
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
-                    return
-        
-        # Default health check response
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.end_headers()
-        response = {
-            "status": "online",
-            "service": "vMix Monitor Server",
-            "timestamp": datetime.now(VIETNAM_TZ).isoformat()
-        }
-        self.wfile.write(json.dumps(response).encode('utf-8'))
-    
-    def do_POST(self):
-        # Kiểm tra path để phân biệt endpoint
-        if self.path == '/update_name':
-            self.handle_update_name()
-            return
-        elif self.path == '/delete':
-            self.handle_delete()
-            return
-        
-        try:
-            content_length = int(self.headers.get('Content-Length', 0))
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            timestamp = datetime.now(VIETNAM_TZ).isoformat()
-            
-            # Lấy name làm key để identify máy
-            machine_name = data.get('name', data.get('ip', 'Unknown'))
-            
-            # Kiểm tra document cũ để phát hiện BẤT KỲ thay đổi nào
-            existing = collection.find_one({"name": machine_name})
-            has_changes = False
-            changed_fields = []
-            
-            if existing:
-                # So sánh từng field quan trọng (ngoại trừ timestamp)
-                fields_to_check = ['ip', 'ipwan', 'status', 'port', 'name', 'statusapp']
-                for field in fields_to_check:
-                    old_val = existing.get(field)
-                    new_val = data.get(field)
-                    if old_val != new_val:
-                        has_changes = True
-                        changed_fields.append(f"{field}: {old_val} → {new_val}")
-            else:
-                # Document mới = có thay đổi
-                has_changes = True
-                changed_fields.append("New machine")
-            
-            # Update hoặc insert (upsert) - Mỗi máy chỉ có 1 document
-            document = {
-                "name": machine_name,
-                "ip": data.get('ip'),
-                "ipwan": data.get('ipwan'),
-                "status": data.get('status'),
-                "port": data.get('port'),
-                "statusapp": data.get('statusapp', 0),  # App status: 1=ON, 0=OFF
-                "timestamp": timestamp,
-                "last_updated": timestamp
-            }
-            
-            # Tìm theo name và update, nếu chưa có thì tạo mới
-            result = collection.update_one(
-                {"name": machine_name},
-                {"$set": document},
-                upsert=True
-            )
-            
-            action = "Updated" if result.matched_count > 0 else "Inserted"
-            print(f"✓ {action}: {machine_name} - {data.get('ip', 'N/A')}:{data.get('port', 'N/A')} - {data.get('status', 'N/A')}")
-            
-            # GHI CHÚ: Discord notification được xử lý bởi GUI (server_gui_advanced.py)
-            # Không gửi ở đây để tránh duplicate
-            if has_changes:
-                print(f"  → Changes detected: {', '.join(changed_fields)}")
-            
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({"status": "ok", "action": action}).encode('utf-8'))
-        except Exception as e:
-            print(f"✗ Lỗi xử lý POST: {e}")
-            self.send_response(400)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
-    
-    def handle_update_name(self):
-        """Xử lý cập nhật tên máy"""
-        try:
-            content_length = int(self.headers.get('Content-Length', 0))
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            
-            old_name = data.get('old_name')
-            new_name = data.get('new_name')
-            
-            # Update tên trong MongoDB
-            result = collection.update_one(
-                {"name": old_name},
-                {"$set": {"name": new_name, "last_updated": datetime.now(VIETNAM_TZ).isoformat()}}
-            )
-            
-            if result.matched_count > 0:
-                print(f"✓ Đã đổi tên: {old_name} → {new_name}")
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({"status": "ok"}).encode('utf-8'))
-            else:
-                print(f"✗ Không tìm thấy: {old_name}")
-                self.send_response(404)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({"error": "Not found"}).encode('utf-8'))
-        except Exception as e:
-            print(f"✗ Lỗi update tên: {e}")
-            self.send_response(400)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
-
-    def handle_delete(self):
-        """Xử lý xóa dữ liệu từ database"""
-        try:
-            content_length = int(self.headers.get('Content-Length', 0))
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            
-            name = data.get('name')
-            ip = data.get('ip')
-            port = data.get('port')
-            
-            # Xóa document theo name, ip và port
-            result = collection.delete_one({
-                "name": name,
-                "ip": ip,
-                "port": port
-            })
-            
-            if result.deleted_count > 0:
-                print(f"✓ Đã xóa: {name} - {ip}:{port}")
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({"status": "ok", "deleted": True}).encode('utf-8'))
-            else:
-                print(f"⚠ Không tìm thấy để xóa: {name} - {ip}:{port}")
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({"status": "ok", "deleted": False}).encode('utf-8'))
-        except Exception as e:
-            print(f"✗ Lỗi xóa: {e}")
-            self.send_response(400)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
-
-
-    def do_GET(self):
-        try:
-            # Lấy tất cả máy (mỗi máy 1 document) từ MongoDB, sắp xếp theo thời gian update
-            documents = collection.find().sort("last_updated", DESCENDING).limit(200)
-            entries = []
-            
-            for doc in documents:
-                # Format lại để tương thích với GUI cũ
-                entry = {
-                    "timestamp": doc.get("last_updated", doc.get("timestamp", "")),
-                    "data": {
-                        "name": doc.get("name", ""),
-                        "ip": doc.get("ip", ""),
-                        "ipwan": doc.get("ipwan", ""),
-                        "status": doc.get("status", ""),
-                        "port": doc.get("port", ""),
-                        "statusapp": doc.get("statusapp", 0)
-                    }
+        for doc in documents:
+            # Format lại để tương thích với GUI
+            entry = {
+                "timestamp": doc.get("last_updated", doc.get("timestamp", "")),
+                "data": {
+                    "name": doc.get("name", ""),
+                    "ip": doc.get("ip", ""),
+                    "ipwan": doc.get("ipwan", ""),
+                    "status": doc.get("status", ""),
+                    "port": doc.get("port", ""),
+                    "statusapp": doc.get("statusapp", 0)
                 }
-                entries.append(entry)
-            
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(entries, ensure_ascii=False).encode('utf-8'))
-        except Exception as e:
-            self.send_response(500)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+            }
+            entries.append(entry)
+        
+        return entries
+    except Exception as e:
+        print(f"Error getting logs: {e}")
+        return []
 
-    def log_message(self, format, *args):
-        # Ghi log ra stdout thay vì stderr
-        sys.stdout.write("%s - - [%s] %s\n" %
-                         (self.client_address[0],
-                          self.log_date_time_string(),
-                          format%args))
+@app.get("/")
+async def get_all_data():
+    """GET endpoint - lấy tất cả dữ liệu"""
+    return JSONResponse(content=get_all_logs())
+
+@app.post("/")
+async def receive_data(data: dict):
+    """Nhận dữ liệu từ vMix"""
+    try:
+        timestamp = datetime.now(VIETNAM_TZ).isoformat()
+        
+        # Lấy name làm key để identify máy
+        machine_name = data.get('name', data.get('ip', 'Unknown'))
+        
+        # Kiểm tra document cũ để phát hiện thay đổi
+        existing = collection.find_one({"name": machine_name})
+        has_changes = False
+        changed_fields = []
+        
+        if existing:
+            # So sánh từng field quan trọng
+            fields_to_check = ['ip', 'ipwan', 'status', 'port', 'name', 'statusapp']
+            for field in fields_to_check:
+                old_value = existing.get(field)
+                new_value = data.get(field)
+                if old_value != new_value:
+                    has_changes = True
+                    changed_fields.append(f"{field}: {old_value} → {new_value}")
+        else:
+            has_changes = True
+            changed_fields.append("New machine added")
+        
+        # Cập nhật hoặc insert document
+        document = {
+            "name": machine_name,
+            "ip": data.get('ip', ''),
+            "ipwan": data.get('ipwan', ''),
+            "status": data.get('status', 'UNKNOWN'),
+            "port": data.get('port', ''),
+            "statusapp": data.get('statusapp', 0),
+            "last_updated": timestamp,
+            "timestamp": timestamp
+        }
+        
+        result = collection.update_one(
+            {"name": machine_name},
+            {"$set": document},
+            upsert=True
+        )
+        
+        # Nếu có thay đổi thì log và gửi Discord
+        if has_changes:
+            print(f"⚠ Changes detected for {machine_name}:")
+            for change in changed_fields:
+                print(f"  - {change}")
+            
+            # Gửi Discord notification
+            if DISCORD_WEBHOOK and data.get('status'):
+                send_discord_notification(
+                    machine_name,
+                    data.get('ipwan', 'Unknown'),
+                    data.get('port', 'N/A'),
+                    data.get('status', 'UNKNOWN')
+                )
+        
+        # Broadcast update to all WebSocket clients
+        await broadcast_updates()
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Data received for {machine_name}",
+            "changes_detected": has_changes,
+            "modified": result.modified_count > 0
+        })
+    
+    except Exception as e:
+        print(f"✗ Error processing data: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.post("/update_name")
+async def update_name(payload: dict):
+    """Update name in MongoDB"""
+    try:
+        old_name = payload.get('old_name', '')
+        new_name = payload.get('new_name', '')
+        ip = payload.get('ip', '')
+        
+        result = collection.update_many(
+            {"data.ip": ip},
+            {"$set": {"data.name": new_name}}
+        )
+        
+        print(f"✓ Updated {result.modified_count} documents: {old_name} → {new_name}")
+        
+        # Broadcast update to all WebSocket clients
+        await broadcast_updates()
+        
+        return JSONResponse(content={"success": True, "modified": result.modified_count})
+    except Exception as e:
+        print(f"✗ Update error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for realtime updates"""
+    await websocket.accept()
+    active_connections.append(websocket)
+    print(f"✓ WebSocket client connected. Total connections: {len(active_connections)}")
+    
+    try:
+        # Send initial data
+        data = get_all_logs()
+        await websocket.send_json(data)
+        
+        # Keep connection alive and send updates every 5 seconds
+        while True:
+            data = get_all_logs()
+            await websocket.send_json(data)
+            await asyncio.sleep(5)
+            
+    except WebSocketDisconnect:
+        active_connections.remove(websocket)
+        print(f"⚠ WebSocket client disconnected. Total connections: {len(active_connections)}")
+    except Exception as e:
+        print(f"✗ WebSocket error: {e}")
+        if websocket in active_connections:
+            active_connections.remove(websocket)
+
+async def broadcast_updates():
+    """Broadcast updates to all connected WebSocket clients"""
+    if not active_connections:
+        return
+    
+    data = get_all_logs()
+    disconnected = []
+    
+    for connection in active_connections:
+        try:
+            await connection.send_json(data)
+        except Exception as e:
+            print(f"✗ Failed to send to client: {e}")
+            disconnected.append(connection)
+    
+    # Remove disconnected clients
+    for connection in disconnected:
+        active_connections.remove(connection)
 
 if __name__ == "__main__":
-    from http.server import ThreadingHTTPServer
-    # Bind to 0.0.0.0 to accept connections from anywhere (required for cloud deployment)
-    server_address = ('0.0.0.0', PORT)
-    httpd = ThreadingHTTPServer(server_address, VmixRequestHandler)
-    print(f"Server starting on 0.0.0.0:{PORT}")
-    print(f"MongoDB: {DATABASE_NAME}.{COLLECTION_NAME}")
-    print(f"Prefix: {PREFIX}")
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        print("\nShutting down server...")
-        httpd.server_close()
+    import uvicorn
+    print(f"🚀 Starting WebSocket server on http://localhost:{PORT}")
+    print(f"📡 WebSocket endpoint: ws://localhost:{PORT}/ws")
+    print(f"🔌 REST API endpoint: http://localhost:{PORT}/")
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
