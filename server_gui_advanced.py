@@ -469,10 +469,14 @@ class ServerDataGUI:
             # STT
             ctk.CTkLabel(row_frame, text=str(stt), font=("Arial", 12, "bold"), width=50).pack(side="left", padx=2)
             
-            # Name (editable on double-click)
-            name_label = ctk.CTkLabel(row_frame, text=name, font=("Arial", 12, "bold"), width=120, anchor="w")
-            name_label.pack(side="left", padx=2)
-            name_label.bind("<Double-1>", lambda e, idx=stt-1: self.edit_name_dialog(idx))
+            # Name (editable on double-click - inline editing)
+            name_frame = ctk.CTkFrame(row_frame, fg_color="transparent", width=120)
+            name_frame.pack(side="left", padx=2)
+            name_frame.pack_propagate(False)
+            
+            name_label = ctk.CTkLabel(name_frame, text=name, font=("Arial", 12, "bold"), anchor="w")
+            name_label.pack(fill="both", expand=True)
+            name_label.bind("<Double-1>", lambda e, idx=stt-1, frame=name_frame, lbl=name_label: self.edit_name_inline(idx, frame, lbl))
             
             # IP
             ctk.CTkLabel(row_frame, text=ip, font=("Arial", 12, "bold"), width=130).pack(side="left", padx=2)
@@ -521,6 +525,62 @@ class ServerDataGUI:
         # Chỉ đánh dấu, không add/remove ngay
         # User sẽ phải ấn button "Add" để chuyển sang list
         pass
+    
+    def edit_name_inline(self, idx, frame, label):
+        """Edit name inline - tại chỗ"""
+        if idx >= len(self.selected_data):
+            return
+        
+        old_name = label.cget("text")
+        
+        # Hide label
+        label.pack_forget()
+        
+        # Create entry
+        entry_widget = ctk.CTkEntry(frame, font=("Arial", 12, "bold"))
+        entry_widget.insert(0, old_name)
+        entry_widget.pack(fill="both", expand=True)
+        entry_widget.focus_set()
+        entry_widget.select_range(0, "end")
+        
+        def save_name(event=None):
+            new_name = entry_widget.get().strip()
+            
+            if new_name and new_name != old_name:
+                old_ip = self.selected_data[idx].get("data", {}).get("ip", "")
+                self.selected_data[idx]["data"]["name"] = new_name
+                
+                # Update to server
+                def update_name():
+                    try:
+                        update_data = {
+                            "old_name": old_name,
+                            "new_name": new_name,
+                            "ip": old_ip
+                        }
+                        resp = requests.post(f"{self.api_url}/update_name", json=update_data, timeout=5)
+                        if resp.status_code == 200:
+                            print(f"✓ Updated: {old_name} → {new_name}")
+                        else:
+                            print(f"✗ Update error: {resp.status_code}")
+                    except Exception as e:
+                        print(f"✗ Error: {e}")
+                
+                threading.Thread(target=update_name, daemon=True).start()
+            
+            # Restore label
+            entry_widget.destroy()
+            label.configure(text=new_name if new_name else old_name)
+            label.pack(fill="both", expand=True)
+        
+        def cancel_edit(event=None):
+            entry_widget.destroy()
+            label.pack(fill="both", expand=True)
+        
+        # Bind events
+        entry_widget.bind("<Return>", save_name)
+        entry_widget.bind("<FocusOut>", save_name)
+        entry_widget.bind("<Escape>", cancel_edit)
     
     def add_to_selected(self, event=None):
         """Add checked items to selected list"""

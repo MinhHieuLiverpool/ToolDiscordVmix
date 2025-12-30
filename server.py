@@ -62,6 +62,15 @@ def get_all_logs():
         entries = []
         
         for doc in documents:
+            # Debug: Print first doc
+            if len(entries) == 0:
+                print(f"📋 First document from MongoDB:")
+                print(f"  name: {doc.get('name', 'N/A')}")
+                print(f"  ip: {doc.get('ip', 'N/A')}")
+                print(f"  ipwan: {doc.get('ipwan', 'N/A')}")
+                print(f"  port: {doc.get('port', 'N/A')}")
+                print(f"  status: {doc.get('status', 'N/A')}")
+            
             # Format lại để tương thích với GUI
             entry = {
                 "timestamp": doc.get("last_updated", doc.get("timestamp", "")),

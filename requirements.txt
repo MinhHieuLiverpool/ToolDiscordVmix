@@ -3,3 +3,6 @@ requests==2.31.0
 pillow
 pystray
 pytz
+fastapi==0.114.1
+uvicorn==0.30.6
+websockets==13.1
