@@ -10,9 +10,14 @@ from datetime import datetime
 import pytz
 from PIL import Image, ImageDraw
 import pystray
+import socket
+import sys
 
 # Timezone configuration - Vietnam
 VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
+
+# Global socket for single instance
+SINGLE_INSTANCE_SOCKET = None
 
 
 class VmixMonitorGUI:
@@ -1094,7 +1099,60 @@ class VmixMonitorGUI:
                 time.sleep(0.1)
 
 
+def ensure_single_instance():
+    """Đảm bảo chỉ có 1 instance của app đang chạy"""
+    global SINGLE_INSTANCE_SOCKET
+    try:
+        # Bind to localhost với port unique (51234 cho VmixMonitor)
+        SINGLE_INSTANCE_SOCKET = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        SINGLE_INSTANCE_SOCKET.bind(('127.0.0.1', 51234))
+        return True
+    except socket.error:
+        # Port đã được bind = app đã chạy rồi
+        return False
+
+def focus_existing_window():
+    """Focus vào cửa sổ đang chạy (Windows only)"""
+    try:
+        import win32gui
+        import win32con
+        
+        def callback(hwnd, _):
+            if win32gui.IsWindowVisible(hwnd):
+                title = win32gui.GetWindowText(hwnd)
+                if "vMix Monitor Pro" in title:
+                    # Restore window nếu bị minimize
+                    win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                    # Bring to front
+                    win32gui.SetForegroundWindow(hwnd)
+                    return False  # Stop enumeration
+            return True
+        
+        win32gui.EnumWindows(callback, None)
+        return True
+    except ImportError:
+        # Không có pywin32, chỉ thông báo
+        return False
+
 def main():
+    # Kiểm tra single instance
+    if not ensure_single_instance():
+        # App đã chạy rồi, thử focus vào cửa sổ hiện tại
+        if not focus_existing_window():
+            # Không focus được (không có pywin32), show message
+            import tkinter.messagebox as mb
+            root = tk.Tk()
+            root.withdraw()
+            mb.showwarning(
+                "Ứng dụng đang chạy",
+                "vMix Monitor Pro đang chạy rồi!\n\n"
+                "Kiểm tra taskbar hoặc system tray.",
+                parent=root
+            )
+            root.destroy()
+        sys.exit(0)
+    
+    # Tạo app nếu chưa có instance nào chạy
     root = ttk.Window(
         title="vMix Monitor Pro",
         themename="darkly",  # Modern dark theme: darkly, superhero, cyborg, vapor, solar
@@ -1102,6 +1160,10 @@ def main():
     )
     app = VmixMonitorGUI(root)
     root.mainloop()
+    
+    # Cleanup socket khi thoát
+    if SINGLE_INSTANCE_SOCKET:
+        SINGLE_INSTANCE_SOCKET.close()
 
 if __name__ == "__main__":
     main()
