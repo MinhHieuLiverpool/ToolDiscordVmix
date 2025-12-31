@@ -56,9 +56,16 @@ def build_server_gui_exe():
         "--name=ServerLogViewer",
         "--icon=assets/Discord-Logo.ico",
         "--add-data=config.py;.",
+        "--add-data=assets/Discord-Logo.ico;assets",
         "--hidden-import=tkinter",
+        "--hidden-import=customtkinter",
         "--hidden-import=requests",
         "--hidden-import=pytz",
+        "--hidden-import=websocket",
+        "--hidden-import=websocket._app",
+        "--hidden-import=threading",
+        "--hidden-import=json",
+        "--hidden-import=datetime",
         "server_gui_advanced.py"
     ]
     
