@@ -39,7 +39,7 @@ class VmixMonitorGUI:
         self.setup_tray()
         self.check_log_queue()
         
-        # Load dữ liệu từ database khi khởi động
+        # Load dữ liệu từ database theo IP máy hiện tại
         self.load_data_from_database()
         
         # Override close button để ẩn xuống tray thay vì đóng
@@ -171,9 +171,9 @@ class VmixMonitorGUI:
             self.tray_icon.stop()
         self.root.quit()
         self.root.destroy()
-
+    
     def load_data_from_database(self):
-        """Load dữ liệu từ database dựa vào IP máy"""
+        """Load dữ liệu từ database theo IP máy hiện tại"""
         import requests
         try:
             ip = self.ip_var.get().strip()
@@ -205,11 +205,11 @@ class VmixMonitorGUI:
                             loaded_count += 1
                     
                     if loaded_count > 0:
-                        self.log(f"Đã tải {loaded_count} port từ database")
+                        self.log(f"Đã tải {loaded_count} port từ database (IP: {ip})")
                     else:
-                        self.log("Không có dữ liệu cũ trong database")
+                        self.log(f"Không có dữ liệu cho IP {ip} trong database")
                 else:
-                    self.log("Không có dữ liệu cũ trong database")
+                    self.log(f"Không có dữ liệu cho IP {ip} trong database")
             else:
                 self.log(f"Không thể tải dữ liệu: {response.status_code}")
         except Exception as e:
@@ -322,24 +322,29 @@ class VmixMonitorGUI:
             self.log(f"ERROR xóa DB: {str(e)}")
 
     def delete_all_from_database(self):
-        """Xóa dữ liệu của tất cả các port entries khỏi database (khi STOP)"""
+        """Xóa dữ liệu của tất cả các port entries khỏi database (khi STOP) - CHỈ XÓA CỦA MÁY NÀY"""
         import requests
         
         if not self.port_list:
             return
         
+        # Lấy IP hiện tại của máy này để đảm bảo chỉ xóa dữ liệu của máy này
+        current_ip = self.ip_var.get().strip()
+        
         try:
             for entry in self.port_list:
                 data = {
                     "name": entry['name'],
-                    "ip": entry.get('ip', self.ip_var.get()),
+                    "ip": current_ip,  # Dùng IP hiện tại của máy này
                     "port": entry['port']
                 }
                 url = "https://tooldiscordvmix.onrender.com/delete"
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, json=data, headers=headers, timeout=10)
                 if response.status_code == 200:
-                    self.log(f"Đã xóa DB: {entry['name']} - Port {entry['port']}")
+                    self.log(f"Đã xóa DB: {entry['name']} ({current_ip}:{entry['port']})")
+                else:
+                    self.log(f"Lỗi xóa DB: {entry['name']} - {response.status_code}")
         except Exception as e:
             self.log(f"ERROR xóa DB: {str(e)}")
 
@@ -395,13 +400,17 @@ class VmixMonitorGUI:
             self.monitor_thread.start()
         else:
             self.is_running = False
-            # Xóa tất cả dữ liệu trên database khi STOP
-            threading.Thread(target=self.delete_all_from_database, daemon=True).start()
-            # Gửi statusapp = 0 (OFF)
-            threading.Thread(target=lambda: self.send_app_status(0), daemon=True).start()
+            self.log("Đang dừng và cập nhật trạng thái...")
+            # Bước 1: Gửi statusapp = 0 (OFF) để frontend fetch trước
+            threading.Thread(target=self.stop_and_cleanup, daemon=True).start()
             self.start_btn.config(text="START", bg="#4CAF50")
             self.delete_btn.config(state=tk.NORMAL)  # Enable lại nút xóa khi STOP
-            self.log("Đã dừng gửi dữ liệu.")
+    
+    def stop_and_cleanup(self):
+        """Dừng và cập nhật trạng thái: chỉ gửi statusapp=0"""
+        # Gửi statusapp = 0 (OFF)
+        self.send_app_status(0)
+        self.log("Đã dừng và cập nhật trạng thái OFF.")
 
 
     def is_vmix_on_port(self, port):

@@ -169,6 +169,68 @@ async def receive_data(data: dict):
         print(f"✗ Error processing data: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
+@app.post("/delete")
+async def delete_data(payload: dict):
+    """Xóa dữ liệu theo IP và Port"""
+    try:
+        name = payload.get('name', '')
+        ip = payload.get('ip', '')
+        port = payload.get('port', 0)
+        
+        # Xóa theo IP và Port để đảm bảo chính xác
+        query = {
+            "ip": ip,
+            "port": port
+        }
+        
+        result = collection.delete_one(query)
+        
+        if result.deleted_count > 0:
+            print(f"✓ Deleted: {name} - {ip}:{port}")
+            # Broadcast update to all WebSocket clients
+            await broadcast_updates()
+            return JSONResponse(content={
+                "success": True, 
+                "deleted": result.deleted_count,
+                "message": f"Deleted {name} - {ip}:{port}"
+            })
+        else:
+            print(f"⚠ Not found: {name} - {ip}:{port}")
+            return JSONResponse(content={
+                "success": False,
+                "deleted": 0,
+                "message": f"Not found: {name} - {ip}:{port}"
+            })
+    except Exception as e:
+        print(f"✗ Delete error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/get_by_ip")
+async def get_by_ip(ip: str):
+    """Lấy dữ liệu theo IP"""
+    try:
+        documents = collection.find({"ip": ip})
+        entries = []
+        
+        for doc in documents:
+            entry = {
+                "timestamp": doc.get("last_updated", doc.get("timestamp", "")),
+                "data": {
+                    "name": doc.get("name", ""),
+                    "ip": doc.get("ip", ""),
+                    "ipwan": doc.get("ipwan", ""),
+                    "status": doc.get("status", ""),
+                    "port": doc.get("port", ""),
+                    "statusapp": doc.get("statusapp", 0)
+                }
+            }
+            entries.append(entry)
+        
+        return JSONResponse(content=entries)
+    except Exception as e:
+        print(f"✗ Get by IP error: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
 @app.post("/update_name")
 async def update_name(payload: dict):
     """Update name in MongoDB"""
