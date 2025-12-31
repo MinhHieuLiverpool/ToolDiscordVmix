@@ -13,10 +13,16 @@ from typing import List
 # Try to import from config.py
 try:
     from config import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME
+    # Try to import DISCORD_WEBHOOK separately (optional)
+    try:
+        from config import DISCORD_WEBHOOK
+    except ImportError:
+        DISCORD_WEBHOOK = ''
 except ImportError:
     MONGODB_URI = os.getenv('MONGODB_URI', '')
     DATABASE_NAME = os.getenv('DATABASE_NAME', 'vmix_monitor')
     COLLECTION_NAME = os.getenv('COLLECTION_NAME', 'logs')
+    DISCORD_WEBHOOK = os.getenv('DISCORD_WEBHOOK', '')  # Optional Discord webhook
 
 # Port configuration
 PORT = int(os.getenv('PORT', 8088))
@@ -53,6 +59,38 @@ app.add_middleware(
 
 # Store active WebSocket connections
 active_connections: List[WebSocket] = []
+
+def send_discord_notification(machine_name: str, ipwan: str, port: str, status: str):
+    """Gửi notification lên Discord (nếu có webhook)"""
+    if not DISCORD_WEBHOOK:
+        return
+    
+    try:
+        import requests
+        
+        # Tạo embed message
+        color = 0x00ff00 if status == "ON" else 0xff0000  # Green for ON, Red for OFF
+        embed = {
+            "embeds": [{
+                "title": f"🎥 vMix Status Change",
+                "color": color,
+                "fields": [
+                    {"name": "Machine", "value": machine_name, "inline": True},
+                    {"name": "Status", "value": f"**{status}**", "inline": True},
+                    {"name": "IP WAN", "value": ipwan, "inline": True},
+                    {"name": "Port", "value": str(port), "inline": True}
+                ],
+                "timestamp": datetime.now(VIETNAM_TZ).isoformat()
+            }]
+        }
+        
+        response = requests.post(DISCORD_WEBHOOK, json=embed, timeout=5)
+        if response.status_code == 204:
+            print(f"✓ Discord notification sent for {machine_name}")
+        else:
+            print(f"⚠ Discord webhook failed: {response.status_code}")
+    except Exception as e:
+        print(f"✗ Discord notification error: {e}")
 
 def get_all_logs():
     """Get all logs from MongoDB - Compatible với format cũ"""
@@ -252,6 +290,38 @@ async def update_name(payload: dict):
         return JSONResponse(content={"success": True, "modified": result.modified_count})
     except Exception as e:
         print(f"✗ Update error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/update_ip")
+async def update_ip(payload: dict):
+    """Update IP in MongoDB when machine IP changes"""
+    try:
+        old_ip = payload.get('old_ip', '')
+        new_ip = payload.get('new_ip', '')
+        port = payload.get('port', 0)
+        name = payload.get('name', '')
+        
+        # Update document với old_ip và port
+        result = collection.update_one(
+            {"ip": old_ip, "port": port},
+            {"$set": {"ip": new_ip}}
+        )
+        
+        if result.modified_count > 0:
+            print(f"✓ Updated IP for {name} (Port {port}): {old_ip} → {new_ip}")
+        else:
+            print(f"⚠ No document found to update: {name} - {old_ip}:{port}")
+        
+        # Broadcast update to all WebSocket clients
+        await broadcast_updates()
+        
+        return JSONResponse(content={
+            "success": True, 
+            "modified": result.modified_count,
+            "message": f"Updated {name} IP: {old_ip} → {new_ip}"
+        })
+    except Exception as e:
+        print(f"✗ Update IP error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 @app.websocket("/ws")
