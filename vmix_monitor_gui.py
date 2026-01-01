@@ -34,11 +34,11 @@ class VmixMonitorGUI:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("🎥 vMix Monitor Pro")
+        self.root.title("vMix Monitor Pro")
         
         # Set icon if exists
         try:
-            self.root.iconbitmap('assets/icon.ico')
+            self.root.iconbitmap('assets/Discord-Logo.ico')
         except:
             pass
         
@@ -449,7 +449,7 @@ class VmixMonitorGUI:
             self.log(f"📥 Đang import data từ IP {old_ip}...")
             
             # Lấy data từ IP cũ
-            url = f"http://localhost:8088/get_by_ip?ip={old_ip}"
+            url = f"https://tooldiscordvmix.onrender.com/get_by_ip?ip={old_ip}"
             response = requests.get(url, timeout=20)
             
             if response.status_code == 200:
@@ -506,7 +506,7 @@ class VmixMonitorGUI:
                 "port": port,
                 "name": name
             }
-            url = "http://localhost:8088/update_ip"
+            url = "https://tooldiscordvmix.onrender.com/update_ip"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=10)
             
@@ -556,7 +556,7 @@ class VmixMonitorGUI:
                     "port": entry['port'],
                     "name": entry['name']
                 }
-                url = "http://localhost:8088/update_ip"
+                url = "https://tooldiscordvmix.onrender.com/update_ip"
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, json=data, headers=headers, timeout=10)
                 
@@ -581,7 +581,7 @@ class VmixMonitorGUI:
         start_time = time.time()
         
         try:
-            url = "http://localhost:8088/"
+            url = "https://tooldiscordvmix.onrender.com/"
             response = requests.get(url, timeout=30)
             elapsed = time.time() - start_time
             
@@ -603,7 +603,7 @@ class VmixMonitorGUI:
         import requests
         try:
             ip = self.ip_var.get().strip()
-            url = f"http://localhost:8088/get_by_ip?ip={ip}"
+            url = f"https://tooldiscordvmix.onrender.com/get_by_ip?ip={ip}"
             self.log(f"⏳ Đang tải dữ liệu từ server...")
             response = requests.get(url, timeout=20)
             
@@ -790,7 +790,7 @@ class VmixMonitorGUI:
                 "ip": ip,
                 "port": port
             }
-            url = "http://localhost:8088/delete"
+            url = "https://tooldiscordvmix.onrender.com/delete"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=15)
             if response.status_code == 200:
@@ -821,7 +821,7 @@ class VmixMonitorGUI:
                     "ip": current_ip,  # Dùng IP hiện tại của máy này
                     "port": entry['port']
                 }
-                url = "http://localhost:8088/delete"
+                url = "https://tooldiscordvmix.onrender.com/delete"
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, json=data, headers=headers, timeout=10)
                 if response.status_code == 200:
@@ -857,7 +857,7 @@ class VmixMonitorGUI:
                     "port": entry['port'],
                     "statusapp": status_value  # App status: 1=ON, 0=OFF
                 }
-                url = "http://localhost:8088"
+                url = "https://tooldiscordvmix.onrender.com"
                 headers = {"Content-Type": "application/json"}
                 
                 # Retry logic (3 attempts)
@@ -1053,7 +1053,7 @@ class VmixMonitorGUI:
                                 "port": port,
                                 "statusapp": 1
                             }
-                            url = "http://localhost:8088"
+                            url = "https://tooldiscordvmix.onrender.com"
                             headers = {"Content-Type": "application/json"}
                             response = requests.post(url, json=data, headers=headers, timeout=10)
                             if response.status_code == 200:
@@ -1087,7 +1087,7 @@ class VmixMonitorGUI:
                                 "port": port,
                                 "statusapp": 1
                             }
-                            url = "http://localhost:8088"
+                            url = "https://tooldiscordvmix.onrender.com"
                             headers = {"Content-Type": "application/json"}
                             response = requests.post(url, json=data, headers=headers, timeout=10)
                             if response.status_code == 200:
@@ -1116,7 +1116,7 @@ class VmixMonitorGUI:
                             "port": port,
                             "statusapp": 1  # App is running (1=ON)
                         }
-                        url = "http://localhost:8088"
+                        url = "https://tooldiscordvmix.onrender.com"
                         headers = {"Content-Type": "application/json"}
                         response = requests.post(url, json=data, headers=headers, timeout=15)
                         if response.status_code == 200:
@@ -1182,6 +1182,14 @@ def focus_existing_window():
         return False
 
 def main():
+    # Set taskbar icon BEFORE creating window
+    try:
+        import ctypes
+        myappid = 'vmixmonitor.pro.1.0'
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+    except:
+        pass
+    
     # Kiểm tra single instance
     if not ensure_single_instance():
         # App đã chạy rồi, thử focus vào cửa sổ hiện tại
