@@ -32,8 +32,8 @@ class ServerDataGUI:
         self.root.title("Server Log Viewer - Dual Panel")
         self.root.geometry("1800x700")
 
-        self.api_url = "https://tooldiscordvmix.onrender.com"
-        self.ws_url = "wss://tooldiscordvmix.onrender.com/ws"
+        self.api_url = "http://localhost:8088"
+        self.ws_url = "ws://localhost:8088/ws"
         self.webhook_var = ctk.StringVar(value="https://discord.com/api/webhooks/1448559948408684669/s6plN6AIy9IFBo6coyNCF9YmmHIfIIVe-tEntpPnArRGI0JdIyl1pCz10rL5TyTP1JV6")
         self.prefix_var = ctk.StringVar(value="SRT")
         self.data = []  # All data from database
@@ -47,6 +47,8 @@ class ServerDataGUI:
         self.ws_connected = False
         self.ws_thread = None
         self.use_websocket = True  # Set False to fallback to REST API
+        self.ws_reconnect_attempts = 0
+        self.rest_polling_active = False  # Flag cho REST polling backup
 
         # Top controls
         top_frame = ctk.CTkFrame(self.root)
@@ -73,6 +75,10 @@ class ServerDataGUI:
         ctk.CTkButton(row2, text="🗑️ Clear", command=self.clear_selected, fg_color="#f44336", hover_color="#d32f2f", width=90).pack(side="left", padx=3)
         ctk.CTkButton(row2, text="💾 Save", command=self.save_selected_to_file, fg_color="#9C27B0", hover_color="#7B1FA2", width=90).pack(side="left", padx=3)
         ctk.CTkButton(row2, text="📂 Open", command=self.load_selected_from_file, fg_color="#673AB7", hover_color="#512DA8", width=90).pack(side="left", padx=3)
+        
+        # Connection status
+        self.status_label = ctk.CTkLabel(row2, text="⚪ Disconnected", font=("Arial", 11, "bold"), text_color="#9E9E9E")
+        self.status_label.pack(side="right", padx=10)
 
         # Main content area - Split into 2 panels
         main_frame = ctk.CTkFrame(self.root)
@@ -144,9 +150,15 @@ class ServerDataGUI:
         # Load initial data once
         self.refresh_data()
         
+        # Load selected list from database
+        self.load_selected_from_database()
+        
         # Start WebSocket connection if enabled
         if self.use_websocket:
             self.connect_websocket()
+        else:
+            # Fallback to REST polling
+            self.start_rest_polling_backup()
 
     def connect_websocket(self):
         """Kết nối WebSocket để nhận realtime updates"""
@@ -173,11 +185,7 @@ class ServerDataGUI:
                     
                     # Check for changes and send Discord
                     if self.auto_send_enabled:
-                        current_snapshot = self.get_data_snapshot()
-                        if current_snapshot != self.previous_data:
-                            print("⚠ WebSocket: Phát hiện thay đổi! Gửi Discord...")
-                            self.send_to_discord_auto()
-                            self.previous_data = current_snapshot
+                        self.send_to_discord_auto()
             except json.JSONDecodeError as e:
                 print(f"✗ WebSocket JSON error: {e}")
             except Exception as e:
@@ -190,15 +198,24 @@ class ServerDataGUI:
         def on_close(ws, close_status_code, close_msg):
             print(f"⚠ WebSocket closed: {close_status_code} - {close_msg}")
             self.ws_connected = False
-            # Auto reconnect after 5 seconds
+            self.root.after(0, lambda: self.status_label.configure(text="🔴 Disconnected", text_color="#f44336"))
+            # Start REST polling as backup
+            if not self.rest_polling_active:
+                self.start_rest_polling_backup()
+            # Auto reconnect with exponential backoff
             if self.use_websocket:
-                print("🔄 Reconnecting in 5 seconds...")
-                time.sleep(5)
+                self.ws_reconnect_attempts += 1
+                wait_time = min(5 * self.ws_reconnect_attempts, 30)  # Max 30s
+                print(f"🔄 Reconnecting in {wait_time} seconds... (attempt {self.ws_reconnect_attempts})")
+                time.sleep(wait_time)
                 self.connect_websocket()
         
         def on_open(ws):
             print("✓ WebSocket connected!")
             self.ws_connected = True
+            self.ws_reconnect_attempts = 0  # Reset counter
+            self.rest_polling_active = False  # Stop REST polling
+            self.root.after(0, lambda: self.status_label.configure(text="🟢 Connected", text_color="#4CAF50"))
         
         def run_ws():
             try:
@@ -225,6 +242,52 @@ class ServerDataGUI:
         """Fallback: Polling REST API nếu WebSocket không hoạt động"""
         if self.auto_send_enabled and not self.ws_connected:
             self.check_for_changes()
+    
+    def start_rest_polling_backup(self):
+        """Backup polling khi WebSocket mất kết nối"""
+        if self.rest_polling_active or self.ws_connected:
+            return
+        
+        self.rest_polling_active = True
+        print("🔄 Starting REST polling backup...")
+        self.rest_poll_loop()
+    
+    def rest_poll_loop(self):
+        """Loop polling REST API"""
+        if not self.rest_polling_active or self.ws_connected:
+            self.rest_polling_active = False
+            return
+        
+        def poll():
+            try:
+                resp = requests.get(self.api_url, timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, list):
+                        # Check if có thay đổi
+                        has_list_changed = self.has_data_changed(self.data, data)
+                        self.data = data
+                        
+                        if has_list_changed:
+                            self.root.after(0, self.update_all_table)
+                        
+                        # Always update selected data
+                        self.update_selected_data()
+                        self.root.after(0, self.update_selected_table)
+                        
+                        # Check for changes and send Discord
+                        if self.auto_send_enabled:
+                            current_snapshot = self.get_data_snapshot()
+                            if current_snapshot != self.previous_data:
+                                self.send_to_discord_auto()
+                                self.previous_data = current_snapshot
+            except Exception as e:
+                print(f"⚠ REST polling error: {e}")
+        
+        threading.Thread(target=poll, daemon=True).start()
+        
+        # Schedule next poll (3 seconds)
+        self.root.after(3000, self.rest_poll_loop)
 
     def toggle_auto_send(self):
         """Bật/Tắt chế độ tự động gửi Discord khi có thay đổi"""
@@ -235,10 +298,10 @@ class ServerDataGUI:
             # Disable editing khi đang ON
             self.webhook_entry.configure(state="disabled")
             self.prefix_entry.configure(state="disabled")
-            # Lấy snapshot ban đầu
+            # Lấy snapshot ban đầu (không gửi ngay để tránh spam)
             self.previous_data = self.get_data_snapshot()
-            # Gửi ngay lập tức 1 lần trước
-            self.send_to_discord_auto()
+            print(f"📸 Đã lưu snapshot ban đầu: {len(self.previous_data)} items")
+            # KHÔNG gửi ngay lập tức nữa - chỉ gửi khi có thay đổi
             # Bắt đầu auto-check (chỉ nếu không dùng WebSocket)
             if not self.ws_connected:
                 self.check_for_changes()
@@ -250,7 +313,7 @@ class ServerDataGUI:
             self.prefix_entry.configure(state="normal")
     
     def get_data_snapshot(self):
-        """Lấy snapshot của dữ liệu hiện tại (không bao gồm timestamp) - CHỈ từ selected list"""
+        """Lấy snapshot của dữ liệu hiện tại - CHỈ các field quan trọng: name, port, status, ipwan, ip"""
         snapshot = []
         for entry in self.selected_data:
             d = entry.get("data", {})
@@ -261,7 +324,8 @@ class ServerDataGUI:
                 "port": d.get("port", ""),
                 "status": d.get("status", "")
             })
-        return snapshot
+        # Sort để đảm bảo thứ tự nhất quán
+        return sorted(snapshot, key=lambda x: (x["name"], x["port"]))
     
     def check_for_changes(self):
         """Kiểm tra thay đổi và tự động gửi Discord - CHỈ monitor selected list, KHÔNG refresh bảng trái"""
@@ -282,11 +346,7 @@ class ServerDataGUI:
                         self.update_selected_table()
                         
                         # So sánh với dữ liệu cũ
-                        current_snapshot = self.get_data_snapshot()
-                        if current_snapshot != self.previous_data:
-                            print("⚠ Phát hiện thay đổi! Gửi Discord...")
-                            self.send_to_discord_auto()
-                            self.previous_data = current_snapshot
+                        self.send_to_discord_auto()
             except Exception as e:
                 print(f"Error checking: {e}")
         
@@ -297,7 +357,7 @@ class ServerDataGUI:
             self.root.after(5000, self.check_for_changes)
     
     def send_to_discord_auto(self):
-        """Gửi toàn bộ trạng thái hiện tại lên Discord (tự động) - CHỈ gửi selected list"""
+        """Gửi CHỈ những thay đổi về SRT STATUS, IPWAN, IP, PORT lên Discord"""
         # Tránh gửi duplicate nếu đang trong quá trình gửi
         if self.is_sending:
             print("⏳ Đang gửi, bỏ qua request...")
@@ -307,30 +367,78 @@ class ServerDataGUI:
         if not webhook or not self.selected_data:
             return
         
+        # Lấy snapshot hiện tại
+        current_snapshot = self.get_data_snapshot()
+        
+        # Nếu chưa có previous_data (lần đầu), chỉ lưu snapshot, không gửi
+        if not self.previous_data:
+            self.previous_data = current_snapshot
+            print("📸 Lưu snapshot đầu tiên, không gửi Discord")
+            return
+        
+        # So sánh với previous_data
+        if current_snapshot == self.previous_data:
+            print("✓ Không có thay đổi, không gửi Discord")
+            return
+        
         self.is_sending = True
         
         def send():
             try:
                 prefix = self.prefix_var.get().strip()
-                messages = []
                 
-                for entry in self.selected_data:
-                    d = entry.get("data", {})
-                    name = d.get("name", "Unknown")
-                    ipwan = d.get("ipwan", "unknown")
-                    port = d.get("port", "N/A")
-                    status = d.get("status", "UNKNOWN")
+                # Tạo dict để so sánh nhanh
+                prev_dict = {f"{item['name']}:{item['port']}": item for item in self.previous_data}
+                curr_dict = {f"{item['name']}:{item['port']}": item for item in current_snapshot}
+                
+                has_changes = False
+                
+                # Kiểm tra xem có thay đổi không
+                for key, curr_item in curr_dict.items():
+                    prev_item = prev_dict.get(key)
                     
-                    msg = f"[{prefix}][{name}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
-                    messages.append(msg)
+                    if not prev_item or (
+                        prev_item['status'] != curr_item['status'] or
+                        prev_item['ipwan'] != curr_item['ipwan'] or
+                        prev_item['ip'] != curr_item['ip'] or
+                        prev_item['port'] != curr_item['port']
+                    ):
+                        has_changes = True
+                        break
                 
-                payload = {"content": "\n".join(messages)}
-                
-                resp = requests.post(webhook, json=payload, timeout=10)
-                if resp.status_code in [200, 204]:
-                    print(f"✓ Sent {len(messages)} notifications to Discord")
+                # Nếu có thay đổi, gửi TOÀN BỘ danh sách
+                if has_changes:
+                    messages = []
+                    
+                    # Thêm tiêu đề với thời gian
+                    now = datetime.now(VIETNAM_TZ)
+                    title = f"=== STATUS UPDATE - {now.strftime('%d/%m/%Y %H:%M:%S')} ==="
+                    messages.append(title)
+                    
+                    # Gửi toàn bộ danh sách selected
+                    for curr_item in current_snapshot:
+                        name = curr_item['name']
+                        ipwan = curr_item['ipwan']
+                        port = curr_item['port']
+                        status = curr_item['status']
+                        
+                        msg = f"[{prefix}][{name}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
+                        messages.append(msg)
+                    
+                    payload = {"content": "\n".join(messages)}
+                    
+                    resp = requests.post(webhook, json=payload, timeout=10)
+                    if resp.status_code in [200, 204]:
+                        print(f"✓ Sent {len(messages)-1} items to Discord (full status)")
+                        # CẬP NHẬT previous_data sau khi gửi thành công
+                        self.previous_data = current_snapshot
+                    else:
+                        print(f"✗ Discord error: {resp.status_code}")
                 else:
-                    print(f"✗ Discord error: {resp.status_code}")
+                    print("✓ Không có item nào thay đổi")
+                    # Vẫn cập nhật previous_data
+                    self.previous_data = current_snapshot
+                    
             except Exception as e:
                 print(f"✗ Failed to send: {e}")
             finally:
@@ -604,6 +712,7 @@ class ServerDataGUI:
         
         if added_count > 0:
             print(f"✓ Successfully added: {added_count} item(s)")
+            self.save_selected_to_database()  # Lưu vào database
             self.update_all_table()  # Refresh to update checkbox states
             self.update_selected_table()
         else:
@@ -614,6 +723,7 @@ class ServerDataGUI:
         if idx < len(self.selected_data):
             removed = self.selected_data.pop(idx)
             print(f"✗ Removed: {removed.get('data', {}).get('name', 'Unknown')}")
+            self.save_selected_to_database()  # Lưu vào database
             self.update_all_table()
             self.update_selected_table()
     
@@ -666,22 +776,40 @@ class ServerDataGUI:
             self.update_selected_table()
 
     def update_selected_data(self):
-        """Update selected data with latest info from database - Match by IP + PORT"""
+        """Update selected data with latest info from database - Match by NAME or PORT"""
         for i, sel_entry in enumerate(self.selected_data):
             sel_d = sel_entry.get("data", {})
-            sel_ip = sel_d.get("ip", "")
+            sel_name = sel_d.get("name", "")
             sel_port = sel_d.get("port", "")
-            # Find matching entry in data by IP + PORT
+            
+            # Tìm matching entry: ưu tiên match theo NAME (nếu có), không thì match theo PORT
+            matched = False
             for entry in self.data:
                 entry_d = entry.get("data", {})
-                if entry_d.get("ip", "") == sel_ip and entry_d.get("port", "") == sel_port:
-                    # Update with latest info
+                entry_name = entry_d.get("name", "")
+                entry_port = entry_d.get("port", "")
+                
+                # Match theo NAME nếu có và không rỗng
+                if sel_name and entry_name and sel_name == entry_name:
+                    # Update toàn bộ thông tin (bao gồm IP, IPWAN mới)
                     self.selected_data[i] = entry
+                    matched = True
+                    print(f"🔄 Updated by NAME: {sel_name} - New IP: {entry_d.get('ip', '')}, New IPWAN: {entry_d.get('ipwan', '')}")
                     break
+                # Nếu không có name, match theo PORT
+                elif not sel_name and sel_port and sel_port == entry_port:
+                    self.selected_data[i] = entry
+                    matched = True
+                    print(f"🔄 Updated by PORT: {sel_port} - New IP: {entry_d.get('ip', '')}, New IPWAN: {entry_d.get('ipwan', '')}")
+                    break
+            
+            if not matched:
+                print(f"⚠ Cannot find match for: {sel_name or sel_port}")
 
     def clear_selected(self):
         """Clear selected list"""
         self.selected_data = []
+        self.save_selected_to_database()  # Lưu vào database (rỗng)
         self.update_selected_table()
         self.update_all_table()
         self.detail_text.delete("1.0", "end")
@@ -726,6 +854,7 @@ class ServerDataGUI:
                 
                 # Replace current selected data
                 self.selected_data = loaded_data
+                self.save_selected_to_database()  # Lưu vào database
                 self.update_selected_table()
                 self.update_all_table()
                 
@@ -737,6 +866,45 @@ class ServerDataGUI:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load file:\n{str(e)}")
                 print(f"✗ Load error: {e}")
+
+    def save_selected_to_database(self):
+        """Đồng bộ selected list lên database"""
+        def save():
+            try:
+                url = f"{self.api_url}/save_selected_list"
+                payload = {"selected_data": self.selected_data}
+                resp = requests.post(url, json=payload, timeout=10)
+                if resp.status_code == 200:
+                    print(f"✓ Saved {len(self.selected_data)} items to database")
+                else:
+                    print(f"✗ Save error: {resp.status_code}")
+            except Exception as e:
+                print(f"✗ Failed to save to database: {e}")
+        
+        threading.Thread(target=save, daemon=True).start()
+
+    def load_selected_from_database(self):
+        """Load selected list từ database"""
+        def load():
+            try:
+                url = f"{self.api_url}/load_selected_list"
+                resp = requests.get(url, timeout=10)
+                if resp.status_code == 200:
+                    loaded_data = resp.json()
+                    if isinstance(loaded_data, list):
+                        self.selected_data = loaded_data
+                        print(f"✓ Loaded {len(self.selected_data)} items from database")
+                        # Update UI
+                        self.root.after(0, self.update_selected_table)
+                        self.root.after(0, self.update_all_table)
+                    else:
+                        print("⚠ Invalid data format from database")
+                else:
+                    print(f"✗ Load error: {resp.status_code}")
+            except Exception as e:
+                print(f"✗ Failed to load from database: {e}")
+        
+        threading.Thread(target=load, daemon=True).start()
 
     def on_double_click(self, event):
         """Not used with custom table"""

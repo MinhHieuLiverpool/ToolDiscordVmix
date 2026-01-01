@@ -40,6 +40,7 @@ try:
     )
     db = client[DATABASE_NAME]
     collection = db[COLLECTION_NAME]
+    selected_collection = db['selected_list']  # Collection mới cho selected list
     client.admin.command('ping')
     print("✓ Connected to MongoDB successfully!")
 except Exception as e:
@@ -68,24 +69,12 @@ def send_discord_notification(machine_name: str, ipwan: str, port: str, status: 
     try:
         import requests
         
-        # Tạo embed message
-        color = 0x00ff00 if status == "ON" else 0xff0000  # Green for ON, Red for OFF
-        embed = {
-            "embeds": [{
-                "title": f"🎥 vMix Status Change",
-                "color": color,
-                "fields": [
-                    {"name": "Machine", "value": machine_name, "inline": True},
-                    {"name": "Status", "value": f"**{status}**", "inline": True},
-                    {"name": "IP WAN", "value": ipwan, "inline": True},
-                    {"name": "Port", "value": str(port), "inline": True}
-                ],
-                "timestamp": datetime.now(VIETNAM_TZ).isoformat()
-            }]
-        }
+        # Gửi text đơn giản thay vì embed
+        message = f"[{machine_name}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
+        payload = {"content": message}
         
-        response = requests.post(DISCORD_WEBHOOK, json=embed, timeout=5)
-        if response.status_code == 204:
+        response = requests.post(DISCORD_WEBHOOK, json=payload, timeout=5)
+        if response.status_code in [200, 204]:
             print(f"✓ Discord notification sent for {machine_name}")
         else:
             print(f"⚠ Discord webhook failed: {response.status_code}")
@@ -148,14 +137,20 @@ async def receive_data(data: dict):
         changed_fields = []
         
         if existing:
-            # So sánh từng field quan trọng
-            fields_to_check = ['ip', 'ipwan', 'status', 'port', 'name', 'statusapp']
+            # So sánh từng field quan trọng (KHÔNG bao gồm statusapp để tránh spam)
+            fields_to_check = ['ip', 'ipwan', 'status', 'port', 'name']
             for field in fields_to_check:
                 old_value = existing.get(field)
                 new_value = data.get(field)
                 if old_value != new_value:
                     has_changes = True
                     changed_fields.append(f"{field}: {old_value} → {new_value}")
+            
+            # Kiểm tra statusapp riêng nhưng không tính là thay đổi quan trọng
+            old_statusapp = existing.get('statusapp')
+            new_statusapp = data.get('statusapp')
+            if old_statusapp != new_statusapp:
+                print(f"  ℹ️  statusapp changed: {old_statusapp} → {new_statusapp} (không gửi Discord)")
         else:
             has_changes = True
             changed_fields.append("New machine added")
@@ -178,20 +173,14 @@ async def receive_data(data: dict):
             upsert=True
         )
         
-        # Nếu có thay đổi thì log và gửi Discord
+        # Nếu có thay đổi QUAN TRỌNG thì log
         if has_changes:
             print(f"⚠ Changes detected for {machine_name}:")
             for change in changed_fields:
                 print(f"  - {change}")
             
-            # Gửi Discord notification
-            if DISCORD_WEBHOOK and data.get('status'):
-                send_discord_notification(
-                    machine_name,
-                    data.get('ipwan', 'Unknown'),
-                    data.get('port', 'N/A'),
-                    data.get('status', 'UNKNOWN')
-                )
+            # KHÔNG gửi Discord từ server nữa - để GUI tự quản lý
+            # Discord notification bây giờ được gửi từ GUI với logic chống spam
         
         # Broadcast update to all WebSocket clients
         await broadcast_updates()
@@ -323,6 +312,48 @@ async def update_ip(payload: dict):
     except Exception as e:
         print(f"✗ Update IP error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/save_selected_list")
+async def save_selected_list(payload: dict):
+    """Lưu selected list vào database"""
+    try:
+        selected_data = payload.get('selected_data', [])
+        
+        # Xóa toàn bộ selected list cũ và lưu mới
+        selected_collection.delete_many({})
+        
+        if selected_data:
+            selected_collection.insert_many(selected_data)
+            print(f"✓ Saved {len(selected_data)} items to selected list")
+        else:
+            print("✓ Cleared selected list")
+        
+        return JSONResponse(content={
+            "success": True, 
+            "count": len(selected_data),
+            "message": f"Saved {len(selected_data)} items"
+        })
+    except Exception as e:
+        print(f"✗ Save selected list error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/load_selected_list")
+async def load_selected_list():
+    """Load selected list từ database"""
+    try:
+        documents = selected_collection.find()
+        entries = []
+        
+        for doc in documents:
+            # Remove _id field from MongoDB
+            doc.pop('_id', None)
+            entries.append(doc)
+        
+        print(f"✓ Loaded {len(entries)} items from selected list")
+        return JSONResponse(content=entries)
+    except Exception as e:
+        print(f"✗ Load selected list error: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

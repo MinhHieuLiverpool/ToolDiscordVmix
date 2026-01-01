@@ -107,26 +107,6 @@ class VmixMonitorGUI:
         )
         self.ip_entry.pack(side=LEFT, padx=(0, 5))
         
-        # Refresh IP button
-        refresh_ip_btn = ttk.Button(
-            ip_frame,
-            text="🔄",
-            command=self.refresh_ip,
-            bootstyle="info-outline",
-            width=3
-        )
-        refresh_ip_btn.pack(side=LEFT, padx=(0, 5))
-        
-        # Import from old IP button
-        import_btn = ttk.Button(
-            ip_frame,
-            text="📥",
-            command=self.show_import_dialog,
-            bootstyle="warning-outline",
-            width=3
-        )
-        import_btn.pack(side=LEFT)
-        
         # === ADD PORT SECTION ===
         add_frame = ttk.Labelframe(
             main_frame, 
@@ -173,14 +153,14 @@ class VmixMonitorGUI:
         self.port_entry.grid(row=0, column=3, padx=5, pady=5)
         
         # Add button
-        add_btn = ttk.Button(
+        self.add_btn = ttk.Button(
             input_grid, 
             text="➕ Thêm", 
             command=self.add_port_entry,
             bootstyle="success",
             width=12
         )
-        add_btn.grid(row=0, column=4, padx=10, pady=5)
+        self.add_btn.grid(row=0, column=4, padx=10, pady=5)
         
         input_grid.columnconfigure(1, weight=1)
         
@@ -469,7 +449,7 @@ class VmixMonitorGUI:
             self.log(f"📥 Đang import data từ IP {old_ip}...")
             
             # Lấy data từ IP cũ
-            url = f"https://tooldiscordvmix.onrender.com/get_by_ip?ip={old_ip}"
+            url = f"http://localhost:8088/get_by_ip?ip={old_ip}"
             response = requests.get(url, timeout=20)
             
             if response.status_code == 200:
@@ -526,7 +506,7 @@ class VmixMonitorGUI:
                 "port": port,
                 "name": name
             }
-            url = "https://tooldiscordvmix.onrender.com/update_ip"
+            url = "http://localhost:8088/update_ip"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=10)
             
@@ -576,7 +556,7 @@ class VmixMonitorGUI:
                     "port": entry['port'],
                     "name": entry['name']
                 }
-                url = "https://tooldiscordvmix.onrender.com/update_ip"
+                url = "http://localhost:8088/update_ip"
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, json=data, headers=headers, timeout=10)
                 
@@ -601,7 +581,7 @@ class VmixMonitorGUI:
         start_time = time.time()
         
         try:
-            url = "https://tooldiscordvmix.onrender.com/"
+            url = "http://localhost:8088/"
             response = requests.get(url, timeout=30)
             elapsed = time.time() - start_time
             
@@ -623,7 +603,7 @@ class VmixMonitorGUI:
         import requests
         try:
             ip = self.ip_var.get().strip()
-            url = f"https://tooldiscordvmix.onrender.com/get_by_ip?ip={ip}"
+            url = f"http://localhost:8088/get_by_ip?ip={ip}"
             self.log(f"⏳ Đang tải dữ liệu từ server...")
             response = requests.get(url, timeout=20)
             
@@ -810,7 +790,7 @@ class VmixMonitorGUI:
                 "ip": ip,
                 "port": port
             }
-            url = "https://tooldiscordvmix.onrender.com/delete"
+            url = "http://localhost:8088/delete"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=15)
             if response.status_code == 200:
@@ -841,7 +821,7 @@ class VmixMonitorGUI:
                     "ip": current_ip,  # Dùng IP hiện tại của máy này
                     "port": entry['port']
                 }
-                url = "https://tooldiscordvmix.onrender.com/delete"
+                url = "http://localhost:8088/delete"
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, json=data, headers=headers, timeout=10)
                 if response.status_code == 200:
@@ -877,7 +857,7 @@ class VmixMonitorGUI:
                     "port": entry['port'],
                     "statusapp": status_value  # App status: 1=ON, 0=OFF
                 }
-                url = "https://tooldiscordvmix.onrender.com"
+                url = "http://localhost:8088"
                 headers = {"Content-Type": "application/json"}
                 
                 # Retry logic (3 attempts)
@@ -927,6 +907,10 @@ class VmixMonitorGUI:
             self.start_btn.config(text="⏹️ STOP MONITORING", bootstyle="danger")
             self.status_label.config(text="● Running", bootstyle="success")
             self.delete_btn.config(state=tk.DISABLED)  # Disable nút xóa khi START
+            # Disable input và nút thêm
+            self.name_entry.config(state=tk.DISABLED)
+            self.port_entry.config(state=tk.DISABLED)
+            self.add_btn.config(state=tk.DISABLED)
             self.log("✅ Bắt đầu gửi dữ liệu...")
             # Gửi statusapp = 1 (ON)
             threading.Thread(target=lambda: self.send_app_status(1), daemon=True).start()
@@ -940,12 +924,30 @@ class VmixMonitorGUI:
             self.start_btn.config(text="▶️ START MONITORING", bootstyle="success")
             self.status_label.config(text="● Stopped", bootstyle="secondary")
             self.delete_btn.config(state=tk.NORMAL)  # Enable lại nút xóa khi STOP
+            # Enable lại input và nút thêm
+            self.name_entry.config(state=tk.NORMAL)
+            self.port_entry.config(state=tk.NORMAL)
+            self.add_btn.config(state=tk.NORMAL)
     
     def stop_and_cleanup(self):
         """Dừng và cập nhật trạng thái: chỉ gửi statusapp=0"""
         # Gửi statusapp = 0 (OFF)
         self.send_app_status(0)
         self.log("Đã dừng và cập nhật trạng thái OFF.")
+
+    def update_table_display(self):
+        """Cập nhật lại table hiển thị với dữ liệu mới từ port_list"""
+        # Clear table
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        # Reload từ port_list
+        for entry in self.port_list:
+            name = entry['name']
+            ip = entry['ip']
+            ipwan = entry['ipwan']
+            port = entry['port']
+            self.tree.insert("", tk.END, values=(name, ip, ipwan, port))
 
 
     def is_vmix_on_port(self, port):
@@ -1015,8 +1017,8 @@ class VmixMonitorGUI:
         prev_status = {}  # {port: "ON"/"OFF"}
         last_wan_check = datetime.now(VIETNAM_TZ)
         last_ip_check = datetime.now(VIETNAM_TZ)
-        wan_refresh_sec = 300  # Refresh WAN IP every 5 minutes
-        ip_check_sec = 60  # Check local IP every 60 seconds
+        wan_refresh_sec = 30  # Refresh WAN IP every 30 seconds
+        ip_check_sec = 5  # Check local IP every 5 seconds
         
         self.log(f"Bắt đầu giám sát {len(self.port_list)} port(s)...")
         
@@ -1032,10 +1034,32 @@ class VmixMonitorGUI:
                     ip = new_local_ip
                     # Update UI và database
                     self.root.after(0, lambda: self.ip_var.set(new_local_ip))
-                    threading.Thread(target=lambda: self.update_ip_in_database(old_ip, new_local_ip), daemon=True).start()
                     # Update port_list
                     for entry in self.port_list:
                         entry['ip'] = new_local_ip
+                    # Update table display
+                    self.root.after(0, self.update_table_display)
+                    # GỬI NGAY data mới lên server với IP mới
+                    for entry in self.port_list:
+                        port = entry['port']
+                        name = entry['name']
+                        current_status = "ON" if self.is_vmix_on_port(port) else "OFF"
+                        try:
+                            data = {
+                                "name": name,
+                                "ip": new_local_ip,
+                                "ipwan": wan_ip,
+                                "status": current_status,
+                                "port": port,
+                                "statusapp": 1
+                            }
+                            url = "http://localhost:8088"
+                            headers = {"Content-Type": "application/json"}
+                            response = requests.post(url, json=data, headers=headers, timeout=10)
+                            if response.status_code == 200:
+                                self.log(f"✅ Đã cập nhật IP mới: {name}")
+                        except Exception as e:
+                            self.log(f"❌ Lỗi update IP: {name}")
                 last_ip_check = now
             
             # Check if WAN IP needs refresh
@@ -1047,6 +1071,29 @@ class VmixMonitorGUI:
                     # Update port_list
                     for entry in self.port_list:
                         entry['ipwan'] = new_wan
+                    # Update table display
+                    self.root.after(0, self.update_table_display)
+                    # GỬI NGAY data mới lên server với IPWAN mới
+                    for entry in self.port_list:
+                        port = entry['port']
+                        name = entry['name']
+                        current_status = "ON" if self.is_vmix_on_port(port) else "OFF"
+                        try:
+                            data = {
+                                "name": name,
+                                "ip": ip,
+                                "ipwan": new_wan,
+                                "status": current_status,
+                                "port": port,
+                                "statusapp": 1
+                            }
+                            url = "http://localhost:8088"
+                            headers = {"Content-Type": "application/json"}
+                            response = requests.post(url, json=data, headers=headers, timeout=10)
+                            if response.status_code == 200:
+                                self.log(f"✅ Đã cập nhật IPWAN mới: {name}")
+                        except Exception as e:
+                            self.log(f"❌ Lỗi update IPWAN: {name}")
                 last_wan_check = now
             
             # Check each port
@@ -1069,7 +1116,7 @@ class VmixMonitorGUI:
                             "port": port,
                             "statusapp": 1  # App is running (1=ON)
                         }
-                        url = "https://tooldiscordvmix.onrender.com"
+                        url = "http://localhost:8088"
                         headers = {"Content-Type": "application/json"}
                         response = requests.post(url, json=data, headers=headers, timeout=15)
                         if response.status_code == 200:
