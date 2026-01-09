@@ -61,9 +61,6 @@ app.add_middleware(
 # Store active WebSocket connections
 active_connections: List[WebSocket] = []
 
-# In-memory storage for ping data
-ping_data_store = {}  # machine_ip -> {"machine_name": str, "records": list}
-
 def send_discord_notification(machine_name: str, ipwan: str, port: str, status: str):
     """Gửi notification lên Discord (nếu có webhook)"""
     if not DISCORD_WEBHOOK:
@@ -402,86 +399,6 @@ async def broadcast_updates():
     # Remove disconnected clients
     for connection in disconnected:
         active_connections.remove(connection)
-
-# ==================== PING ENDPOINTS ====================
-
-@app.post("/ping")
-async def receive_ping_data(data: dict):
-    """Nhận dữ liệu ping từ client"""
-    try:
-        machine_name = data.get('machine_name', '')
-        machine_ip = data.get('machine_ip', '')
-        ping_data = data.get('ping_data', [])
-        timestamp = data.get('timestamp', datetime.now(VIETNAM_TZ).isoformat())
-        
-        if not machine_ip:
-            return JSONResponse(content={"error": "machine_ip is required"}, status_code=400)
-        
-        # Lưu vào store
-        if machine_ip not in ping_data_store:
-            ping_data_store[machine_ip] = {
-                "machine_name": machine_name,
-                "records": []
-            }
-        
-        # Thêm record mới
-        record = {
-            "timestamp": timestamp,
-            "ping_data": ping_data
-        }
-        ping_data_store[machine_ip]["records"].append(record)
-        ping_data_store[machine_ip]["machine_name"] = machine_name
-        
-        # Giữ tối đa 500 records mỗi máy
-        max_records = 500
-        if len(ping_data_store[machine_ip]["records"]) > max_records:
-            ping_data_store[machine_ip]["records"] = ping_data_store[machine_ip]["records"][-max_records:]
-        
-        return JSONResponse(content={
-            "success": True,
-            "message": f"Received ping data from {machine_name} ({machine_ip})"
-        })
-        
-    except Exception as e:
-        print(f"✗ Ping data error: {e}")
-        return JSONResponse(content={"error": str(e)}, status_code=500)
-
-
-@app.get("/ping")
-async def get_all_ping_data():
-    """Lấy tất cả dữ liệu ping"""
-    try:
-        result = []
-        for machine_ip, data in ping_data_store.items():
-            result.append({
-                "machine_ip": machine_ip,
-                "machine_name": data.get("machine_name", ""),
-                "records": data.get("records", [])[-100:]  # Return last 100 records
-            })
-        return JSONResponse(content=result)
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
-
-
-@app.get("/ping/{machine_ip:path}")
-async def get_ping_by_ip(machine_ip: str):
-    """Lấy dữ liệu ping theo IP máy"""
-    try:
-        if machine_ip in ping_data_store:
-            data = ping_data_store[machine_ip]
-            return JSONResponse(content={
-                "machine_ip": machine_ip,
-                "machine_name": data.get("machine_name", ""),
-                "records": data.get("records", [])[-100:]
-            })
-        else:
-            return JSONResponse(content={
-                "machine_ip": machine_ip,
-                "machine_name": "",
-                "records": []
-            })
-    except Exception as e:
-        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 if __name__ == "__main__":
     import uvicorn

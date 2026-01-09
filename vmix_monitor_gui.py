@@ -13,9 +13,6 @@ import pystray
 import socket
 import sys
 
-# Import ping service
-from ping import PingService, GOOGLE_DNS
-
 # Timezone configuration - Vietnam
 VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 
@@ -52,12 +49,6 @@ class VmixMonitorGUI:
         self.log_queue = queue.Queue()
         self.tray_icon = None
         self.port_list = []  # Danh sách các port entries
-        
-        # Ping service
-        self.ping_service = PingService()
-        self.ping_targets = [GOOGLE_DNS]  # Mặc định ping Google DNS
-        self.ping_enabled = True  # Bật ping monitoring
-        
         self.setup_ui()
         self.setup_tray()
         self.check_log_queue()
@@ -267,37 +258,6 @@ class VmixMonitorGUI:
             bootstyle="secondary"
         )
         self.status_label.pack(pady=(5, 0))
-        
-        # === PING STATUS SECTION ===
-        ping_frame = ttk.Labelframe(
-            main_frame,
-            text="📡 Network Status",
-            padding=10,
-            bootstyle="warning"
-        )
-        ping_frame.pack(fill=X, pady=(0, 15))
-        
-        ping_row = ttk.Frame(ping_frame)
-        ping_row.pack(fill=X)
-        
-        # Ping to Google DNS
-        ttk.Label(ping_row, text="🌐 Google (8.8.8.8):", font=('Segoe UI', 10, 'bold')).pack(side=LEFT, padx=5)
-        self.ping_google_label = ttk.Label(ping_row, text="-- ms", font=('Segoe UI', 10, 'bold'), bootstyle="secondary")
-        self.ping_google_label.pack(side=LEFT, padx=10)
-        
-        ttk.Label(ping_row, text="🏠 Gateway:", font=('Segoe UI', 10, 'bold')).pack(side=LEFT, padx=(20, 5))
-        self.ping_gateway_label = ttk.Label(ping_row, text="-- ms", font=('Segoe UI', 10, 'bold'), bootstyle="secondary")
-        self.ping_gateway_label.pack(side=LEFT, padx=10)
-        
-        # Ping toggle checkbox
-        self.ping_enabled_var = tk.BooleanVar(value=True)
-        ping_check = ttk.Checkbutton(
-            ping_row,
-            text="Enable Ping",
-            variable=self.ping_enabled_var,
-            bootstyle="success-round-toggle"
-        )
-        ping_check.pack(side=RIGHT, padx=10)
 
         # === LOG SECTION ===
         log_frame = ttk.Labelframe(
@@ -489,7 +449,7 @@ class VmixMonitorGUI:
             self.log(f"📥 Đang import data từ IP {old_ip}...")
             
             # Lấy data từ IP cũ
-            url = f"http://localhost:8088/get_by_ip?ip={old_ip}"
+            url = f"https://tooldiscordvmix.onrender.com/get_by_ip?ip={old_ip}"
             response = requests.get(url, timeout=20)
             
             if response.status_code == 200:
@@ -546,7 +506,7 @@ class VmixMonitorGUI:
                 "port": port,
                 "name": name
             }
-            url = "http://localhost:8088/update_ip"
+            url = "https://tooldiscordvmix.onrender.com/update_ip"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=10)
             
@@ -596,7 +556,7 @@ class VmixMonitorGUI:
                     "port": entry['port'],
                     "name": entry['name']
                 }
-                url = "http://localhost:8088/update_ip"
+                url = "https://tooldiscordvmix.onrender.com/update_ip"
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, json=data, headers=headers, timeout=10)
                 
@@ -621,7 +581,7 @@ class VmixMonitorGUI:
         start_time = time.time()
         
         try:
-            url = "http://localhost:8088/"
+            url = "https://tooldiscordvmix.onrender.com/"
             response = requests.get(url, timeout=30)
             elapsed = time.time() - start_time
             
@@ -643,7 +603,7 @@ class VmixMonitorGUI:
         import requests
         try:
             ip = self.ip_var.get().strip()
-            url = f"http://localhost:8088/get_by_ip?ip={ip}"
+            url = f"https://tooldiscordvmix.onrender.com/get_by_ip?ip={ip}"
             self.log(f"⏳ Đang tải dữ liệu từ server...")
             response = requests.get(url, timeout=20)
             
@@ -695,7 +655,7 @@ class VmixMonitorGUI:
         import requests
         try:
             # Get all data from database
-            url = "http://localhost:8088/"
+            url = "https://tooldiscordvmix.onrender.com/"
             response = requests.get(url, timeout=10)
             
             if response.status_code == 200:
@@ -830,7 +790,7 @@ class VmixMonitorGUI:
                 "ip": ip,
                 "port": port
             }
-            url = "http://localhost:8088/delete"
+            url = "https://tooldiscordvmix.onrender.com/delete"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=15)
             if response.status_code == 200:
@@ -861,7 +821,7 @@ class VmixMonitorGUI:
                     "ip": current_ip,  # Dùng IP hiện tại của máy này
                     "port": entry['port']
                 }
-                url = "http://localhost:8088/delete"
+                url = "https://tooldiscordvmix.onrender.com/delete"
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, json=data, headers=headers, timeout=10)
                 if response.status_code == 200:
@@ -897,7 +857,7 @@ class VmixMonitorGUI:
                     "port": entry['port'],
                     "statusapp": status_value  # App status: 1=ON, 0=OFF
                 }
-                url = "http://localhost:8088"
+                url = "https://tooldiscordvmix.onrender.com"
                 headers = {"Content-Type": "application/json"}
                 
                 # Retry logic (3 attempts)
@@ -956,15 +916,9 @@ class VmixMonitorGUI:
             threading.Thread(target=lambda: self.send_app_status(1), daemon=True).start()
             self.monitor_thread = threading.Thread(target=self.monitor_loop, daemon=True)
             self.monitor_thread.start()
-            
-            # Start ping monitoring
-            if self.ping_enabled_var.get():
-                self.start_ping_monitoring()
         else:
             self.is_running = False
             self.log("⏹️ Đang dừng và cập nhật trạng thái...")
-            # Stop ping monitoring
-            self.stop_ping_monitoring()
             # Bước 1: Gửi statusapp = 0 (OFF) để frontend fetch trước
             threading.Thread(target=self.stop_and_cleanup, daemon=True).start()
             self.start_btn.config(text="▶️ START MONITORING", bootstyle="success")
@@ -974,94 +928,6 @@ class VmixMonitorGUI:
             self.name_entry.config(state=tk.NORMAL)
             self.port_entry.config(state=tk.NORMAL)
             self.add_btn.config(state=tk.NORMAL)
-    
-    def start_ping_monitoring(self):
-        """Bắt đầu ping monitoring"""
-        try:
-            # Lấy gateway IP
-            gateway = self.get_default_gateway()
-            if gateway:
-                self.ping_targets = [GOOGLE_DNS, gateway]
-            else:
-                self.ping_targets = [GOOGLE_DNS]
-            
-            machine_name = self.port_list[0]['name'] if self.port_list else "Unknown"
-            machine_ip = self.ip_var.get().strip()
-            
-            # Callback khi có kết quả ping
-            def on_ping_result(results):
-                self.root.after(0, lambda: self.update_ping_display(results))
-            
-            self.ping_service.start_monitoring(
-                targets=self.ping_targets,
-                machine_name=machine_name,
-                machine_ip=machine_ip,
-                interval=5,
-                on_result=on_ping_result
-            )
-            self.log(f"📡 Bắt đầu ping monitoring: {', '.join(self.ping_targets)}")
-        except Exception as e:
-            self.log(f"❌ Lỗi start ping: {str(e)}")
-    
-    def stop_ping_monitoring(self):
-        """Dừng ping monitoring"""
-        try:
-            self.ping_service.stop_monitoring()
-            self.ping_google_label.config(text="-- ms", bootstyle="secondary")
-            self.ping_gateway_label.config(text="-- ms", bootstyle="secondary")
-        except Exception as e:
-            pass
-    
-    def update_ping_display(self, results):
-        """Cập nhật hiển thị ping trên UI"""
-        try:
-            for target, result in results.items():
-                if target == GOOGLE_DNS:
-                    if result.success:
-                        latency = result.latency_ms
-                        if latency < 50:
-                            style = "success"
-                        elif latency < 100:
-                            style = "warning"
-                        else:
-                            style = "danger"
-                        self.ping_google_label.config(text=f"{latency:.0f} ms", bootstyle=style)
-                    else:
-                        self.ping_google_label.config(text="Timeout", bootstyle="danger")
-                else:
-                    # Gateway
-                    if result.success:
-                        latency = result.latency_ms
-                        if latency < 10:
-                            style = "success"
-                        elif latency < 50:
-                            style = "warning"
-                        else:
-                            style = "danger"
-                        self.ping_gateway_label.config(text=f"{latency:.0f} ms", bootstyle=style)
-                    else:
-                        self.ping_gateway_label.config(text="Timeout", bootstyle="danger")
-        except Exception as e:
-            pass
-    
-    def get_default_gateway(self):
-        """Lấy địa chỉ gateway mặc định"""
-        try:
-            result = subprocess.run(
-                ['ipconfig'],
-                capture_output=True,
-                text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
-            
-            import re
-            # Tìm Default Gateway
-            matches = re.findall(r'Default Gateway[.\s]*:\s*(\d+\.\d+\.\d+\.\d+)', result.stdout)
-            if matches:
-                return matches[0]
-            return None
-        except Exception:
-            return None
     
     def stop_and_cleanup(self):
         """Dừng và cập nhật trạng thái: chỉ gửi statusapp=0"""
@@ -1187,7 +1053,7 @@ class VmixMonitorGUI:
                                 "port": port,
                                 "statusapp": 1
                             }
-                            url = "http://localhost:8088"
+                            url = "https://tooldiscordvmix.onrender.com"
                             headers = {"Content-Type": "application/json"}
                             response = requests.post(url, json=data, headers=headers, timeout=10)
                             if response.status_code == 200:
@@ -1221,7 +1087,7 @@ class VmixMonitorGUI:
                                 "port": port,
                                 "statusapp": 1
                             }
-                            url = "http://localhost:8088"
+                            url = "https://tooldiscordvmix.onrender.com"
                             headers = {"Content-Type": "application/json"}
                             response = requests.post(url, json=data, headers=headers, timeout=10)
                             if response.status_code == 200:
@@ -1250,7 +1116,7 @@ class VmixMonitorGUI:
                             "port": port,
                             "statusapp": 1  # App is running (1=ON)
                         }
-                        url = "http://localhost:8088"
+                        url = "https://tooldiscordvmix.onrender.com"
                         headers = {"Content-Type": "application/json"}
                         response = requests.post(url, json=data, headers=headers, timeout=15)
                         if response.status_code == 200:
