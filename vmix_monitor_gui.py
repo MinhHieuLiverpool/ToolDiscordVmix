@@ -1017,7 +1017,7 @@ class VmixMonitorGUI:
         prev_status = {}  # {port: "ON"/"OFF"}
         last_wan_check = datetime.now(VIETNAM_TZ)
         last_ip_check = datetime.now(VIETNAM_TZ)
-        wan_refresh_sec = 30  # Refresh WAN IP every 30 seconds
+        wan_refresh_sec = 5  # Refresh WAN IP every 5 seconds
         ip_check_sec = 5  # Check local IP every 5 seconds
         
         self.log(f"Bắt đầu giám sát {len(self.port_list)} port(s)...")
