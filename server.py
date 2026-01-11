@@ -118,6 +118,12 @@ def get_all_logs():
         return []
 
 @app.get("/")
+async def health_check():
+    """Health check endpoint for UptimeRobot - trả về text đơn giản"""
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse("I am alive!")
+
+@app.get("/logs")
 async def get_all_data():
     """GET endpoint - lấy tất cả dữ liệu"""
     return JSONResponse(content=get_all_logs())

@@ -581,7 +581,7 @@ class VmixMonitorGUI:
         start_time = time.time()
         
         try:
-            url = "https://tooldiscordvmix.onrender.com/"
+            url = "https://tooldiscordvmix.onrender.com/logs"
             response = requests.get(url, timeout=30)
             elapsed = time.time() - start_time
             
@@ -655,7 +655,7 @@ class VmixMonitorGUI:
         import requests
         try:
             # Get all data from database
-            url = "https://tooldiscordvmix.onrender.com/"
+            url = "https://tooldiscordvmix.onrender.com/logs"
             response = requests.get(url, timeout=10)
             
             if response.status_code == 200:

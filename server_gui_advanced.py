@@ -32,7 +32,7 @@ class ServerDataGUI:
         self.root.title("Server Log Viewer - Dual Panel")
         self.root.geometry("1800x700")
 
-        self.api_url = "https://tooldiscordvmix.onrender.com"
+        self.api_url = "https://tooldiscordvmix.onrender.com/logs"
         self.ws_url = "wss://tooldiscordvmix.onrender.com/ws"
         self.webhook_var = ctk.StringVar(value="https://discord.com/api/webhooks/1448559948408684669/s6plN6AIy9IFBo6coyNCF9YmmHIfIIVe-tEntpPnArRGI0JdIyl1pCz10rL5TyTP1JV6")
         self.prefix_var = ctk.StringVar(value="SRT")
