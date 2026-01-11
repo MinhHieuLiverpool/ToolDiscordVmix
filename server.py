@@ -87,7 +87,6 @@ def get_all_logs():
         # Sort theo last_updated (format cũ) hoặc timestamp
         documents = collection.find().sort("last_updated", DESCENDING).limit(200)
         entries = []
-        current_time = datetime.now(VIETNAM_TZ)
         
         for doc in documents:
             # Debug: Print first doc
@@ -99,40 +98,16 @@ def get_all_logs():
                 print(f"  port: {doc.get('port', 'N/A')}")
                 print(f"  status: {doc.get('status', 'N/A')}")
             
-            # Check timeout: nếu không update trong 60s thì set statusapp=OFF
-            statusapp = doc.get("statusapp", 0)
-            last_updated_str = doc.get("last_updated", doc.get("timestamp", ""))
-            
-            if statusapp == 1 and last_updated_str:
-                try:
-                    last_updated = datetime.fromisoformat(last_updated_str)
-                    if last_updated.tzinfo is None:
-                        last_updated = VIETNAM_TZ.localize(last_updated)
-                    
-                    time_diff = (current_time - last_updated).total_seconds()
-                    
-                    # Nếu quá 60 giây không update => set statusapp=OFF
-                    if time_diff > 60:
-                        statusapp = 0
-                        # Update database ngay
-                        collection.update_one(
-                            {"_id": doc["_id"]},
-                            {"$set": {"statusapp": 0}}
-                        )
-                        print(f"⏱️ Timeout detected: {doc.get('name', 'Unknown')} - Set statusapp=OFF (idle {time_diff:.0f}s)")
-                except Exception as e:
-                    print(f"⚠️ Error checking timeout for {doc.get('name', 'Unknown')}: {e}")
-            
             # Format lại để tương thích với GUI
             entry = {
-                "timestamp": last_updated_str,
+                "timestamp": doc.get("last_updated", doc.get("timestamp", "")),
                 "data": {
                     "name": doc.get("name", ""),
                     "ip": doc.get("ip", ""),
                     "ipwan": doc.get("ipwan", ""),
                     "status": doc.get("status", ""),
                     "port": doc.get("port", ""),
-                    "statusapp": statusapp
+                    "statusapp": doc.get("statusapp", 0)
                 }
             }
             entries.append(entry)
@@ -263,42 +238,17 @@ async def get_by_ip(ip: str):
     try:
         documents = collection.find({"ip": ip})
         entries = []
-        current_time = datetime.now(VIETNAM_TZ)
         
         for doc in documents:
-            # Check timeout: nếu không update trong 60s thì set statusapp=OFF
-            statusapp = doc.get("statusapp", 0)
-            last_updated_str = doc.get("last_updated", doc.get("timestamp", ""))
-            
-            if statusapp == 1 and last_updated_str:
-                try:
-                    last_updated = datetime.fromisoformat(last_updated_str)
-                    if last_updated.tzinfo is None:
-                        last_updated = VIETNAM_TZ.localize(last_updated)
-                    
-                    time_diff = (current_time - last_updated).total_seconds()
-                    
-                    # Nếu quá 60 giây không update => set statusapp=OFF
-                    if time_diff > 60:
-                        statusapp = 0
-                        # Update database ngay
-                        collection.update_one(
-                            {"_id": doc["_id"]},
-                            {"$set": {"statusapp": 0}}
-                        )
-                        print(f"⏱️ Timeout detected: {doc.get('name', 'Unknown')} - Set statusapp=OFF (idle {time_diff:.0f}s)")
-                except Exception as e:
-                    print(f"⚠️ Error checking timeout for {doc.get('name', 'Unknown')}: {e}")
-            
             entry = {
-                "timestamp": last_updated_str,
+                "timestamp": doc.get("last_updated", doc.get("timestamp", "")),
                 "data": {
                     "name": doc.get("name", ""),
                     "ip": doc.get("ip", ""),
                     "ipwan": doc.get("ipwan", ""),
                     "status": doc.get("status", ""),
                     "port": doc.get("port", ""),
-                    "statusapp": statusapp
+                    "statusapp": doc.get("statusapp", 0)
                 }
             }
             entries.append(entry)
