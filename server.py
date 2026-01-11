@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from pymongo import MongoClient, DESCENDING
 import os
@@ -399,6 +399,60 @@ async def broadcast_updates():
     # Remove disconnected clients
     for connection in disconnected:
         active_connections.remove(connection)
+
+async def check_inactive_machines():
+    """Background task: Kiểm tra và tự động set statusapp = 0 nếu máy không gửi request trong 1 phút"""
+    while True:
+        try:
+            # Chờ 30 giây trước mỗi lần kiểm tra
+            await asyncio.sleep(30)
+            
+            # Lấy thời gian hiện tại
+            now = datetime.now(VIETNAM_TZ)
+            timeout_threshold = now - timedelta(minutes=1)
+            
+            # Tìm tất cả máy có statusapp = 1 (đang ON)
+            active_machines = collection.find({"statusapp": 1})
+            
+            updated_count = 0
+            for machine in active_machines:
+                last_updated_str = machine.get("last_updated", "")
+                
+                if last_updated_str:
+                    try:
+                        # Parse last_updated timestamp
+                        last_updated = datetime.fromisoformat(last_updated_str)
+                        
+                        # Nếu quá 1 phút không update → set statusapp = 0
+                        if last_updated < timeout_threshold:
+                            machine_name = machine.get("name", "Unknown")
+                            ip = machine.get("ip", "")
+                            
+                            # Update statusapp = 0
+                            collection.update_one(
+                                {"_id": machine["_id"]},
+                                {"$set": {"statusapp": 0}}
+                            )
+                            
+                            updated_count += 1
+                            print(f"⏱️  Auto-OFF: {machine_name} ({ip}) - No activity for 1 minute")
+                    
+                    except Exception as e:
+                        print(f"⚠ Error parsing timestamp for {machine.get('name', 'Unknown')}: {e}")
+            
+            # Nếu có máy nào bị auto-off, broadcast update
+            if updated_count > 0:
+                print(f"✓ Auto-OFF applied to {updated_count} machine(s)")
+                await broadcast_updates()
+                
+        except Exception as e:
+            print(f"✗ Error in check_inactive_machines: {e}")
+
+@app.on_event("startup")
+async def startup_event():
+    """Start background tasks when server starts"""
+    asyncio.create_task(check_inactive_machines())
+    print("✓ Background task started: Auto-OFF inactive machines (1 min timeout)")
 
 if __name__ == "__main__":
     import uvicorn

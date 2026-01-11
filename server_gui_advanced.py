@@ -298,10 +298,11 @@ class ServerDataGUI:
             # Disable editing khi đang ON
             self.webhook_entry.configure(state="disabled")
             self.prefix_entry.configure(state="disabled")
-            # Lấy snapshot ban đầu (không gửi ngay để tránh spam)
+            # Lấy snapshot ban đầu
             self.previous_data = self.get_data_snapshot()
             print(f"📸 Đã lưu snapshot ban đầu: {len(self.previous_data)} items")
-            # KHÔNG gửi ngay lập tức nữa - chỉ gửi khi có thay đổi
+            # GỬI TOÀN BỘ LIST NGAY LẦN ĐẦU khi bật ON
+            self.send_full_list_to_discord()
             # Bắt đầu auto-check (chỉ nếu không dùng WebSocket)
             if not self.ws_connected:
                 self.check_for_changes()
@@ -326,6 +327,46 @@ class ServerDataGUI:
             })
         # Sort để đảm bảo thứ tự nhất quán
         return sorted(snapshot, key=lambda x: (x["name"], x["port"]))
+    
+    def send_full_list_to_discord(self):
+        """Gửi TOÀN BỘ list lên Discord khi bật AUTO SEND ON"""
+        webhook = self.webhook_var.get().strip()
+        if not webhook or not self.selected_data:
+            print("⚠ Không có webhook hoặc selected data để gửi")
+            return
+        
+        def send():
+            try:
+                prefix = self.prefix_var.get().strip()
+                messages = []
+                
+                # Thêm tiêu đề
+                now = datetime.now(VIETNAM_TZ)
+                title = f"=== FULL STATUS LIST - {now.strftime('%d/%m/%Y %H:%M:%S')} ==="
+                messages.append(title)
+                
+                # Gửi toàn bộ danh sách
+                for entry in self.selected_data:
+                    d = entry.get("data", {})
+                    name = d.get("name", "")
+                    ipwan = d.get("ipwan", "")
+                    port = d.get("port", "")
+                    status = d.get("status", "")
+                    
+                    msg = f"[{prefix}][{name}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
+                    messages.append(msg)
+                
+                payload = {"content": "\n".join(messages)}
+                
+                resp = requests.post(webhook, json=payload, timeout=10)
+                if resp.status_code in [200, 204]:
+                    print(f"✓ Sent FULL LIST ({len(self.selected_data)} items) to Discord")
+                else:
+                    print(f"✗ Discord error: {resp.status_code}")
+            except Exception as e:
+                print(f"✗ Failed to send full list: {e}")
+        
+        threading.Thread(target=send, daemon=True).start()
     
     def check_for_changes(self):
         """Kiểm tra thay đổi và tự động gửi Discord - CHỈ monitor selected list, KHÔNG refresh bảng trái"""
@@ -357,7 +398,7 @@ class ServerDataGUI:
             self.root.after(5000, self.check_for_changes)
     
     def send_to_discord_auto(self):
-        """Gửi CHỈ những thay đổi về SRT STATUS, IPWAN, IP, PORT lên Discord"""
+        """Gửi CHỈ những item có thay đổi về SRT STATUS hoặc IPWAN lên Discord"""
         # Tránh gửi duplicate nếu đang trong quá trình gửi
         if self.is_sending:
             print("⏳ Đang gửi, bỏ qua request...")
@@ -391,32 +432,32 @@ class ServerDataGUI:
                 prev_dict = {f"{item['name']}:{item['port']}": item for item in self.previous_data}
                 curr_dict = {f"{item['name']}:{item['port']}": item for item in current_snapshot}
                 
-                has_changes = False
+                # Tìm những item có thay đổi về STATUS hoặc IPWAN (KHÔNG BAO GỒM APP STATUS)
+                changed_items = []
                 
-                # Kiểm tra xem có thay đổi không
                 for key, curr_item in curr_dict.items():
                     prev_item = prev_dict.get(key)
                     
+                    # Chỉ check thay đổi về STATUS (SRT) và IPWAN
                     if not prev_item or (
                         prev_item['status'] != curr_item['status'] or
-                        prev_item['ipwan'] != curr_item['ipwan'] or
-                        prev_item['ip'] != curr_item['ip'] or
-                        prev_item['port'] != curr_item['port']
+                        prev_item['ipwan'] != curr_item['ipwan']
                     ):
-                        has_changes = True
-                        break
+                        changed_items.append(curr_item)
+                        if prev_item:
+                            print(f"🔔 Thay đổi [{curr_item['name']}]: Status {prev_item['status']}→{curr_item['status']}, IPWAN {prev_item['ipwan']}→{curr_item['ipwan']}")
                 
-                # Nếu có thay đổi, gửi TOÀN BỘ danh sách
-                if has_changes:
+                # Nếu có thay đổi, chỉ gửi những item thay đổi
+                if changed_items:
                     messages = []
                     
                     # Thêm tiêu đề với thời gian
                     now = datetime.now(VIETNAM_TZ)
-                    title = f"=== STATUS UPDATE - {now.strftime('%d/%m/%Y %H:%M:%S')} ==="
+                    title = f"=== STATUS CHANGED - {now.strftime('%d/%m/%Y %H:%M:%S')} ==="
                     messages.append(title)
                     
-                    # Gửi toàn bộ danh sách selected
-                    for curr_item in current_snapshot:
+                    # Chỉ gửi những item có thay đổi
+                    for curr_item in changed_items:
                         name = curr_item['name']
                         ipwan = curr_item['ipwan']
                         port = curr_item['port']
@@ -429,13 +470,13 @@ class ServerDataGUI:
                     
                     resp = requests.post(webhook, json=payload, timeout=10)
                     if resp.status_code in [200, 204]:
-                        print(f"✓ Sent {len(messages)-1} items to Discord (full status)")
+                        print(f"✓ Sent {len(changed_items)} changed items to Discord")
                         # CẬP NHẬT previous_data sau khi gửi thành công
                         self.previous_data = current_snapshot
                     else:
                         print(f"✗ Discord error: {resp.status_code}")
                 else:
-                    print("✓ Không có item nào thay đổi")
+                    print("✓ Không có item nào thay đổi về STATUS hoặc IPWAN")
                     # Vẫn cập nhật previous_data
                     self.previous_data = current_snapshot
                     

@@ -733,7 +733,6 @@ class VmixMonitorGUI:
             return
         
         ip = self.ip_var.get().strip()
-        wan_ip = self.get_wan_ip()
         
         # Check duplicate - Kiểm tra trùng TÊN MÁY hoặc trùng PORT
         for entry in self.port_list:
@@ -744,17 +743,31 @@ class VmixMonitorGUI:
                 messagebox.showwarning("Cảnh báo", f"Port {port} đã được sử dụng!")
                 return
         
-        # Add to list
-        self.port_list.append({"name": name, "port": port, "ip": ip, "ipwan": wan_ip})
+        # Add to list NGAY (với wan_ip tạm thời là "loading...")
+        self.port_list.append({"name": name, "port": port, "ip": ip, "ipwan": "loading..."})
         
-        # Add to tree
-        self.tree.insert("", tk.END, values=(name, ip, wan_ip, port))
+        # Add to tree NGAY
+        self.tree.insert("", tk.END, values=(name, ip, "loading...", port))
         
         # Clear input fields
         self.name_var.set("")
         self.port_var.set("")
         
         self.log(f"Đã thêm: {name} - {ip} - Port {port}")
+        
+        # Lấy WAN IP bất đồng bộ (async) để KHÔNG block UI
+        def fetch_wan_async():
+            wan_ip = self.get_wan_ip()
+            # Update lại ipwan trong port_list
+            for entry in self.port_list:
+                if entry['name'] == name and entry['port'] == port:
+                    entry['ipwan'] = wan_ip
+                    break
+            # Update lại tree display
+            self.root.after(0, self.update_table_display)
+            self.log(f"✅ Đã cập nhật IPWAN cho {name}: {wan_ip}")
+        
+        threading.Thread(target=fetch_wan_async, daemon=True).start()
     
     def delete_selected(self):
         """Xóa mục đã chọn trong table và xóa trên database"""
@@ -994,7 +1007,8 @@ class VmixMonitorGUI:
         for u in urls:
             try:
                 ip = requests.get(u, timeout=5).text.strip()
-                if ip and ('.' in ip or ':' in ip):
+                # CHỈ lấy IPv4 (có dấu chấm), BỞ QUA IPv6 (có dấu hai chấm)
+                if ip and '.' in ip and ':' not in ip:
                     return ip
             except Exception:
                 pass
