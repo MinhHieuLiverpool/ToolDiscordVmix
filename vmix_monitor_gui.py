@@ -49,6 +49,7 @@ class VmixMonitorGUI:
         self.log_queue = queue.Queue()
         self.tray_icon = None
         self.port_list = []  # Danh sách các port entries
+        self.ping_timeout_count = 0  # Đếm số lần ping 8.8.8.8 timeout trong session
         self.setup_ui()
         self.setup_tray()
         self.check_log_queue()
@@ -61,9 +62,9 @@ class VmixMonitorGUI:
 
     def setup_ui(self):
         # Cố định kích thước cửa sổ
-        win_w, win_h = 900, 700
+        win_w, win_h = 1200, 720
         self.root.geometry(f"{win_w}x{win_h}")
-        self.root.resizable(False, False)
+        self.root.resizable(True, False)
         self.root.update_idletasks()
         x = (self.root.winfo_screenwidth() // 2) - (win_w // 2)
         y = (self.root.winfo_screenheight() // 2) - (win_h // 2)
@@ -178,7 +179,7 @@ class VmixMonitorGUI:
         table_container.pack(fill=BOTH, expand=YES)
         
         # Create Treeview
-        columns = ("name", "ip", "ipwan", "port")
+        columns = ("name", "ip", "ipwan", "port", "ping", "timeout", "cpu", "memory")
         self.tree = ttk.Treeview(
             table_container, 
             columns=columns, 
@@ -188,16 +189,24 @@ class VmixMonitorGUI:
         )
         
         # Headings with icons
-        self.tree.heading("name", text="📌 Tên máy", anchor=CENTER)
-        self.tree.heading("ip", text="🖥️ IP Local", anchor=CENTER)
-        self.tree.heading("ipwan", text="🌐 IP WAN", anchor=CENTER)
-        self.tree.heading("port", text="🔌 Port", anchor=CENTER)
+        self.tree.heading("name",    text="📌 Tên máy",    anchor=CENTER)
+        self.tree.heading("ip",      text="🖥️ IP Local",   anchor=CENTER)
+        self.tree.heading("ipwan",   text="🌐 IP WAN",      anchor=CENTER)
+        self.tree.heading("port",    text="🔌 Port",        anchor=CENTER)
+        self.tree.heading("ping",    text="📡 Ping (ms)",   anchor=CENTER)
+        self.tree.heading("timeout", text="❌ Timeout",     anchor=CENTER)
+        self.tree.heading("cpu",     text="⚡ CPU (%)",     anchor=CENTER)
+        self.tree.heading("memory",  text="💾 RAM (%)",     anchor=CENTER)
         
         # Column widths
-        self.tree.column("name", width=280, anchor=CENTER)
-        self.tree.column("ip", width=180, anchor=CENTER)
-        self.tree.column("ipwan", width=180, anchor=CENTER)
-        self.tree.column("port", width=120, anchor=CENTER)
+        self.tree.column("name",    width=210, anchor=CENTER)
+        self.tree.column("ip",      width=130, anchor=CENTER)
+        self.tree.column("ipwan",   width=130, anchor=CENTER)
+        self.tree.column("port",    width=70,  anchor=CENTER)
+        self.tree.column("ping",    width=90,  anchor=CENTER)
+        self.tree.column("timeout", width=90,  anchor=CENTER)
+        self.tree.column("cpu",     width=90,  anchor=CENTER)
+        self.tree.column("memory",  width=90,  anchor=CENTER)
         
         # Scrollbar
         scrollbar = ttk.Scrollbar(
@@ -474,9 +483,10 @@ class VmixMonitorGUI:
                             
                             if not exists:
                                 # Add to list
-                                self.port_list.append({"name": name, "port": port, "ip": current_ip, "ipwan": ipwan})
+                                self.port_list.append({"name": name, "port": port, "ip": current_ip, "ipwan": ipwan,
+                                                       "ping": '—', "timeout": '0', "cpu": '—', "memory": '—'})
                                 # Add to tree
-                                self.tree.insert("", tk.END, values=(name, current_ip, ipwan, port))
+                                self.tree.insert("", tk.END, values=(name, current_ip, ipwan, port, '—', '0', '—', '—'))  # ping, timeout, cpu, mem
                                 imported_count += 1
                                 
                                 # Update database với IP mới
@@ -619,16 +629,28 @@ class VmixMonitorGUI:
                     loaded_count = 0
                     for entry in data:
                         entry_data = entry.get('data', {})
-                        name = entry_data.get('name', '')
-                        port = entry_data.get('port', 0)
+                        name    = entry_data.get('name', '')
+                        port    = entry_data.get('port', 0)
                         entry_ip = entry_data.get('ip', ip)
-                        ipwan = entry_data.get('ipwan', 'unknown')
+                        ipwan   = entry_data.get('ipwan', 'unknown')
+                        ping    = entry_data.get('ping', None)
+                        temperature = entry_data.get('temperature', None)
+                        memory  = entry_data.get('memory', None)
                         
                         if name and port:
                             # Add to list
-                            self.port_list.append({"name": name, "port": port, "ip": entry_ip, "ipwan": ipwan})
+                            cpu = entry_data.get('temperature', None)  # server lưu cpu% vào field temperature
+                            self.port_list.append({
+                                "name": name, "port": port, "ip": entry_ip, "ipwan": ipwan,
+                                "ping":   f"{ping:.0f}"  if ping   is not None else '—',
+                                "cpu":    f"{cpu:.1f}"   if cpu    is not None else '—',
+                                "memory": f"{memory:.1f}" if memory is not None else '—',
+                            })
                             # Add to tree
-                            self.tree.insert("", tk.END, values=(name, entry_ip, ipwan, port))
+                            ping_str = f"{ping:.0f}"  if ping   is not None else '—'
+                            cpu_str  = f"{cpu:.1f}"   if cpu    is not None else '—'
+                            mem_str  = f"{memory:.1f}" if memory is not None else '—'
+                            self.tree.insert("", tk.END, values=(name, entry_ip, ipwan, port, ping_str, cpu_str, mem_str))
                             loaded_count += 1
                     
                     if loaded_count > 0:
@@ -744,10 +766,11 @@ class VmixMonitorGUI:
                 return
         
         # Add to list NGAY (với wan_ip tạm thời là "loading...")
-        self.port_list.append({"name": name, "port": port, "ip": ip, "ipwan": "loading..."})
+        self.port_list.append({"name": name, "port": port, "ip": ip, "ipwan": "loading...",
+                               "ping": '—', "timeout": '0', "cpu": '—', "memory": '—'})
         
         # Add to tree NGAY
-        self.tree.insert("", tk.END, values=(name, ip, "loading...", port))
+        self.tree.insert("", tk.END, values=(name, ip, "loading...", port, '—', '0', '—', '—'))
         
         # Clear input fields
         self.name_var.set("")
@@ -781,7 +804,7 @@ class VmixMonitorGUI:
             if values:
                 name = values[0]
                 ip = values[1]
-                port = int(values[3])
+                port = int(values[3]) if values[3] else 0
                 
                 # Remove from list
                 self.port_list = [e for e in self.port_list if not (e['name'] == name and e['port'] == port)]
@@ -917,6 +940,7 @@ class VmixMonitorGUI:
                 return
             
             self.is_running = True
+            self.ping_timeout_count = 0  # Reset bộ đếm timeout khi START mới
             self.start_btn.config(text="⏹️ STOP MONITORING", bootstyle="danger")
             self.status_label.config(text="● Running", bootstyle="success")
             self.delete_btn.config(state=tk.DISABLED)  # Disable nút xóa khi START
@@ -956,11 +980,53 @@ class VmixMonitorGUI:
         
         # Reload từ port_list
         for entry in self.port_list:
-            name = entry['name']
-            ip = entry['ip']
-            ipwan = entry['ipwan']
-            port = entry['port']
-            self.tree.insert("", tk.END, values=(name, ip, ipwan, port))
+            name    = entry['name']
+            ip      = entry['ip']
+            ipwan   = entry['ipwan']
+            port    = entry['port']
+            ping    = entry.get('ping', '—')
+            timeout = entry.get('timeout', '0')
+            cpu     = entry.get('cpu', '—')
+            memory  = entry.get('memory', '—')
+            self.tree.insert("", tk.END, values=(name, ip, ipwan, port, ping, timeout, cpu, memory))
+
+    # ── Đo thông số hệ thống ──────────────────────────────────────────────
+    def measure_ping(self, host="8.8.8.8") -> float | None:
+        """Ping tới host, trả về latency (ms) hoặc None nếu lỗi"""
+        import subprocess, re
+        try:
+            result = subprocess.run(
+                ["ping", "-n", "1", "-w", "1000", host],
+                capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=3
+            )
+            match = re.search(r'Average\s*=\s*(\d+)ms', result.stdout)
+            if not match:
+                match = re.search(r'Minimum\s*=\s*(\d+)ms', result.stdout)
+            if match:
+                return float(match.group(1))
+        except Exception:
+            pass
+        return None
+
+    def measure_cpu(self) -> float | None:
+        """Trả về % CPU đang sử dụng (psutil, interval=1s)"""
+        try:
+            import psutil
+            return round(psutil.cpu_percent(interval=1), 1)
+        except Exception:
+            pass
+        return None
+
+    def measure_memory(self) -> float | None:
+        """Trả về % RAM đang dùng"""
+        try:
+            import psutil
+            return round(psutil.virtual_memory().percent, 1)
+        except Exception:
+            pass
+        return None
 
 
     def is_vmix_on_port(self, port):
@@ -1110,51 +1176,79 @@ class VmixMonitorGUI:
                             self.log(f"❌ Lỗi update IPWAN: {name}")
                 last_wan_check = now
             
+            # ── Đo thông số hệ thống (1 lần / vòng lặp, dùng chung cho mọi port) ──
+            ping_ms = self.measure_ping()
+            cpu_pct = self.measure_cpu()
+            mem_pct = self.measure_memory()
+
+            # Theo dõi timeout
+            if ping_ms is None:
+                self.ping_timeout_count += 1
+
+            ping_str    = f"{ping_ms:.0f}" if ping_ms is not None else '—'
+            timeout_str = str(self.ping_timeout_count)
+            cpu_str     = f"{cpu_pct:.1f}" if cpu_pct is not None else '—'
+            mem_str     = f"{mem_pct:.1f}" if mem_pct is not None else '—'
+
             # Check each port
             for entry in self.port_list:
                 port = entry['port']
                 name = entry['name']
+
+                # Cập nhật thông số vào port_list để update_table_display dùng
+                entry['ping']    = ping_str
+                entry['timeout'] = timeout_str
+                entry['cpu']     = cpu_str
+                entry['memory']  = mem_str
                 
                 # Kiểm tra trạng thái thực tế của vMix
                 vmix_running = self.is_vmix_on_port(port)
                 current_status = "ON" if vmix_running else "OFF"
                 
-                # Chỉ gửi khi có thay đổi trạng thái hoặc lần đầu tiên
-                if prev_status.get(port) != current_status:
-                    try:
-                        data = {
-                            "name": name,
-                            "ip": ip,
-                            "ipwan": wan_ip,
-                            "status": current_status,
-                            "port": port,
-                            "statusapp": 1  # App is running (1=ON)
-                        }
-                        url = "https://tooldiscordvmix.onrender.com"
-                        headers = {"Content-Type": "application/json"}
-                        response = requests.post(url, json=data, headers=headers, timeout=15)
-                        if response.status_code == 200:
+                # Luôn gửi (để server nhận ping/temp/mem), nhưng chỉ log khi thay đổi status
+                try:
+                    data = {
+                        "name": name,
+                        "ip": ip,
+                        "ipwan": wan_ip,
+                        "status": current_status,
+                        "port": port,
+                        "statusapp": 1,
+                        # ── Thông số hệ thống ──
+                        "ping": ping_ms,
+                        "ping_timeouts": self.ping_timeout_count,
+                        "temperature": cpu_pct,
+                        "memory": mem_pct,
+                    }
+                    url = "https://tooldiscordvmix.onrender.com"
+                    headers = {"Content-Type": "application/json"}
+                    response = requests.post(url, json=data, headers=headers, timeout=15)
+                    if response.status_code == 200:
+                        if prev_status.get(port) != current_status:
                             icon = "🟢" if current_status == "ON" else "🔴"
                             self.log(f"{icon} SRT {current_status}: {name} {ip}:{port}")
                             prev_status[port] = current_status
-                        elif response.status_code == 500:
-                            error_msg = ""
-                            try:
-                                error_msg = response.json().get('detail', response.text[:100])
-                            except:
-                                error_msg = response.text[:100]
-                            self.log(f"⚠️ Server error 500 ({name}): {error_msg}")
-                        else:
-                            self.log(f"❌ HTTP {response.status_code} gửi {name}")
-                    except requests.exceptions.Timeout:
-                        self.log(f"⏱️ Timeout gửi {name}")
-                    except requests.exceptions.ConnectionError:
-                        self.log(f"❌ Mất kết nối ({name})")
-                    except Exception as e:
-                        self.log(f"❌ ERROR {name}: {str(e)}")
+                    elif response.status_code == 500:
+                        error_msg = ""
+                        try:
+                            error_msg = response.json().get('detail', response.text[:100])
+                        except:
+                            error_msg = response.text[:100]
+                        self.log(f"⚠️ Server error 500 ({name}): {error_msg}")
+                    else:
+                        self.log(f"❌ HTTP {response.status_code} gửi {name}")
+                except requests.exceptions.Timeout:
+                    self.log(f"⏱️ Timeout gửi {name}")
+                except requests.exceptions.ConnectionError:
+                    self.log(f"❌ Mất kết nối ({name})")
+                except Exception as e:
+                    self.log(f"❌ ERROR {name}: {str(e)}")
+
+            # Cập nhật table hiển thị ping/temp/mem
+            self.root.after(0, self.update_table_display)
             
-            # Sleep 1 second (check every second)
-            for _ in range(10):
+            # Sleep 2 giây (khớp với server SSE interval)
+            for _ in range(20):
                 if not self.is_running:
                     break
                 time.sleep(0.1)

@@ -1,5 +1,5 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
@@ -61,6 +61,13 @@ app.add_middleware(
 # Store active WebSocket connections
 active_connections: List[WebSocket] = []
 
+@app.head("/")
+@app.get("/health")
+async def health_check():
+    """Endpoint cho UptimeRobot hoặc các công cụ monitor check health"""
+    return {"status": "online", "timestamp": datetime.now(VIETNAM_TZ).isoformat()}
+
+
 def send_discord_notification(machine_name: str, ipwan: str, port: str, status: str):
     """Gửi notification lên Discord (nếu có webhook)"""
     if not DISCORD_WEBHOOK:
@@ -82,22 +89,13 @@ def send_discord_notification(machine_name: str, ipwan: str, port: str, status: 
         print(f"✗ Discord notification error: {e}")
 
 def get_all_logs():
-    """Get all logs from MongoDB - Compatible với format cũ"""
+    """Get all logs from MongoDB - Compatible với format cũ, bao gồm ping/temp/memory"""
     try:
         # Sort theo last_updated (format cũ) hoặc timestamp
         documents = collection.find().sort("last_updated", DESCENDING).limit(200)
         entries = []
         
         for doc in documents:
-            # Debug: Print first doc
-            if len(entries) == 0:
-                print(f"📋 First document from MongoDB:")
-                print(f"  name: {doc.get('name', 'N/A')}")
-                print(f"  ip: {doc.get('ip', 'N/A')}")
-                print(f"  ipwan: {doc.get('ipwan', 'N/A')}")
-                print(f"  port: {doc.get('port', 'N/A')}")
-                print(f"  status: {doc.get('status', 'N/A')}")
-            
             # Format lại để tương thích với GUI
             entry = {
                 "timestamp": doc.get("last_updated", doc.get("timestamp", "")),
@@ -107,7 +105,12 @@ def get_all_logs():
                     "ipwan": doc.get("ipwan", ""),
                     "status": doc.get("status", ""),
                     "port": doc.get("port", ""),
-                    "statusapp": doc.get("statusapp", 0)
+                    "statusapp": doc.get("statusapp", 0),
+                    # ── Thông tin hệ thống mới ──
+                    "ping": doc.get("ping", None),          # ping 8.8.8.8 (ms)
+                    "ping_timeouts": doc.get("ping_timeouts", 0),  # số lần timeout
+                    "cpu": doc.get("cpu", None),               # CPU usage (%)
+                    "memory": doc.get("memory", None),         # RAM usage (%)
                 }
             }
             entries.append(entry)
@@ -125,8 +128,42 @@ async def health_check():
 
 @app.get("/logs")
 async def get_all_data():
-    """GET endpoint - lấy tất cả dữ liệu"""
+    """GET endpoint - lấy tất cả dữ liệu (snapshot)"""
     return JSONResponse(content=get_all_logs())
+
+@app.get("/logs/stream")
+async def stream_logs(request: Request):
+    """
+    SSE endpoint - tự động push dữ liệu mỗi 2 giây.
+    Client chỉ cần kết nối 1 lần, server tự gửi cập nhật liên tục.
+    Sử dụng: EventSource('/logs/stream') trong JS
+    hoặc requests với stream=True trong Python.
+    Format: text/event-stream (Server-Sent Events)
+    """
+    async def event_generator():
+        while True:
+            # Kiểm tra client còn kết nối không
+            if await request.is_disconnected():
+                print("⚠ SSE client disconnected")
+                break
+            try:
+                data = get_all_logs()
+                payload = json.dumps(data, ensure_ascii=False)
+                # SSE format: "data: <json>\n\n"
+                yield f"data: {payload}\n\n"
+            except Exception as e:
+                print(f"✗ SSE stream error: {e}")
+                yield f"data: {{\"error\": \"{e}\"}}\n\n"
+            await asyncio.sleep(2)  # Gửi mỗi 2 giây
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # Tắt buffering cho nginx proxy
+        }
+    )
 
 @app.post("/")
 async def receive_data(data: dict):
@@ -170,7 +207,12 @@ async def receive_data(data: dict):
             "port": data.get('port', ''),
             "statusapp": data.get('statusapp', 0),
             "last_updated": timestamp,
-            "timestamp": timestamp
+            "timestamp": timestamp,
+            # ── Thông tin hệ thống (client tự đo và gửi lên) ──
+            "ping": data.get('ping', None),
+            "ping_timeouts": data.get('ping_timeouts', 0),
+            "cpu": data.get('temperature', data.get('cpu', None)),
+            "memory": data.get('memory', None),
         }
         
         result = collection.update_one(
@@ -373,11 +415,11 @@ async def websocket_endpoint(websocket: WebSocket):
         data = get_all_logs()
         await websocket.send_json(data)
         
-        # Keep connection alive and send updates every 5 seconds
+        # Keep connection alive and send updates every 2 seconds
         while True:
             data = get_all_logs()
             await websocket.send_json(data)
-            await asyncio.sleep(5)
+            await asyncio.sleep(2)
             
     except WebSocketDisconnect:
         active_connections.remove(websocket)
