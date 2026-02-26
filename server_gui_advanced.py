@@ -917,51 +917,60 @@ class ServerDataGUI:
         self.detail_text.delete("1.0", "end")
 
     def save_selected_to_file(self):
-        """Save selected list to JSON file"""
-        if not self.selected_data:
-            messagebox.showwarning("Warning", "No data to save. Please add items to the monitor list first.")
-            return
-        
+        """Save selected list, webhook, prefix, and vmping hosts to JSON file"""
+        # Collect vmping hosts (just the hostnames/ips)
+        vmping_list = list(self.ping_hosts.keys()) if hasattr(self, 'ping_hosts') else []
+        data_to_save = {
+            "webhook": self.webhook_var.get(),
+            "prefix": self.prefix_var.get(),
+            "vmping": vmping_list
+        }
         filename = filedialog.asksaveasfilename(
             defaultextension=".json",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
             initialfile="selected_monitors.json"
         )
-        
         if filename:
             try:
                 with open(filename, 'w', encoding='utf-8') as f:
-                    json.dump(self.selected_data, f, indent=2, ensure_ascii=False)
-                messagebox.showinfo("Success", f"Saved {len(self.selected_data)} items to:\n{filename}")
-                print(f"✓ Saved {len(self.selected_data)} items to: {filename}")
+                    json.dump(data_to_save, f, indent=2, ensure_ascii=False)
+                messagebox.showinfo("Success", f"Saved monitor config to:\n{filename}")
+                print(f"✓ Saved monitor config to: {filename}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save file:\n{str(e)}")
                 print(f"✗ Save error: {e}")
 
     def load_selected_from_file(self):
-        """Load selected list from JSON file"""
+        """Load config (webhook, prefix, vmping) from JSON file"""
         filename = filedialog.askopenfilename(
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-            title="Open Monitor List"
+            title="Open Monitor Config"
         )
-        
         if filename:
             try:
                 with open(filename, 'r', encoding='utf-8') as f:
                     loaded_data = json.load(f)
-                
-                if not isinstance(loaded_data, list):
-                    messagebox.showerror("Error", "Invalid file format. Expected a JSON array.")
+                if not isinstance(loaded_data, dict):
+                    messagebox.showerror("Error", "Invalid file format. Expected a JSON object.")
                     return
-                
-                # Replace current selected data
-                self.selected_data = loaded_data
-                self.save_selected_to_database()  # Lưu vào database
-                self.update_selected_table()
-                self.update_all_table()
-                
-                messagebox.showinfo("Success", f"Loaded {len(self.selected_data)} items from:\n{filename}")
-                print(f"✓ Loaded {len(self.selected_data)} items from: {filename}")
+                # Set webhook
+                if 'webhook' in loaded_data:
+                    self.webhook_var.set(loaded_data['webhook'])
+                # Set prefix
+                if 'prefix' in loaded_data:
+                    self.prefix_var.set(loaded_data['prefix'])
+                # Set vmping hosts
+                if 'vmping' in loaded_data and isinstance(loaded_data['vmping'], list):
+                    # Clear all current ping hosts
+                    self.clear_all_pings()
+                    # Add hosts from file
+                    for host in loaded_data['vmping']:
+                        if host:
+                            self._create_ping_card(host)
+                    self.start_all_pings()
+                    self.ping_count_label.configure(text=f"{len(self.ping_hosts)} monitors")
+                messagebox.showinfo("Success", f"Loaded config from:\n{filename}")
+                print(f"✓ Loaded config from: {filename}")
             except json.JSONDecodeError as e:
                 messagebox.showerror("Error", f"Invalid JSON file:\n{str(e)}")
                 print(f"✗ JSON decode error: {e}")
