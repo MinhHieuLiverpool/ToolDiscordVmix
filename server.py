@@ -88,25 +88,30 @@ def send_discord_notification(machine_name: str, ipwan: str, port: str, status: 
         print(f"✗ Discord notification error: {e}")
 
 def get_all_logs():
-    """Get all logs – served from in-memory cache (no MongoDB query)"""
+    """Get all logs – served from MongoDB, not cache"""
     entries = []
-    for doc in _data_cache.values():
-        entry = {
-            "timestamp": doc.get("last_updated", ""),
-            "data": {
-                "name":      doc.get("name", ""),
-                "ip":        doc.get("ip", ""),
-                "ipwan":     doc.get("ipwan", ""),
-                "status":    doc.get("status", ""),
-                "port":      doc.get("port", ""),
-                "statusapp": doc.get("statusapp", 0),
-                "ping":      doc.get("ping"),
-                "ping_timeouts": doc.get("ping_timeouts", 0),
-                "cpu":       doc.get("temperature"),
-                "memory":    doc.get("memory"),
+    try:
+        docs = list(collection.find().sort("last_updated", DESCENDING).limit(500))
+        for doc in docs:
+            entry = {
+                "timestamp": doc.get("last_updated", ""),
+                "data": {
+                    "name":      doc.get("name", ""),
+                    "ip":        doc.get("ip", ""),
+                    "ipwan":     doc.get("ipwan", ""),
+                    "status":    doc.get("status", ""),
+                    "port":      doc.get("port", ""),
+                    "statusapp": doc.get("statusapp", 0),
+                    "ping":      doc.get("ping"),
+                    "ping_timeouts": doc.get("ping_timeouts", 0),
+                    "cpu":       doc.get("temperature"),
+                    "memory":    doc.get("memory"),
+                    "srt_off_time": doc.get("srt_off_time", ""),
+                }
             }
-        }
-        entries.append(entry)
+            entries.append(entry)
+    except Exception as e:
+        print(f"✗ MongoDB read error: {e}")
     return entries
 
 @app.api_route("/", methods=["GET", "HEAD"])
@@ -256,17 +261,16 @@ async def update_name(payload: dict):
         old_name = payload.get('old_name', '')
         new_name = payload.get('new_name', '')
         ip = payload.get('ip', '')
-        
+        port = payload.get('port', None)
+        query = {"ip": ip}
+        if port is not None:
+            query["port"] = port
         result = collection.update_many(
-            {"data.ip": ip},
-            {"$set": {"data.name": new_name}}
+            query,
+            {"$set": {"name": new_name}}
         )
-        
-        print(f"✓ Updated {result.modified_count} documents: {old_name} → {new_name}")
-        
-        # Broadcast update to all WebSocket clients
+        print(f"✓ Updated {result.modified_count} documents: {old_name} → {new_name} (ip={ip}, port={port})")
         await broadcast_updates()
-        
         return JSONResponse(content={"success": True, "modified": result.modified_count})
     except Exception as e:
         print(f"✗ Update error: {e}")

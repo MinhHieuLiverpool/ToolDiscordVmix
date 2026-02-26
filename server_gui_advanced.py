@@ -482,36 +482,33 @@ class ServerDataGUI:
                         if prev_item:
                             print(f"🔔 Thay đổi [{curr_item['name']}]: Status {prev_item['status']}→{curr_item['status']}, IPWAN {prev_item['ipwan']}→{curr_item['ipwan']}")
                 
-                # Nếu có thay đổi, chỉ gửi những item thay đổi
-                if changed_items:
+                # Lọc chỉ giữ item có ipwan là số
+                filtered_items = [item for item in changed_items if str(item.get('ipwan', '')).isdigit()]
+                # Nếu có thay đổi hợp lệ, chỉ gửi những item này
+                if filtered_items:
                     messages = []
-                    
                     # Thêm tiêu đề với thời gian
                     now = datetime.now(VIETNAM_TZ)
                     title = f"=== STATUS CHANGED - {now.strftime('%d/%m/%Y %H:%M:%S')} ==="
                     messages.append(title)
-                    
-                    # Chỉ gửi những item có thay đổi
-                    for curr_item in changed_items:
+                    # Chỉ gửi những item có thay đổi và ipwan là số
+                    for curr_item in filtered_items:
                         name = curr_item['name']
                         ipwan = curr_item['ipwan']
                         port = curr_item['port']
                         status = curr_item['status']
-                        
                         msg = f"[{prefix}][{name}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
                         messages.append(msg)
-                    
                     payload = {"content": "\n".join(messages)}
-                    
                     resp = requests.post(webhook, json=payload, timeout=10)
                     if resp.status_code in [200, 204]:
-                        print(f"✓ Sent {len(changed_items)} changed items to Discord")
+                        print(f"✓ Sent {len(filtered_items)} changed items to Discord")
                         # CẬP NHẬT previous_data sau khi gửi thành công
                         self.previous_data = current_snapshot
                     else:
                         print(f"✗ Discord error: {resp.status_code}")
                 else:
-                    print("✓ Không có item nào thay đổi về STATUS hoặc IPWAN")
+                    print("✓ Không có item nào thay đổi hợp lệ (STATUS hoặc IPWAN là số)")
                     # Vẫn cập nhật previous_data
                     self.previous_data = current_snapshot
                     
@@ -806,9 +803,15 @@ class ServerDataGUI:
                 self.selected_data.append(entry)
                 added_count += 1
                 print(f"    → ADDED!")
-        
+        # Remove duplicates (unique IP+PORT only)
+        unique = {}
+        for entry in self.selected_data:
+            d = entry.get("data", {})
+            key = f"{d.get('ip','')}:{d.get('port','')}"
+            if key not in unique:
+                unique[key] = entry
+        self.selected_data = list(unique.values())
         print(f"Total added: {added_count}")
-        
         if added_count > 0:
             print(f"✓ Successfully added: {added_count} item(s)")
             self.save_selected_to_database()  # Lưu vào database
@@ -818,24 +821,23 @@ class ServerDataGUI:
             messagebox.showinfo("Info", "No new items to add. Check the boxes first!")
 
     def remove_single_item(self, idx):
-        """Remove single item from selected list"""
+        """Remove single item from selected list (không xóa khỏi database)"""
         if idx < len(self.selected_data):
             removed = self.selected_data.pop(idx)
             print(f"✗ Removed: {removed.get('data', {}).get('name', 'Unknown')}")
-            self.save_selected_to_database()  # Lưu vào database
+            # Không xóa khỏi database, chỉ update selected_data
             self.update_all_table()
             self.update_selected_table()
     
     def remove_from_selected(self):
-        """Remove all selected items"""
+        """Remove all selected items (không xóa khỏi database)"""
         if not self.selected_data:
             messagebox.showwarning("Warning", "No items in the selected list")
             return
-        
         result = messagebox.askyesno("Confirm", f"Remove all {len(self.selected_data)} items?")
         if result:
             self.selected_data = []
-            self.save_selected_to_database()  # Lưu vào database
+            # Không xóa khỏi database, chỉ update UI
             self.update_all_table()
             self.update_selected_table()
             print("✓ Cleared all selected items")
@@ -992,8 +994,15 @@ class ServerDataGUI:
                 if resp.status_code == 200:
                     loaded_data = resp.json()
                     if isinstance(loaded_data, list):
-                        self.selected_data = loaded_data
-                        print(f"✓ Loaded {len(self.selected_data)} items from database")
+                        # Lọc unique IP+PORT
+                        unique = {}
+                        for entry in loaded_data:
+                            d = entry.get("data", {})
+                            key = f"{d.get('ip','')}:{d.get('port','')}"
+                            if key not in unique:
+                                unique[key] = entry
+                        self.selected_data = list(unique.values())
+                        print(f"✓ Loaded {len(self.selected_data)} items from database (unique)")
                         # Update UI
                         self.root.after(0, self.update_selected_table)
                         self.root.after(0, self.update_all_table)
@@ -1003,7 +1012,6 @@ class ServerDataGUI:
                     print(f"✗ Load error: {resp.status_code}")
             except Exception as e:
                 print(f"✗ Failed to load from database: {e}")
-        
         threading.Thread(target=load, daemon=True).start()
 
     # ── vmPing methods ──────────────────────────────────────────────────────
