@@ -50,6 +50,20 @@ class VmixMonitorGUI:
         self.tray_icon = None
         self.port_list = []  # Danh sách các port entries
         self.ping_timeout_count = 0  # Đếm số lần ping 8.8.8.8 timeout trong session
+
+        # ── Tối ưu tốc độ ──
+        import requests as _req
+        self.http_session = _req.Session()   # Tái dùng TCP connection
+        self._ping_ms   = None               # Giá trị ping mới nhất (background thread)
+        self._ping_lock = threading.Lock()
+        # Prime CPU counter – lần đầu trả 0.0, không block
+        try:
+            import psutil as _ps
+            _ps.cpu_percent(interval=None)
+        except Exception:
+            pass
+        # Bắt đầu background ping thread (ping mỗi 3 giây, non-blocking trong monitor loop)
+        threading.Thread(target=self._ping_bg_loop, daemon=True).start()
         self.setup_ui()
         self.setup_tray()
         self.check_log_queue()
@@ -990,6 +1004,18 @@ class VmixMonitorGUI:
             memory  = entry.get('memory', '—')
             self.tree.insert("", tk.END, values=(name, ip, ipwan, port, ping, timeout, cpu, memory))
 
+    # ── Background ping thread ──────────────────────────────────────────────
+    def _ping_bg_loop(self):
+        """Chạy liên tục trong background thread – cập nhật _ping_ms mỗi 3 giây"""
+        import time
+        while True:
+            val = self.measure_ping()
+            with self._ping_lock:
+                self._ping_ms = val
+                if val is None:
+                    self.ping_timeout_count += 1
+            time.sleep(3)
+
     # ── Đo thông số hệ thống ──────────────────────────────────────────────
     def measure_ping(self, host="8.8.8.8") -> float | None:
         """Ping tới host, trả về latency (ms) hoặc None nếu lỗi"""
@@ -1011,10 +1037,10 @@ class VmixMonitorGUI:
         return None
 
     def measure_cpu(self) -> float | None:
-        """Trả về % CPU đang sử dụng (psutil, interval=1s)"""
+        """Trả về % CPU – non-blocking (dùng giá trị tích lũy từ lần gọi trước)"""
         try:
             import psutil
-            return round(psutil.cpu_percent(interval=1), 1)
+            return round(psutil.cpu_percent(interval=None), 1)
         except Exception:
             pass
         return None
@@ -1030,33 +1056,18 @@ class VmixMonitorGUI:
 
 
     def is_vmix_on_port(self, port):
-        """Kiểm tra xem vMix có đang lắng nghe trên port UDP không"""
+        """Kiểm tra vMix có đang lắng nghe trên port UDP không – dùng psutil (nhanh hơn netstat)"""
         try:
-            result = subprocess.run(
-                ['netstat', '-ano', '-p', 'udp'],
-                capture_output=True,
-                text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW
-            )
-            
-            # Parse netstat output
-            for line in result.stdout.splitlines():
-                if 'UDP' in line and f':{port} ' in line:
-                    parts = line.split()
-                    if len(parts) >= 4:
-                        try:
-                            pid = int(parts[-1])
-                            # Kiểm tra process name
-                            proc_result = subprocess.run(
-                                ['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'],
-                                capture_output=True,
-                                text=True,
-                                creationflags=subprocess.CREATE_NO_WINDOW
-                            )
-                            if 'vmix' in proc_result.stdout.lower():
-                                return True
-                        except:
-                            pass
+            import psutil
+            port_int = int(port)
+            for conn in psutil.net_connections(kind='udp'):
+                if conn.laddr and conn.laddr.port == port_int and conn.pid:
+                    try:
+                        proc = psutil.Process(conn.pid)
+                        if 'vmix' in proc.name().lower():
+                            return True
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
             return False
         except Exception as e:
             self.log(f"ERROR kiểm tra vMix: {str(e)}")
@@ -1177,13 +1188,11 @@ class VmixMonitorGUI:
                 last_wan_check = now
             
             # ── Đo thông số hệ thống (1 lần / vòng lặp, dùng chung cho mọi port) ──
-            ping_ms = self.measure_ping()
-            cpu_pct = self.measure_cpu()
+            # Lấy ping từ background thread (non-blocking)
+            with self._ping_lock:
+                ping_ms = self._ping_ms
+            cpu_pct = self.measure_cpu()   # non-blocking
             mem_pct = self.measure_memory()
-
-            # Theo dõi timeout
-            if ping_ms is None:
-                self.ping_timeout_count += 1
 
             ping_str    = f"{ping_ms:.0f}" if ping_ms is not None else '—'
             timeout_str = str(self.ping_timeout_count)
@@ -1222,7 +1231,7 @@ class VmixMonitorGUI:
                     }
                     url = "http://localhost:8088"
                     headers = {"Content-Type": "application/json"}
-                    response = requests.post(url, json=data, headers=headers, timeout=15)
+                    response = self.http_session.post(url, json=data, headers=headers, timeout=5)
                     if response.status_code == 200:
                         if prev_status.get(port) != current_status:
                             icon = "🟢" if current_status == "ON" else "🔴"
@@ -1246,7 +1255,7 @@ class VmixMonitorGUI:
 
             # Cập nhật table hiển thị ping/temp/mem
             self.root.after(0, self.update_table_display)
-            
+
             # Sleep 1 giây
             for _ in range(10):
                 if not self.is_running:

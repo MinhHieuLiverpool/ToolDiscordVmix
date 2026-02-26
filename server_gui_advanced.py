@@ -107,7 +107,10 @@ class ServerDataGUI:
         header_frame.pack(fill="x", pady=(0, 5))
         header_frame.pack_propagate(False)
         
-        ctk.CTkLabel(header_frame, text="☑",   font=("Arial", 13, "bold"), width=35).pack(side="left", padx=2)
+        self.select_all_var = ctk.BooleanVar(value=False)
+        self.select_all_cb = ctk.CTkCheckBox(header_frame, text="", variable=self.select_all_var,
+                                             width=35, command=self.toggle_select_all)
+        self.select_all_cb.pack(side="left", padx=2)
         ctk.CTkLabel(header_frame, text="STT", font=("Arial", 13, "bold"), width=40).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame, text="IP MÁY", font=("Arial", 13, "bold"), width=120).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame, text="PORT",  font=("Arial", 13, "bold"), width=70).pack(side="left", padx=2)
@@ -719,11 +722,16 @@ class ServerDataGUI:
                 return True
         return False
 
+    def toggle_select_all(self):
+        """Select / deselect all checkboxes in the left table"""
+        state = self.select_all_var.get()
+        for idx, (checkbox, var, entry) in self.left_table_checkboxes.items():
+            var.set(state)
+
     def on_checkbox_toggle(self, entry, checkbox_var):
-        """Handle checkbox toggle - Just mark, don't add yet"""
-        # Chỉ đánh dấu, không add/remove ngay
-        # User sẽ phải ấn button "Add" để chuyển sang list
-        pass
+        """Handle checkbox toggle - recalculate select-all state"""
+        all_checked = all(var.get() for _, var, _ in self.left_table_checkboxes.values())
+        self.select_all_var.set(all_checked)
     
     def edit_name_inline(self, idx, frame, label):
         """Edit name inline - tại chỗ"""

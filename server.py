@@ -1,5 +1,5 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
@@ -60,13 +60,12 @@ app.add_middleware(
 
 # Store active WebSocket connections
 active_connections: List[WebSocket] = []
+_last_broadcast: datetime = datetime.min.replace(tzinfo=pytz.UTC)
+_broadcast_interval_sec = 1.0  # Broadcast tối đa 1 lần/giây
 
-@app.head("/")
-@app.get("/health")
-async def health_check():
-    """Endpoint cho UptimeRobot hoặc các công cụ monitor check health"""
-    return {"status": "online", "timestamp": datetime.now(VIETNAM_TZ).isoformat()}
-
+# ── In-memory cache ─────────────────────────────────────────────────────────────────
+# Key: machine_name, Value: document dict
+_data_cache: dict = {}
 
 def send_discord_notification(machine_name: str, ipwan: str, port: str, status: str):
     """Gửi notification lên Discord (nếu có webhook)"""
@@ -89,36 +88,26 @@ def send_discord_notification(machine_name: str, ipwan: str, port: str, status: 
         print(f"✗ Discord notification error: {e}")
 
 def get_all_logs():
-    """Get all logs from MongoDB - Compatible với format cũ, bao gồm ping/temp/memory"""
-    try:
-        # Sort theo last_updated (format cũ) hoặc timestamp
-        documents = collection.find().sort("last_updated", DESCENDING).limit(200)
-        entries = []
-        
-        for doc in documents:
-            # Format lại để tương thích với GUI
-            entry = {
-                "timestamp": doc.get("last_updated", doc.get("timestamp", "")),
-                "data": {
-                    "name": doc.get("name", ""),
-                    "ip": doc.get("ip", ""),
-                    "ipwan": doc.get("ipwan", ""),
-                    "status": doc.get("status", ""),
-                    "port": doc.get("port", ""),
-                    "statusapp": doc.get("statusapp", 0),
-                    # ── Thông tin hệ thống mới ──
-                    "ping": doc.get("ping", None),          # ping 8.8.8.8 (ms)
-                    "ping_timeouts": doc.get("ping_timeouts", 0),  # số lần timeout
-                    "cpu": doc.get("cpu", None),               # CPU usage (%)
-                    "memory": doc.get("memory", None),         # RAM usage (%)
-                }
+    """Get all logs – served from in-memory cache (no MongoDB query)"""
+    entries = []
+    for doc in _data_cache.values():
+        entry = {
+            "timestamp": doc.get("last_updated", ""),
+            "data": {
+                "name":      doc.get("name", ""),
+                "ip":        doc.get("ip", ""),
+                "ipwan":     doc.get("ipwan", ""),
+                "status":    doc.get("status", ""),
+                "port":      doc.get("port", ""),
+                "statusapp": doc.get("statusapp", 0),
+                "ping":      doc.get("ping"),
+                "ping_timeouts": doc.get("ping_timeouts", 0),
+                "cpu":       doc.get("temperature"),
+                "memory":    doc.get("memory"),
             }
-            entries.append(entry)
-        
-        return entries
-    except Exception as e:
-        print(f"Error getting logs: {e}")
-        return []
+        }
+        entries.append(entry)
+    return entries
 
 @app.get("/")
 async def health_check():
@@ -128,121 +117,75 @@ async def health_check():
 
 @app.get("/logs")
 async def get_all_data():
-    """GET endpoint - lấy tất cả dữ liệu (snapshot)"""
+    """GET endpoint - lấy tất cả dữ liệu"""
     return JSONResponse(content=get_all_logs())
-
-@app.get("/logs/stream")
-async def stream_logs(request: Request):
-    """
-    SSE endpoint - tự động push dữ liệu mỗi 2 giây.
-    Client chỉ cần kết nối 1 lần, server tự gửi cập nhật liên tục.
-    Sử dụng: EventSource('/logs/stream') trong JS
-    hoặc requests với stream=True trong Python.
-    Format: text/event-stream (Server-Sent Events)
-    """
-    async def event_generator():
-        while True:
-            # Kiểm tra client còn kết nối không
-            if await request.is_disconnected():
-                print("⚠ SSE client disconnected")
-                break
-            try:
-                data = get_all_logs()
-                payload = json.dumps(data, ensure_ascii=False)
-                # SSE format: "data: <json>\n\n"
-                yield f"data: {payload}\n\n"
-            except Exception as e:
-                print(f"✗ SSE stream error: {e}")
-                yield f"data: {{\"error\": \"{e}\"}}\n\n"
-            await asyncio.sleep(2)  # Gửi mỗi 2 giây
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # Tắt buffering cho nginx proxy
-        }
-    )
 
 @app.post("/")
 async def receive_data(data: dict):
     """Nhận dữ liệu từ vMix"""
     try:
         timestamp = datetime.now(VIETNAM_TZ).isoformat()
-        
-        # Lấy name làm key để identify máy
         machine_name = data.get('name', data.get('ip', 'Unknown'))
-        
-        # Kiểm tra document cũ để phát hiện thay đổi
-        existing = collection.find_one({"name": machine_name})
-        has_changes = False
-        changed_fields = []
-        
-        if existing:
-            # So sánh từng field quan trọng (KHÔNG bao gồm statusapp để tránh spam)
-            fields_to_check = ['ip', 'ipwan', 'status', 'port', 'name']
-            for field in fields_to_check:
-                old_value = existing.get(field)
-                new_value = data.get(field)
-                if old_value != new_value:
-                    has_changes = True
-                    changed_fields.append(f"{field}: {old_value} → {new_value}")
-            
-            # Kiểm tra statusapp riêng nhưng không tính là thay đổi quan trọng
-            old_statusapp = existing.get('statusapp')
-            new_statusapp = data.get('statusapp')
-            if old_statusapp != new_statusapp:
-                print(f"  ℹ️  statusapp changed: {old_statusapp} → {new_statusapp} (không gửi Discord)")
-        else:
-            has_changes = True
-            changed_fields.append("New machine added")
-        
-        # Cập nhật hoặc insert document
+
+        # ── 1. Cập nhật cache ngay lập tức (< 1ms, không block) ──
+        prev = _data_cache.get(machine_name, {})
         document = {
-            "name": machine_name,
-            "ip": data.get('ip', ''),
-            "ipwan": data.get('ipwan', ''),
-            "status": data.get('status', 'UNKNOWN'),
-            "port": data.get('port', ''),
-            "statusapp": data.get('statusapp', 0),
-            "last_updated": timestamp,
-            "timestamp": timestamp,
-            # ── Thông tin hệ thống (client tự đo và gửi lên) ──
-            "ping": data.get('ping', None),
+            "name":        machine_name,
+            "ip":          data.get('ip', ''),
+            "ipwan":       data.get('ipwan', ''),
+            "status":      data.get('status', 'UNKNOWN'),
+            "port":        data.get('port', ''),
+            "statusapp":   data.get('statusapp', 0),
+            "ping":        data.get('ping'),
             "ping_timeouts": data.get('ping_timeouts', 0),
-            "cpu": data.get('temperature', data.get('cpu', None)),
-            "memory": data.get('memory', None),
+            "temperature": data.get('temperature'),
+            "memory":      data.get('memory'),
+            "last_updated": timestamp,
+            "timestamp":   timestamp,
         }
-        
-        result = collection.update_one(
-            {"name": machine_name},
-            {"$set": document},
-            upsert=True
+        _data_cache[machine_name] = document
+
+        # So sánh thay đổi với cache cũ (không cần query MongoDB)
+        fields_to_check = ['ip', 'ipwan', 'status', 'port']
+        has_changes = not prev or any(
+            prev.get(f) != document.get(f) for f in fields_to_check
         )
-        
-        # Nếu có thay đổi QUAN TRỌNG thì log
-        if has_changes:
-            print(f"⚠ Changes detected for {machine_name}:")
-            for change in changed_fields:
-                print(f"  - {change}")
-            
-            # KHÔNG gửi Discord từ server nữa - để GUI tự quản lý
-            # Discord notification bây giờ được gửi từ GUI với logic chống spam
-        
-        # Broadcast update to all WebSocket clients
+        if has_changes and prev:
+            for f in fields_to_check:
+                if prev.get(f) != document.get(f):
+                    print(f"  ⚠ {machine_name} {f}: {prev.get(f)} → {document.get(f)}")
+
+        # ── 2. Broadcast từ cache (non-blocking) ──
         await broadcast_updates()
-        
+
+        # ── 3. Ghi MongoDB trong background (không đợi) ──
+        asyncio.create_task(_mongo_upsert(machine_name, document))
+
         return JSONResponse(content={
             "status": "success",
             "message": f"Data received for {machine_name}",
             "changes_detected": has_changes,
-            "modified": result.modified_count > 0
         })
-    
+
     except Exception as e:
         print(f"✗ Error processing data: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+async def _mongo_upsert(name: str, document: dict):
+    """Ghi MongoDB bất đồng bộ – chạy trong thread pool, không block event loop"""
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(
+            None,
+            lambda: collection.update_one(
+                {"name": name},
+                {"$set": document},
+                upsert=True
+            )
+        )
+    except Exception as e:
+        print(f"✗ MongoDB upsert error ({name}): {e}")
 
 @app.post("/delete")
 async def delete_data(payload: dict):
@@ -415,11 +358,11 @@ async def websocket_endpoint(websocket: WebSocket):
         data = get_all_logs()
         await websocket.send_json(data)
         
-        # Keep connection alive and send updates every 2 seconds
+        # Keep connection alive and send updates every 5 seconds
         while True:
             data = get_all_logs()
             await websocket.send_json(data)
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)
             
     except WebSocketDisconnect:
         active_connections.remove(websocket)
@@ -430,11 +373,17 @@ async def websocket_endpoint(websocket: WebSocket):
             active_connections.remove(websocket)
 
 async def broadcast_updates():
-    """Broadcast updates to all connected WebSocket clients"""
+    """Broadcast updates từ cache – throttled to once per second, không query MongoDB"""
+    global _last_broadcast
     if not active_connections:
         return
-    
-    data = get_all_logs()
+
+    now = datetime.now(pytz.UTC)
+    if (now - _last_broadcast).total_seconds() < _broadcast_interval_sec:
+        return
+
+    _last_broadcast = now
+    data = get_all_logs()  # đọc từ cache, không có I/O
     disconnected = []
     
     for connection in active_connections:
@@ -449,56 +398,52 @@ async def broadcast_updates():
         active_connections.remove(connection)
 
 async def check_inactive_machines():
-    """Background task: Kiểm tra và tự động set statusapp = 0 nếu máy không gửi request trong 1 phút"""
+    """Background task: tự động set statusapp=0 nếu máy không gửi request trong 1 phút"""
     while True:
         try:
-            # Chờ 30 giây trước mỗi lần kiểm tra
             await asyncio.sleep(30)
-            
-            # Lấy thời gian hiện tại
             now = datetime.now(VIETNAM_TZ)
             timeout_threshold = now - timedelta(minutes=1)
-            
-            # Tìm tất cả máy có statusapp = 1 (đang ON)
-            active_machines = collection.find({"statusapp": 1})
-            
             updated_count = 0
-            for machine in active_machines:
-                last_updated_str = machine.get("last_updated", "")
-                
-                if last_updated_str:
-                    try:
-                        # Parse last_updated timestamp
-                        last_updated = datetime.fromisoformat(last_updated_str)
-                        
-                        # Nếu quá 1 phút không update → set statusapp = 0
-                        if last_updated < timeout_threshold:
-                            machine_name = machine.get("name", "Unknown")
-                            ip = machine.get("ip", "")
-                            
-                            # Update statusapp = 0
-                            collection.update_one(
-                                {"_id": machine["_id"]},
-                                {"$set": {"statusapp": 0}}
-                            )
-                            
-                            updated_count += 1
-                            print(f"⏱️  Auto-OFF: {machine_name} ({ip}) - No activity for 1 minute")
-                    
-                    except Exception as e:
-                        print(f"⚠ Error parsing timestamp for {machine.get('name', 'Unknown')}: {e}")
-            
-            # Nếu có máy nào bị auto-off, broadcast update
+
+            for name, doc in list(_data_cache.items()):
+                if doc.get("statusapp", 0) != 1:
+                    continue
+                last_str = doc.get("last_updated", "")
+                if not last_str:
+                    continue
+                try:
+                    last_updated = datetime.fromisoformat(last_str)
+                    if last_updated < timeout_threshold:
+                        _data_cache[name]["statusapp"] = 0
+                        updated_count += 1
+                        print(f"⏱️  Auto-OFF: {name} - No activity for 1 minute")
+                        asyncio.create_task(_mongo_upsert(name, _data_cache[name]))
+                except Exception as e:
+                    print(f"⚠ Timestamp parse error {name}: {e}")
+
             if updated_count > 0:
                 print(f"✓ Auto-OFF applied to {updated_count} machine(s)")
                 await broadcast_updates()
-                
         except Exception as e:
             print(f"✗ Error in check_inactive_machines: {e}")
 
 @app.on_event("startup")
 async def startup_event():
-    """Start background tasks when server starts"""
+    """Preload cache từ MongoDB, khởi động background tasks"""
+    loop = asyncio.get_event_loop()
+    try:
+        docs = await loop.run_in_executor(
+            None,
+            lambda: list(collection.find().sort("last_updated", DESCENDING).limit(500))
+        )
+        for doc in docs:
+            name = doc.get("name")
+            if name:
+                _data_cache[name] = doc
+        print(f"✓ Cache preloaded: {len(_data_cache)} machines from MongoDB")
+    except Exception as e:
+        print(f"✗ Cache preload error: {e}")
     asyncio.create_task(check_inactive_machines())
     print("✓ Background task started: Auto-OFF inactive machines (1 min timeout)")
 
