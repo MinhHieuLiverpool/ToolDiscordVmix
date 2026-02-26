@@ -109,9 +109,9 @@ def get_all_logs():
         entries.append(entry)
     return entries
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def health_check():
-    """Health check endpoint for UptimeRobot - trả về text đơn giản"""
+    """Health check endpoint for UptimeRobot - hỗ trợ cả GET và HEAD"""
     from fastapi.responses import PlainTextResponse
     return PlainTextResponse("I am alive!")
 
