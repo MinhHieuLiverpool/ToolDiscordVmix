@@ -458,7 +458,7 @@ class VmixMonitorGUI:
             self.log(f"📥 Đang import data từ IP {old_ip}...")
             
             # Lấy data từ IP cũ
-            url = f"https://tooldiscordvmix.onrender.com/get_by_ip?ip={old_ip}"
+            url = f"http://localhost:8088/get_by_ip?ip={old_ip}"
             response = requests.get(url, timeout=20)
             
             if response.status_code == 200:
@@ -516,7 +516,7 @@ class VmixMonitorGUI:
                 "port": port,
                 "name": name
             }
-            url = "https://tooldiscordvmix.onrender.com/update_ip"
+            url = "http://localhost:8088/update_ip"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=10)
             
@@ -566,7 +566,7 @@ class VmixMonitorGUI:
                     "port": entry['port'],
                     "name": entry['name']
                 }
-                url = "https://tooldiscordvmix.onrender.com/update_ip"
+                url = "http://localhost:8088/update_ip"
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, json=data, headers=headers, timeout=10)
                 
@@ -591,7 +591,7 @@ class VmixMonitorGUI:
         start_time = time.time()
         
         try:
-            url = "https://tooldiscordvmix.onrender.com/logs"
+            url = "http://localhost:8088/logs"
             response = requests.get(url, timeout=30)
             elapsed = time.time() - start_time
             
@@ -613,7 +613,7 @@ class VmixMonitorGUI:
         import requests
         try:
             ip = self.ip_var.get().strip()
-            url = f"https://tooldiscordvmix.onrender.com/get_by_ip?ip={ip}"
+            url = f"http://localhost:8088/get_by_ip?ip={ip}"
             self.log(f"⏳ Đang tải dữ liệu từ server...")
             response = requests.get(url, timeout=20)
             
@@ -677,7 +677,7 @@ class VmixMonitorGUI:
         import requests
         try:
             # Get all data from database
-            url = "https://tooldiscordvmix.onrender.com/logs"
+            url = "http://localhost:8088/logs"
             response = requests.get(url, timeout=10)
             
             if response.status_code == 200:
@@ -826,7 +826,7 @@ class VmixMonitorGUI:
                 "ip": ip,
                 "port": port
             }
-            url = "https://tooldiscordvmix.onrender.com/delete"
+            url = "http://localhost:8088/delete"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=15)
             if response.status_code == 200:
@@ -857,7 +857,7 @@ class VmixMonitorGUI:
                     "ip": current_ip,  # Dùng IP hiện tại của máy này
                     "port": entry['port']
                 }
-                url = "https://tooldiscordvmix.onrender.com/delete"
+                url = "http://localhost:8088/delete"
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, json=data, headers=headers, timeout=10)
                 if response.status_code == 200:
@@ -893,7 +893,7 @@ class VmixMonitorGUI:
                     "port": entry['port'],
                     "statusapp": status_value  # App status: 1=ON, 0=OFF
                 }
-                url = "https://tooldiscordvmix.onrender.com"
+                url = "http://localhost:8088"
                 headers = {"Content-Type": "application/json"}
                 
                 # Retry logic (3 attempts)
@@ -1133,7 +1133,7 @@ class VmixMonitorGUI:
                                 "port": port,
                                 "statusapp": 1
                             }
-                            url = "https://tooldiscordvmix.onrender.com"
+                            url = "http://localhost:8088"
                             headers = {"Content-Type": "application/json"}
                             response = requests.post(url, json=data, headers=headers, timeout=10)
                             if response.status_code == 200:
@@ -1167,7 +1167,7 @@ class VmixMonitorGUI:
                                 "port": port,
                                 "statusapp": 1
                             }
-                            url = "https://tooldiscordvmix.onrender.com"
+                            url = "http://localhost:8088"
                             headers = {"Content-Type": "application/json"}
                             response = requests.post(url, json=data, headers=headers, timeout=10)
                             if response.status_code == 200:
@@ -1220,7 +1220,7 @@ class VmixMonitorGUI:
                         "temperature": cpu_pct,
                         "memory": mem_pct,
                     }
-                    url = "https://tooldiscordvmix.onrender.com"
+                    url = "http://localhost:8088"
                     headers = {"Content-Type": "application/json"}
                     response = requests.post(url, json=data, headers=headers, timeout=15)
                     if response.status_code == 200:
@@ -1247,8 +1247,8 @@ class VmixMonitorGUI:
             # Cập nhật table hiển thị ping/temp/mem
             self.root.after(0, self.update_table_display)
             
-            # Sleep 2 giây (khớp với server SSE interval)
-            for _ in range(20):
+            # Sleep 1 giây
+            for _ in range(10):
                 if not self.is_running:
                     break
                 time.sleep(0.1)

@@ -8,6 +8,8 @@ from datetime import datetime
 import pytz
 import websocket
 import time
+import subprocess
+import re
 
 # Set appearance mode and color theme
 ctk.set_appearance_mode("dark")  # Modes: "dark", "light", "system"
@@ -32,8 +34,8 @@ class ServerDataGUI:
         self.root.title("Server Log Viewer - Dual Panel")
         self.root.geometry("2000x750")
 
-        self.api_url = "https://tooldiscordvmix.onrender.com/logs"
-        self.ws_url = "wss://tooldiscordvmix.onrender.com/ws"
+        self.api_url = "http://localhost:8088/logs"
+        self.ws_url = "ws://localhost:8088/ws"
         self.webhook_var = ctk.StringVar(value="")
         self.prefix_var = ctk.StringVar(value="SRT")
         self.data = []  # All data from database
@@ -143,14 +145,39 @@ class ServerDataGUI:
         
         self.right_table_rows = []
 
-        # Detail area
-        detail_frame = ctk.CTkFrame(self.root)
-        detail_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        
-        ctk.CTkLabel(detail_frame, text="📄 DETAIL (select a row)", font=("Arial", 12, "bold")).pack(pady=5)
-        
-        self.detail_text = ctk.CTkTextbox(detail_frame, height=100, font=("Consolas", 10), fg_color="#1e1e1e", text_color="#00ff00")
-        self.detail_text.pack(fill="both", expand=True, padx=5, pady=5)
+        # ── vmPing Panel ────────────────────────────────────────────────────
+        vmping_outer = ctk.CTkFrame(self.root, fg_color="#181818")
+        vmping_outer.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Header bar
+        vmping_header = ctk.CTkFrame(vmping_outer, fg_color="#1a1a1a", height=38)
+        vmping_header.pack(fill="x", padx=0, pady=(0, 2))
+        vmping_header.pack_propagate(False)
+
+        ctk.CTkLabel(vmping_header, text="📡 vmPING", font=("Arial", 13, "bold"), text_color="#4CAF50").pack(side="left", padx=10)
+        self.ping_ip_entry = ctk.CTkEntry(vmping_header, placeholder_text="Nhập IP hoặc hostname...", width=220, font=("Arial", 12))
+        self.ping_ip_entry.pack(side="left", padx=5)
+        self.ping_ip_entry.bind("<Return>", lambda e: self.add_ping_host())
+        ctk.CTkButton(vmping_header, text="+ Add", command=self.add_ping_host, fg_color="#4CAF50", hover_color="#45a049", width=70, font=("Arial", 12, "bold")).pack(side="left", padx=3)
+        ctk.CTkButton(vmping_header, text="▶ Start All", command=self.start_all_pings, fg_color="#2196F3", hover_color="#1976D2", width=95).pack(side="left", padx=3)
+        ctk.CTkButton(vmping_header, text="⏹ Stop All", command=self.stop_all_pings, fg_color="#f44336", hover_color="#d32f2f", width=90).pack(side="left", padx=3)
+        ctk.CTkButton(vmping_header, text="🗑 Clear All", command=self.clear_all_pings, fg_color="#555555", hover_color="#444444", width=90).pack(side="left", padx=3)
+        self.ping_count_label = ctk.CTkLabel(vmping_header, text="0 monitors", font=("Arial", 11), text_color="#9E9E9E")
+        self.ping_count_label.pack(side="right", padx=10)
+
+        # Scrollable grid of ping cards
+        self.ping_cards_frame = ctk.CTkScrollableFrame(vmping_outer, fg_color="#1e1e1e")
+        self.ping_cards_frame.pack(fill="both", expand=True)
+        for col in range(4):
+            self.ping_cards_frame.grid_columnconfigure(col, weight=1)
+
+        # vmPing state
+        self.ping_hosts = {}   # host -> info dict
+        self.ping_grid_cols = 4
+
+        # Detail textbox (hidden but keep for show_detail_from_entry)
+        self.detail_text = ctk.CTkTextbox(vmping_outer, height=0, font=("Consolas", 10), fg_color="#1e1e1e", text_color="#00ff00")
+        # (not packed – kept only so show_detail_from_entry doesn't crash)
 
         # Load initial data once
         self.refresh_data()
@@ -970,6 +997,214 @@ class ServerDataGUI:
                 print(f"✗ Failed to load from database: {e}")
         
         threading.Thread(target=load, daemon=True).start()
+
+    # ── vmPing methods ──────────────────────────────────────────────────────
+
+    def add_ping_host(self):
+        """Add a new ping card for the entered IP/hostname"""
+        host = self.ping_ip_entry.get().strip()
+        if not host:
+            return
+        if host in self.ping_hosts:
+            messagebox.showwarning("vmPing", f"{host} đang được monitor!")
+            return
+        self.ping_ip_entry.delete(0, "end")
+        self._create_ping_card(host)
+        self.start_ping_host(host)
+        self.ping_count_label.configure(text=f"{len(self.ping_hosts)} monitors")
+
+    def _create_ping_card(self, host):
+        """Build the visual card widget for a host"""
+        idx = len(self.ping_hosts)
+        col = idx % self.ping_grid_cols
+        row = idx // self.ping_grid_cols
+
+        card = ctk.CTkFrame(self.ping_cards_frame, fg_color="#2b2b2b",
+                            corner_radius=6, border_width=2, border_color="#3a3a3a")
+        card.grid(row=row, column=col, padx=4, pady=4, sticky="nsew")
+
+        # Title bar (serves as status colour strip)
+        title_bar = ctk.CTkFrame(card, fg_color="#9E9E9E", height=28, corner_radius=0)
+        title_bar.pack(fill="x")
+        title_bar.pack_propagate(False)
+
+        host_lbl = ctk.CTkLabel(title_bar, text=host, font=("Arial", 11, "bold"), text_color="#ffffff")
+        host_lbl.pack(side="left", padx=8)
+
+        toggle_btn = ctk.CTkButton(title_bar, text="⏹", width=26, height=22,
+                                   fg_color="transparent", hover_color="#55555580",
+                                   command=lambda h=host: self.toggle_ping_host(h),
+                                   font=("Arial", 11))
+        toggle_btn.pack(side="right", padx=2)
+
+        remove_btn = ctk.CTkButton(title_bar, text="✕", width=26, height=22,
+                                   fg_color="transparent", hover_color="#55555580",
+                                   command=lambda h=host: self.remove_ping_card(h),
+                                   font=("Arial", 11, "bold"))
+        remove_btn.pack(side="right", padx=2)
+
+        # Output area
+        output_text = ctk.CTkTextbox(card, height=90, font=("Consolas", 9),
+                                     fg_color="#111111", text_color="#cccccc", wrap="none")
+        output_text.pack(fill="both", expand=True, padx=2, pady=(2, 0))
+
+        # Stats bar
+        stats_frame = ctk.CTkFrame(card, fg_color="#1a1a1a", height=20, corner_radius=0)
+        stats_frame.pack(fill="x")
+        stats_frame.pack_propagate(False)
+        stats_label = ctk.CTkLabel(stats_frame,
+                                   text="Sent: 0 | Recv: 0 | Lost: 0 | Avg: —ms",
+                                   font=("Consolas", 8), text_color="#9E9E9E")
+        stats_label.pack(side="left", padx=5)
+
+        self.ping_hosts[host] = {
+            "card": card,
+            "title_bar": title_bar,
+            "toggle_btn": toggle_btn,
+            "output_text": output_text,
+            "stats_label": stats_label,
+            "running": False,
+            "thread": None,
+            "sent": 0,
+            "recv": 0,
+            "total_ms": 0,
+        }
+
+    def start_ping_host(self, host):
+        """Start the ping loop thread for a host"""
+        if host not in self.ping_hosts:
+            return
+        info = self.ping_hosts[host]
+        if info["running"]:
+            return
+        info["running"] = True
+        info["toggle_btn"].configure(text="⏹")
+        t = threading.Thread(target=self._ping_loop, args=(host,), daemon=True)
+        info["thread"] = t
+        t.start()
+
+    def stop_ping_host(self, host):
+        """Signal the ping loop to stop"""
+        if host not in self.ping_hosts:
+            return
+        self.ping_hosts[host]["running"] = False
+        self.ping_hosts[host]["toggle_btn"].configure(text="▶")
+        # Grey out title bar
+        self.ping_hosts[host]["title_bar"].configure(fg_color="#555555")
+
+    def toggle_ping_host(self, host):
+        """Toggle ping on/off"""
+        if host not in self.ping_hosts:
+            return
+        if self.ping_hosts[host]["running"]:
+            self.stop_ping_host(host)
+        else:
+            self.start_ping_host(host)
+
+    def _ping_loop(self, host):
+        """Background thread: continuously ping host and update card"""
+        info = self.ping_hosts[host]
+        while info["running"]:
+            try:
+                result = subprocess.run(
+                    ["ping", "-n", "1", "-w", "1000", host],
+                    capture_output=True, timeout=4
+                )
+                # Decode with system codepage (cp1252/cp850 on Vietnamese Windows)
+                try:
+                    output = result.stdout.decode('cp1252', errors='ignore')
+                except Exception:
+                    output = result.stdout.decode('utf-8', errors='ignore')
+                is_up = ("TTL=" in output.upper()) or (result.returncode == 0 and "ttl=" in output.lower())
+
+                ms_val = None
+                if is_up:
+                    m = re.search(r'[=<](\d+)ms', output, re.IGNORECASE)
+                    if m:
+                        ms_val = int(m.group(1))
+
+                info["sent"] += 1
+                if is_up:
+                    info["recv"] += 1
+                    if ms_val is not None:
+                        info["total_ms"] += ms_val
+                    line = f"Reply from {host}: time={ms_val}ms" if ms_val is not None else f"Reply from {host}"
+                else:
+                    line = f"Request timeout for {host}"
+
+                lost = info["sent"] - info["recv"]
+                avg_ms = f"{info['total_ms'] // info['recv']}ms" if info["recv"] > 0 else "—"
+                stats_text = f"Sent: {info['sent']} | Recv: {info['recv']} | Lost: {lost} | Avg: {avg_ms}"
+                title_color = "#4CAF50" if is_up else "#f44336"
+                line_color = "#00ff00" if is_up else "#ff4444"
+
+                def _upd(h=host, ln=line, lc=line_color, st=stats_text, tc=title_color):
+                    if h not in self.ping_hosts:
+                        return
+                    inf = self.ping_hosts[h]
+                    if not inf["running"]:
+                        return
+                    txt = inf["output_text"]
+                    # Insert coloured-ish line (CTkTextbox doesn't support tags;
+                    # we update title bar colour for overall status instead)
+                    txt.configure(text_color=lc)
+                    txt.insert("end", ln + "\n")
+                    # Trim to last 200 lines
+                    content = txt.get("1.0", "end-1c")
+                    lines = content.split("\n")
+                    if len(lines) > 200:
+                        txt.delete("1.0", f"{len(lines)-200}.0")
+                    txt.see("end")
+                    inf["stats_label"].configure(text=st)
+                    inf["title_bar"].configure(fg_color=tc)
+
+                self.root.after(0, _upd)
+
+            except Exception as exc:
+                def _err(h=host, e=str(exc)):
+                    if h not in self.ping_hosts:
+                        return
+                    inf = self.ping_hosts[h]
+                    inf["output_text"].configure(text_color="#FF9800")
+                    inf["output_text"].insert("end", f"Error: {e}\n")
+                    inf["title_bar"].configure(fg_color="#FF9800")
+                self.root.after(0, _err)
+
+            time.sleep(1)
+
+    def remove_ping_card(self, host):
+        """Remove a ping card and rebuild the grid"""
+        if host not in self.ping_hosts:
+            return
+        self.ping_hosts[host]["running"] = False
+        self.ping_hosts[host]["card"].destroy()
+        del self.ping_hosts[host]
+        self._rebuild_ping_grid()
+        self.ping_count_label.configure(text=f"{len(self.ping_hosts)} monitors")
+
+    def _rebuild_ping_grid(self):
+        """Re-place all cards into a clean grid after a removal"""
+        for idx, (host, info) in enumerate(self.ping_hosts.items()):
+            col = idx % self.ping_grid_cols
+            row = idx // self.ping_grid_cols
+            info["card"].grid(row=row, column=col, padx=4, pady=4, sticky="nsew")
+
+    def stop_all_pings(self):
+        for host in list(self.ping_hosts.keys()):
+            self.stop_ping_host(host)
+
+    def start_all_pings(self):
+        for host in list(self.ping_hosts.keys()):
+            self.start_ping_host(host)
+
+    def clear_all_pings(self):
+        for host in list(self.ping_hosts.keys()):
+            self.ping_hosts[host]["running"] = False
+            self.ping_hosts[host]["card"].destroy()
+        self.ping_hosts.clear()
+        self.ping_count_label.configure(text="0 monitors")
+
+    # ── original helpers ────────────────────────────────────────────────────
 
     def on_double_click(self, event):
         """Not used with custom table"""
