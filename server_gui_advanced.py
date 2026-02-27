@@ -34,6 +34,7 @@ class ServerDataGUI:
         self.root.title("Server Log Viewer - Dual Panel")
         self.root.geometry("2000x750")
 
+        # use local server by default
         self.api_url = "http://tooldiscordvmix.onrender.com/logs"
         self.ws_url = "ws://tooldiscordvmix.onrender.com/ws"
         self.webhook_var = ctk.StringVar(value="")
@@ -200,27 +201,40 @@ class ServerDataGUI:
         def on_message(ws, message):
             try:
                 data = json.loads(message)
-                print(f"📩 WebSocket received: {len(data)} items")
+                # ensure we always work with a list
+                if not isinstance(data, list):
+                    return
+                # dedupe incoming list by ip:port key to avoid duplicates when
+                # the server accidentally sends the same payload twice.
+                seen = set()
+                deduped = []
+                for entry in data:
+                    d = entry.get("data", {})
+                    key = f"{d.get('ip','')}:{d.get('port','')}"
+                    if key not in seen:
+                        seen.add(key)
+                        deduped.append(entry)
+                data = deduped
+                print(f"📩 WebSocket received: {len(data)} unique items")
                 
                 # Update data
-                if isinstance(data, list):
-                    # Check if có thay đổi về danh sách IP+Port
-                    has_list_changed = self.has_data_changed(self.data, data)
-                    
-                    self.data = data
-                    
-                    # Nếu có thay đổi danh sách -> update bảng trái
-                    if has_list_changed:
-                        print("✓ WebSocket: Danh sách máy thay đổi, update bảng trái")
-                        self.root.after(0, self.update_all_table)
-                    
-                    # Luôn update selected data và bảng phải
-                    self.update_selected_data()
-                    self.root.after(0, self.update_selected_table)
-                    
-                    # Check for changes and send Discord
-                    if self.auto_send_enabled:
-                        self.send_to_discord_auto()
+                # Check if có thay đổi về danh sách IP+Port
+                has_list_changed = self.has_data_changed(self.data, data)
+                # always replace internal list with deduped version
+                self.data = data
+                
+                # Nếu có thay đổi danh sách -> update bảng trái
+                if has_list_changed:
+                    print("✓ WebSocket: Danh sách máy thay đổi, update bảng trái")
+                    self.root.after(0, self.update_all_table)
+                
+                # Luôn update selected data và bảng phải
+                self.update_selected_data()
+                self.root.after(0, self.update_selected_table)
+                
+                # Check for changes and send Discord
+                if self.auto_send_enabled:
+                    self.send_to_discord_auto()
             except json.JSONDecodeError as e:
                 print(f"✗ WebSocket JSON error: {e}")
             except Exception as e:
@@ -299,6 +313,16 @@ class ServerDataGUI:
                 if resp.status_code == 200:
                     data = resp.json()
                     if isinstance(data, list):
+                        # dedupe incoming data
+                        seen = set()
+                        unique = []
+                        for entry in data:
+                            d = entry.get("data", {})
+                            key = f"{d.get('ip','')}:{d.get('port','')}"
+                            if key not in seen:
+                                seen.add(key)
+                                unique.append(entry)
+                        data = unique
                         # Check if có thay đổi
                         has_list_changed = self.has_data_changed(self.data, data)
                         self.data = data
@@ -416,6 +440,21 @@ class ServerDataGUI:
                 if resp.status_code == 200:
                     data = resp.json()
                     if isinstance(data, list):
+                        # dedupe incoming list before comparing
+                        seen = set()
+                        unique = []
+                        for entry in data:
+                            d = entry.get("data", {})
+                            key = f"{d.get('ip','')}:{d.get('port','')}"
+                            if key not in seen:
+                                seen.add(key)
+                                unique.append(entry)
+                        data = unique
+
+                        # if nothing actually changed we can skip entirely
+                        if not self.has_data_changed(self.data, data):
+                            return
+
                         self.data = data
                         # CHỈ update selected data và bảng phải, KHÔNG update bảng trái
                         self.update_selected_data()
@@ -529,6 +568,16 @@ class ServerDataGUI:
                     try:
                         data = resp.json()
                         if isinstance(data, list):
+                            # dedupe fetched list
+                            seen = set()
+                            unique = []
+                            for entry in data:
+                                d = entry.get("data", {})
+                                key = f"{d.get('ip','')}:{d.get('port','')}"
+                                if key not in seen:
+                                    seen.add(key)
+                                    unique.append(entry)
+                            data = unique
                             # So sánh data mới với data cũ
                             if self.has_data_changed(self.data, data):
                                 print("✓ Data changed, refreshing table...")
@@ -552,21 +601,19 @@ class ServerDataGUI:
         threading.Thread(target=fetch, daemon=True).start()
     
     def has_data_changed(self, old_data, new_data):
-        """Check if data has changed (compare IP+Port list)"""
-        if len(old_data) != len(new_data):
-            return True
-        
-        # So sánh danh sách IP+Port
-        old_set = set()
-        for entry in old_data:
-            d = entry.get("data", {})
-            old_set.add(f"{d.get('ip', '')}:{d.get('port', '')}")
-        
-        new_set = set()
-        for entry in new_data:
-            d = entry.get("data", {})
-            new_set.add(f"{d.get('ip', '')}:{d.get('port', '')}")
-        
+        """Check if data has changed (compare unique IP+Port pairs).
+        Ignores duplicates in the incoming list so repeated messages won't
+        trigger unnecessary refreshes.
+        """
+        # Build sets of unique keys
+        def build_set(data_list):
+            s = set()
+            for entry in data_list:
+                d = entry.get("data", {})
+                s.add(f"{d.get('ip', '')}:{d.get('port', '')}")
+            return s
+        old_set = build_set(old_data)
+        new_set = build_set(new_data)
         return old_set != new_set
 
     def update_all_table(self):
@@ -1133,7 +1180,8 @@ class ServerDataGUI:
             try:
                 result = subprocess.run(
                     ["ping", "-n", "1", "-w", "1000", host],
-                    capture_output=True, timeout=4
+                    capture_output=True, timeout=4,
+                    creationflags=subprocess.CREATE_NO_WINDOW
                 )
                 # Decode with system codepage (cp1252/cp850 on Vietnamese Windows)
                 try:
