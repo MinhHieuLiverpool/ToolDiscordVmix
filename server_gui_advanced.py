@@ -46,6 +46,7 @@ class ServerDataGUI:
         self.previous_data = []
         self.auto_send_enabled = False
         self.is_sending = False  # Flag để tránh gửi duplicate
+        self.ptz_ping_threads = {}  # PTZ ping threads: key=name:port, value={running, thread}
         
         # WebSocket variables
         self.ws = None
@@ -80,6 +81,7 @@ class ServerDataGUI:
         ctk.CTkButton(row2, text="🗑️ Clear", command=self.clear_selected, fg_color="#f44336", hover_color="#d32f2f", width=90).pack(side="left", padx=3)
         ctk.CTkButton(row2, text="💾 Save", command=self.save_selected_to_file, fg_color="#9C27B0", hover_color="#7B1FA2", width=90).pack(side="left", padx=3)
         ctk.CTkButton(row2, text="📂 Open", command=self.load_selected_from_file, fg_color="#673AB7", hover_color="#512DA8", width=90).pack(side="left", padx=3)
+        ctk.CTkButton(row2, text="➕ Add PTZ", command=self.add_ptz_manual, fg_color="#FF9800", hover_color="#F57C00", width=100, font=("Arial", 10, "bold")).pack(side="left", padx=3)
         
         # Connection status
         self.status_label = ctk.CTkLabel(row2, text="⚪ Disconnected", font=("Arial", 9, "bold"), text_color="#9E9E9E")
@@ -887,7 +889,12 @@ class ServerDataGUI:
         """Remove single item from selected list (không xóa khỏi database)"""
         if idx < len(self.selected_data):
             removed = self.selected_data.pop(idx)
-            print(f"✗ Removed: {removed.get('data', {}).get('name', 'Unknown')}")
+            rd = removed.get('data', {})
+            print(f"✗ Removed: {rd.get('name', 'Unknown')}")
+            # Nếu là PTZ, stop ping thread
+            if rd.get('ptz', False):
+                ptz_key = f"{rd.get('name','')}:{rd.get('port','')}"
+                self._stop_ptz_ping(ptz_key)
             # Không xóa khỏi database, chỉ update selected_data
             self.update_all_table()
             self.update_selected_table()
@@ -944,6 +951,11 @@ class ServerDataGUI:
         """Update selected data with latest info from database - Match by NAME or PORT"""
         for i, sel_entry in enumerate(self.selected_data):
             sel_d = sel_entry.get("data", {})
+            
+            # Skip PTZ entries - chúng được quản lý riêng bởi ping thread
+            if sel_d.get("ptz", False):
+                continue
+            
             sel_name = sel_d.get("name", "")
             sel_port = sel_d.get("port", "")
             
@@ -971,20 +983,205 @@ class ServerDataGUI:
 
     def clear_selected(self):
         """Clear selected list"""
+        self._stop_all_ptz_pings()  # Stop tất cả PTZ ping threads
         self.selected_data = []
         self.save_selected_to_database()  # Lưu vào database (rỗng)
         self.update_selected_table()
         self.update_all_table()
         self.detail_text.delete("1.0", "end")
 
+    def add_ptz_manual(self):
+        """Mở dialog để thêm PTZ thủ công (tên, IP, port, IPWAN)"""
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("➕ Add PTZ")
+        dialog.geometry("400x280")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center dialog
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 200
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 140
+        dialog.geometry(f"400x280+{x}+{y}")
+        
+        ctk.CTkLabel(dialog, text="➕ THÊM PTZ THỦ CÔNG", font=("Arial", 14, "bold")).pack(pady=(15, 10))
+        
+        form_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        form_frame.pack(fill="x", padx=20, pady=5)
+        
+        # Tên
+        ctk.CTkLabel(form_frame, text="Tên:", font=("Arial", 11, "bold"), width=80, anchor="w").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        name_entry = ctk.CTkEntry(form_frame, width=250, font=("Arial", 11), placeholder_text="VD: PTZ CAM 1")
+        name_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        # IP
+        ctk.CTkLabel(form_frame, text="IP:", font=("Arial", 11, "bold"), width=80, anchor="w").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        ip_entry = ctk.CTkEntry(form_frame, width=250, font=("Arial", 11), placeholder_text="VD: 192.168.1.100")
+        ip_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        # Port
+        ctk.CTkLabel(form_frame, text="Port:", font=("Arial", 11, "bold"), width=80, anchor="w").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        port_entry = ctk.CTkEntry(form_frame, width=250, font=("Arial", 11), placeholder_text="VD: 9000")
+        port_entry.grid(row=2, column=1, padx=5, pady=5)
+        
+        # IPWAN
+        ctk.CTkLabel(form_frame, text="IP WAN:", font=("Arial", 11, "bold"), width=80, anchor="w").grid(row=3, column=0, padx=5, pady=5, sticky="w")
+        ipwan_entry = ctk.CTkEntry(form_frame, width=250, font=("Arial", 11), placeholder_text="VD: 1.2.3.4")
+        ipwan_entry.grid(row=3, column=1, padx=5, pady=5)
+        
+        def on_add():
+            name = name_entry.get().strip()
+            ip = ip_entry.get().strip()
+            port = port_entry.get().strip()
+            ipwan = ipwan_entry.get().strip()
+            
+            if not name:
+                messagebox.showwarning("Warning", "Vui lòng nhập tên!", parent=dialog)
+                return
+            if not port:
+                messagebox.showwarning("Warning", "Vui lòng nhập port!", parent=dialog)
+                return
+            
+            # Tạo entry giống format data từ server
+            now = datetime.now(VIETNAM_TZ).isoformat()
+            ptz_entry = {
+                "timestamp": now,
+                "data": {
+                    "name": name,
+                    "ip": ip,
+                    "ipwan": ipwan,
+                    "status": "",
+                    "port": port,
+                    "statusapp": 0,
+                    "ptz": True  # Đánh dấu là PTZ thủ công
+                }
+            }
+            
+            # Check trùng
+            for sel in self.selected_data:
+                sel_d = sel.get("data", {})
+                if sel_d.get("name", "") == name and sel_d.get("port", "") == port:
+                    messagebox.showwarning("Warning", f"PTZ [{name}] port [{port}] đã tồn tại!", parent=dialog)
+                    return
+            
+            self.selected_data.append(ptz_entry)
+            self.update_selected_table()
+            # Start ping thread cho PTZ
+            ptz_key = f"{name}:{port}"
+            self._start_ptz_ping(ptz_key)
+            print(f"✓ Added PTZ: [{name}] IP:{ip} IPWAN:{ipwan} PORT:{port}")
+            dialog.destroy()
+        
+        # Buttons
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=15)
+        ctk.CTkButton(btn_frame, text="✅ Thêm", command=on_add, fg_color="#4CAF50", hover_color="#45a049", width=120, font=("Arial", 11, "bold")).pack(side="left", padx=10)
+        ctk.CTkButton(btn_frame, text="❌ Hủy", command=dialog.destroy, fg_color="#f44336", hover_color="#d32f2f", width=120, font=("Arial", 11, "bold")).pack(side="left", padx=10)
+        
+        name_entry.focus_set()
+
+    def _start_ptz_ping(self, ptz_key):
+        """Start ping thread cho một PTZ entry"""
+        if ptz_key in self.ptz_ping_threads:
+            return  # Đã có thread chạy rồi
+        
+        self.ptz_ping_threads[ptz_key] = {"running": True}
+        t = threading.Thread(target=self._ptz_ping_loop, args=(ptz_key,), daemon=True)
+        self.ptz_ping_threads[ptz_key]["thread"] = t
+        t.start()
+        print(f"📡 Started PTZ ping for [{ptz_key}]")
+
+    def _stop_ptz_ping(self, ptz_key):
+        """Stop ping thread cho một PTZ entry"""
+        if ptz_key in self.ptz_ping_threads:
+            self.ptz_ping_threads[ptz_key]["running"] = False
+            del self.ptz_ping_threads[ptz_key]
+            print(f"⏹ Stopped PTZ ping for [{ptz_key}]")
+
+    def _stop_all_ptz_pings(self):
+        """Stop tất cả PTZ ping threads"""
+        for key in list(self.ptz_ping_threads.keys()):
+            self.ptz_ping_threads[key]["running"] = False
+        self.ptz_ping_threads.clear()
+        print("⏹ Stopped all PTZ pings")
+
+    def _ptz_ping_loop(self, ptz_key):
+        """Background thread: ping IP của PTZ và cập nhật status ON/OFF"""
+        while ptz_key in self.ptz_ping_threads and self.ptz_ping_threads[ptz_key]["running"]:
+            try:
+                # Tìm PTZ entry trong selected_data
+                ptz_entry = None
+                ptz_idx = None
+                for i, entry in enumerate(self.selected_data):
+                    d = entry.get("data", {})
+                    if d.get("ptz", False) and f"{d.get('name','')}:{d.get('port','')}" == ptz_key:
+                        ptz_entry = entry
+                        ptz_idx = i
+                        break
+                
+                if ptz_entry is None:
+                    break  # PTZ đã bị xóa
+                
+                ip = ptz_entry.get("data", {}).get("ip", "")
+                if not ip:
+                    time.sleep(5)
+                    continue
+                
+                # Ping IP
+                result = subprocess.run(
+                    ["ping", "-n", "1", "-w", "2000", ip],
+                    capture_output=True, timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                try:
+                    output = result.stdout.decode('cp1252', errors='ignore')
+                except Exception:
+                    output = result.stdout.decode('utf-8', errors='ignore')
+                
+                is_up = "ttl=" in output.lower()
+                new_status = "ON" if is_up else "OFF"
+                old_status = ptz_entry.get("data", {}).get("status", "")
+                
+                # Cập nhật status nếu thay đổi
+                if new_status != old_status:
+                    self.selected_data[ptz_idx]["data"]["status"] = new_status
+                    print(f"📡 PTZ [{ptz_key}] status: {old_status or '—'} → {new_status}")
+                    
+                    # Refresh table trên UI thread
+                    self.root.after(0, self.update_selected_table)
+                    
+                    # Trigger Discord notification nếu auto_send đang bật
+                    if self.auto_send_enabled:
+                        self.root.after(100, self.send_to_discord_auto)
+                
+            except Exception as e:
+                print(f"⚠ PTZ ping error [{ptz_key}]: {e}")
+            
+            time.sleep(5)  # Ping mỗi 5 giây
+
     def save_selected_to_file(self):
-        """Save selected list, webhook, prefix, and vmping hosts to JSON file"""
+        """Save selected list, webhook, prefix, vmping hosts, and PTZ entries to JSON file"""
         # Collect vmping hosts (just the hostnames/ips)
         vmping_list = list(self.ping_hosts.keys()) if hasattr(self, 'ping_hosts') else []
+        
+        # Collect PTZ entries từ selected_data
+        ptz_list = []
+        for entry in self.selected_data:
+            d = entry.get("data", {})
+            if d.get("ptz", False):  # Chỉ lưu items có flag ptz=True
+                ptz_list.append({
+                    "name": d.get("name", ""),
+                    "ip": d.get("ip", ""),
+                    "port": d.get("port", ""),
+                    "ipwan": d.get("ipwan", "")
+                })
+        
         data_to_save = {
             "webhook": self.webhook_var.get(),
             "prefix": self.prefix_var.get(),
-            "vmping": vmping_list
+            "vmping": vmping_list,
+            "ptz": ptz_list
         }
         filename = filedialog.asksaveasfilename(
             defaultextension=".json",
@@ -996,13 +1193,13 @@ class ServerDataGUI:
                 with open(filename, 'w', encoding='utf-8') as f:
                     json.dump(data_to_save, f, indent=2, ensure_ascii=False)
                 messagebox.showinfo("Success", f"Saved monitor config to:\n{filename}")
-                print(f"✓ Saved monitor config to: {filename}")
+                print(f"✓ Saved monitor config to: {filename} (including {len(ptz_list)} PTZ entries)")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save file:\n{str(e)}")
                 print(f"✗ Save error: {e}")
 
     def load_selected_from_file(self):
-        """Load config (webhook, prefix, vmping) from JSON file"""
+        """Load config (webhook, prefix, vmping, ptz) from JSON file"""
         filename = filedialog.askopenfilename(
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
             title="Open Monitor Config"
@@ -1030,6 +1227,40 @@ class ServerDataGUI:
                             self._create_ping_card(host)
                     self.start_all_pings()
                     self.ping_count_label.configure(text=f"{len(self.ping_hosts)} monitors")
+                # Load PTZ entries
+                ptz_count = 0
+                if 'ptz' in loaded_data and isinstance(loaded_data['ptz'], list):
+                    now = datetime.now(VIETNAM_TZ).isoformat()
+                    for ptz in loaded_data['ptz']:
+                        name = ptz.get('name', '')
+                        port = ptz.get('port', '')
+                        # Check trùng trong selected_data
+                        already_exists = False
+                        for sel in self.selected_data:
+                            sel_d = sel.get("data", {})
+                            if sel_d.get("name", "") == name and sel_d.get("port", "") == port:
+                                already_exists = True
+                                break
+                        if not already_exists:
+                            ptz_entry = {
+                                "timestamp": now,
+                                "data": {
+                                    "name": name,
+                                    "ip": ptz.get('ip', ''),
+                                    "ipwan": ptz.get('ipwan', ''),
+                                    "status": "",
+                                    "port": port,
+                                    "statusapp": 0,
+                                    "ptz": True
+                                }
+                            }
+                            self.selected_data.append(ptz_entry)
+                            ptz_count += 1
+                            # Start ping thread cho PTZ
+                            self._start_ptz_ping(f"{name}:{port}")
+                    self.update_selected_table()
+                    if ptz_count > 0:
+                        print(f"✓ Loaded {ptz_count} PTZ entries from file")
                 messagebox.showinfo("Success", f"Loaded config from:\n{filename}")
                 print(f"✓ Loaded config from: {filename}")
             except json.JSONDecodeError as e:
