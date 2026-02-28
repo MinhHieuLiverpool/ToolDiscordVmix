@@ -33,10 +33,12 @@ class ServerDataGUI:
         self.root = root
         self.root.title("Server Log Viewer - Dual Panel")
         self.root.geometry("2000x750")
+        # Mo fullscreen (maximized) khi khoi chay
+        self.root.after(100, lambda: self.root.state('zoomed'))
 
         # use local server by default
-        self.api_url = "http://tooldiscordvmix.onrender.com/logs"
-        self.ws_url = "ws://tooldiscordvmix.onrender.com/ws"
+        self.api_url = "http://localhost:8088/logs"
+        self.ws_url = "ws://localhost:8088/ws"
         self.webhook_var = ctk.StringVar(value="")
         self.prefix_var = ctk.StringVar(value="SRT")
         self.data = []  # All data from database
@@ -60,19 +62,19 @@ class ServerDataGUI:
         # Row 1: Webhook
         row1 = ctk.CTkFrame(top_frame, fg_color="transparent")
         row1.pack(fill="x", pady=2)
-        ctk.CTkLabel(row1, text="Discord Webhook:", font=("Arial", 12, "bold")).pack(side="left", padx=5)
-        self.webhook_entry = ctk.CTkEntry(row1, textvariable=self.webhook_var, width=600)
+        ctk.CTkLabel(row1, text="Discord Webhook:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+        self.webhook_entry = ctk.CTkEntry(row1, textvariable=self.webhook_var, width=600, font=("Arial", 10))
         self.webhook_entry.pack(side="left", padx=5, fill="x", expand=True)
         
         # Row 2: Prefix and buttons
         row2 = ctk.CTkFrame(top_frame, fg_color="transparent")
         row2.pack(fill="x", pady=5)
-        ctk.CTkLabel(row2, text="Prefix:", font=("Arial", 12, "bold")).pack(side="left", padx=5)
-        self.prefix_entry = ctk.CTkEntry(row2, textvariable=self.prefix_var, width=80)
+        ctk.CTkLabel(row2, text="Prefix:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+        self.prefix_entry = ctk.CTkEntry(row2, textvariable=self.prefix_var, width=80, font=("Arial", 10))
         self.prefix_entry.pack(side="left", padx=5)
         
-        ctk.CTkButton(row2, text="� Scan máy", command=self.refresh_data, fg_color="#4CAF50", hover_color="#45a049", width=110, font=("Arial", 12, "bold")).pack(side="left", padx=3)
-        self.toggle_btn = ctk.CTkButton(row2, text="AUTO SEND: OFF", command=self.toggle_auto_send, fg_color="#9E9E9E", hover_color="#757575", width=140, font=("Arial", 12, "bold"))
+        ctk.CTkButton(row2, text="� Scan máy", command=self.refresh_data, fg_color="#4CAF50", hover_color="#45a049", width=100, font=("Arial", 10, "bold")).pack(side="left", padx=3)
+        self.toggle_btn = ctk.CTkButton(row2, text="AUTO SEND: OFF", command=self.toggle_auto_send, fg_color="#9E9E9E", hover_color="#757575", width=130, font=("Arial", 10, "bold"))
         self.toggle_btn.pack(side="left", padx=3)
         ctk.CTkButton(row2, text="➡️ Add", command=self.add_to_selected, fg_color="#2196F3", hover_color="#1976D2", width=90).pack(side="left", padx=3)
         ctk.CTkButton(row2, text="🗑️ Clear", command=self.clear_selected, fg_color="#f44336", hover_color="#d32f2f", width=90).pack(side="left", padx=3)
@@ -80,7 +82,7 @@ class ServerDataGUI:
         ctk.CTkButton(row2, text="📂 Open", command=self.load_selected_from_file, fg_color="#673AB7", hover_color="#512DA8", width=90).pack(side="left", padx=3)
         
         # Connection status
-        self.status_label = ctk.CTkLabel(row2, text="⚪ Disconnected", font=("Arial", 11, "bold"), text_color="#9E9E9E")
+        self.status_label = ctk.CTkLabel(row2, text="⚪ Disconnected", font=("Arial", 9, "bold"), text_color="#9E9E9E")
         self.status_label.pack(side="right", padx=10)
 
         # Main content area - Split into 2 panels
@@ -97,7 +99,7 @@ class ServerDataGUI:
         left_frame = ctk.CTkFrame(main_frame)
         left_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         
-        ctk.CTkLabel(left_frame, text="📡 ALL LOGS FROM DATABASE", font=("Arial", 14, "bold")).pack(pady=10)
+        ctk.CTkLabel(left_frame, text="📡 ALL LOGS FROM DATABASE", font=("Arial", 11, "bold")).pack(pady=5)
         
         # Left table - Custom with checkboxes
         self.table_frame_left = ctk.CTkScrollableFrame(left_frame, fg_color="#2b2b2b")
@@ -112,9 +114,9 @@ class ServerDataGUI:
         self.select_all_cb = ctk.CTkCheckBox(header_frame, text="", variable=self.select_all_var,
                                              width=35, command=self.toggle_select_all)
         self.select_all_cb.pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame, text="STT", font=("Arial", 13, "bold"), width=40).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame, text="IP MÁY", font=("Arial", 13, "bold"), width=120).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame, text="PORT",  font=("Arial", 13, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame, text="STT", font=("Arial", 10, "bold"), width=35).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame, text="IP MÁY", font=("Arial", 10, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame, text="PORT",  font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
         
         self.left_table_rows = []
         self.left_table_checkboxes = {}
@@ -123,7 +125,7 @@ class ServerDataGUI:
         right_frame = ctk.CTkFrame(main_frame)
         right_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         
-        ctk.CTkLabel(right_frame, text="⭐ SELECTED MONITOR LIST", font=("Arial", 14, "bold")).pack(pady=10)
+        ctk.CTkLabel(right_frame, text="⭐ SELECTED MONITOR LIST", font=("Arial", 11, "bold")).pack(pady=5)
         
         # Right table - Custom scrollable
         self.table_frame_right = ctk.CTkScrollableFrame(right_frame, fg_color="#2b2b2b")
@@ -134,18 +136,18 @@ class ServerDataGUI:
         header_frame_right.pack(fill="x", pady=(0, 5))
         header_frame_right.pack_propagate(False)
         
-        ctk.CTkLabel(header_frame_right, text="STT",     font=("Arial", 13, "bold"), width=40).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="TÊN",     font=("Arial", 13, "bold"), width=120).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="IP MÁY",   font=("Arial", 13, "bold"), width=120).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="IP WAN",   font=("Arial", 13, "bold"), width=120).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="STATUS",   font=("Arial", 13, "bold"), width=80).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="PORT",     font=("Arial", 13, "bold"), width=70).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="APP",      font=("Arial", 13, "bold"), width=55).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="📡 PING",   font=("Arial", 13, "bold"), width=80).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="❌ TIMEOUT",font=("Arial", 13, "bold"), width=80).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="⚡ CPU%",   font=("Arial", 13, "bold"), width=75).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="💾 RAM%",   font=("Arial", 13, "bold"), width=75).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="TIME",     font=("Arial", 13, "bold"), width=145).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="STT",     font=("Arial", 10, "bold"), width=35).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="TÊN",     font=("Arial", 10, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="IP MÁY",   font=("Arial", 10, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="IP WAN",   font=("Arial", 10, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="STATUS",   font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="PORT",     font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="APP",      font=("Arial", 10, "bold"), width=45).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="📡 PING",   font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="❌ TIMEOUT",font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="⚡ CPU%",   font=("Arial", 10, "bold"), width=65).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="💾 RAM%",   font=("Arial", 10, "bold"), width=65).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="TIME",     font=("Arial", 10, "bold"), width=130).pack(side="left", padx=2)
         
         self.right_table_rows = []
 
@@ -158,15 +160,15 @@ class ServerDataGUI:
         vmping_header.pack(fill="x", padx=0, pady=(0, 2))
         vmping_header.pack_propagate(False)
 
-        ctk.CTkLabel(vmping_header, text="📡 vmPING", font=("Arial", 13, "bold"), text_color="#4CAF50").pack(side="left", padx=10)
-        self.ping_ip_entry = ctk.CTkEntry(vmping_header, placeholder_text="Nhập IP hoặc hostname...", width=220, font=("Arial", 12))
+        ctk.CTkLabel(vmping_header, text="📡 vmPING", font=("Arial", 10, "bold"), text_color="#4CAF50").pack(side="left", padx=10)
+        self.ping_ip_entry = ctk.CTkEntry(vmping_header, placeholder_text="Nhập IP hoặc hostname...", width=200, font=("Arial", 10))
         self.ping_ip_entry.pack(side="left", padx=5)
         self.ping_ip_entry.bind("<Return>", lambda e: self.add_ping_host())
-        ctk.CTkButton(vmping_header, text="+ Add", command=self.add_ping_host, fg_color="#4CAF50", hover_color="#45a049", width=70, font=("Arial", 12, "bold")).pack(side="left", padx=3)
-        ctk.CTkButton(vmping_header, text="▶ Start All", command=self.start_all_pings, fg_color="#2196F3", hover_color="#1976D2", width=95).pack(side="left", padx=3)
-        ctk.CTkButton(vmping_header, text="⏹ Stop All", command=self.stop_all_pings, fg_color="#f44336", hover_color="#d32f2f", width=90).pack(side="left", padx=3)
-        ctk.CTkButton(vmping_header, text="🗑 Clear All", command=self.clear_all_pings, fg_color="#555555", hover_color="#444444", width=90).pack(side="left", padx=3)
-        self.ping_count_label = ctk.CTkLabel(vmping_header, text="0 monitors", font=("Arial", 11), text_color="#9E9E9E")
+        ctk.CTkButton(vmping_header, text="+ Add", command=self.add_ping_host, fg_color="#4CAF50", hover_color="#45a049", width=60, font=("Arial", 10, "bold")).pack(side="left", padx=3)
+        ctk.CTkButton(vmping_header, text="▶ Start All", command=self.start_all_pings, fg_color="#2196F3", hover_color="#1976D2", width=85, font=("Arial", 10)).pack(side="left", padx=3)
+        ctk.CTkButton(vmping_header, text="⏹ Stop All", command=self.stop_all_pings, fg_color="#f44336", hover_color="#d32f2f", width=80, font=("Arial", 10)).pack(side="left", padx=3)
+        ctk.CTkButton(vmping_header, text="🗑 Clear All", command=self.clear_all_pings, fg_color="#555555", hover_color="#444444", width=80, font=("Arial", 10)).pack(side="left", padx=3)
+        self.ping_count_label = ctk.CTkLabel(vmping_header, text="0 monitors", font=("Arial", 9), text_color="#9E9E9E")
         self.ping_count_label.pack(side="right", padx=10)
 
         # Scrollable grid of ping cards
@@ -215,7 +217,6 @@ class ServerDataGUI:
                         seen.add(key)
                         deduped.append(entry)
                 data = deduped
-                print(f"📩 WebSocket received: {len(data)} unique items")
                 
                 # Update data
                 # Check if có thay đổi về danh sách IP+Port
@@ -225,7 +226,6 @@ class ServerDataGUI:
                 
                 # Nếu có thay đổi danh sách -> update bảng trái
                 if has_list_changed:
-                    print("✓ WebSocket: Danh sách máy thay đổi, update bảng trái")
                     self.root.after(0, self.update_all_table)
                 
                 # Luôn update selected data và bảng phải
@@ -475,7 +475,6 @@ class ServerDataGUI:
         """Gửi CHỈ những item có thay đổi về SRT STATUS hoặc IPWAN lên Discord"""
         # Tránh gửi duplicate nếu đang trong quá trình gửi
         if self.is_sending:
-            print("⏳ Đang gửi, bỏ qua request...")
             return
         
         webhook = self.webhook_var.get().strip()
@@ -488,13 +487,16 @@ class ServerDataGUI:
         # Nếu chưa có previous_data (lần đầu), chỉ lưu snapshot, không gửi
         if not self.previous_data:
             self.previous_data = current_snapshot
-            print("📸 Lưu snapshot đầu tiên, không gửi Discord")
             return
         
         # So sánh với previous_data
         if current_snapshot == self.previous_data:
-            print("✓ Không có thay đổi, không gửi Discord")
             return
+        
+        print(f"📊 DEBUG: Snapshot thay đổi! {len(current_snapshot)} items")
+        for i, (c, p) in enumerate(zip(current_snapshot, self.previous_data)):
+            if c != p:
+                print(f"  Δ [{c.get('name','')}] status: {p.get('status','')} → {c.get('status','')}, ipwan: {p.get('ipwan','')} → {c.get('ipwan','')}")
         
         self.is_sending = True
         
@@ -506,50 +508,64 @@ class ServerDataGUI:
                 prev_dict = {f"{item['name']}:{item['port']}": item for item in self.previous_data}
                 curr_dict = {f"{item['name']}:{item['port']}": item for item in current_snapshot}
                 
-                # Tìm những item có thay đổi về STATUS hoặc IPWAN (KHÔNG BAO GỒM APP STATUS)
+                # Tìm những item có thay đổi về STATUS (SRT) hoặc IPWAN
                 changed_items = []
                 
                 for key, curr_item in curr_dict.items():
                     prev_item = prev_dict.get(key)
                     
-                    # Chỉ check thay đổi về STATUS (SRT) và IPWAN
-                    if not prev_item or (
-                        prev_item['status'] != curr_item['status'] or
-                        prev_item['ipwan'] != curr_item['ipwan']
-                    ):
-                        changed_items.append(curr_item)
-                        if prev_item:
+                    if prev_item:
+                        status_changed = prev_item['status'] != curr_item['status']
+                        ipwan_changed = prev_item['ipwan'] != curr_item['ipwan']
+                        
+                        if status_changed or ipwan_changed:
+                            # Ghi nhận chi tiết thay đổi để hiển thị trong Discord message
+                            change_info = {
+                                **curr_item,
+                                '_status_changed': status_changed,
+                                '_ipwan_changed': ipwan_changed,
+                                '_old_status': prev_item['status'],
+                                '_old_ipwan': prev_item['ipwan'],
+                            }
+                            changed_items.append(change_info)
                             print(f"🔔 Thay đổi [{curr_item['name']}]: Status {prev_item['status']}→{curr_item['status']}, IPWAN {prev_item['ipwan']}→{curr_item['ipwan']}")
+                    else:
+                        # Item mới xuất hiện
+                        change_info = {
+                            **curr_item,
+                            '_status_changed': True,
+                            '_ipwan_changed': False,
+                            '_old_status': '',
+                            '_old_ipwan': '',
+                        }
+                        changed_items.append(change_info)
                 
-                # Lọc chỉ giữ item có ipwan là số
-                filtered_items = [item for item in changed_items if str(item.get('ipwan', '')).isdigit()]
-                # Nếu có thay đổi hợp lệ, chỉ gửi những item này
-                if filtered_items:
+                # Gửi notification cho TẤT CẢ item có thay đổi (không lọc ipwan nữa)
+                if changed_items:
                     messages = []
                     # Thêm tiêu đề với thời gian
                     now = datetime.now(VIETNAM_TZ)
                     title = f"=== STATUS CHANGED - {now.strftime('%d/%m/%Y %H:%M:%S')} ==="
                     messages.append(title)
-                    # Chỉ gửi những item có thay đổi và ipwan là số
-                    for curr_item in filtered_items:
-                        name = curr_item['name']
-                        ipwan = curr_item['ipwan']
-                        port = curr_item['port']
-                        status = curr_item['status']
+                    
+                    for item in changed_items:
+                        name = item['name']
+                        port = item['port']
+                        status = item['status']
+                        ipwan = item['ipwan']
+                        
                         msg = f"[{prefix}][{name}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
                         messages.append(msg)
+                    
                     payload = {"content": "\n".join(messages)}
                     resp = requests.post(webhook, json=payload, timeout=10)
                     if resp.status_code in [200, 204]:
-                        print(f"✓ Sent {len(filtered_items)} changed items to Discord")
-                        # CẬP NHẬT previous_data sau khi gửi thành công
-                        self.previous_data = current_snapshot
+                        print(f"✓ Sent {len(changed_items)} changed items to Discord")
                     else:
                         print(f"✗ Discord error: {resp.status_code}")
-                else:
-                    print("✓ Không có item nào thay đổi hợp lệ (STATUS hoặc IPWAN là số)")
-                    # Vẫn cập nhật previous_data
-                    self.previous_data = current_snapshot
+                
+                # Luôn cập nhật previous_data
+                self.previous_data = current_snapshot
                     
             except Exception as e:
                 print(f"✗ Failed to send: {e}")
@@ -634,7 +650,7 @@ class ServerDataGUI:
             # Create row frame
             row_frame = ctk.CTkFrame(self.table_frame_left, 
                                      fg_color="#3a3a3a" if stt % 2 == 0 else "#2b2b2b", 
-                                     height=45)
+                                     height=35)
             row_frame.pack(fill="x", pady=1)
             row_frame.pack_propagate(False)
             
@@ -647,16 +663,16 @@ class ServerDataGUI:
             self.left_table_checkboxes[idx] = (checkbox, checkbox_var, entry)
             
             # STT
-            stt_label = ctk.CTkLabel(row_frame, text=str(stt), font=("Arial", 12, "bold"), width=40, anchor="center")
+            stt_label = ctk.CTkLabel(row_frame, text=str(stt), font=("Arial", 10, "bold"), width=35, anchor="center")
             stt_label.pack(side="left", padx=2)
             
             # IP
             ip_color = "#4CAF50" if statusapp == 1 else "#f44336"
-            ip_label = ctk.CTkLabel(row_frame, text=ip, font=("Arial", 12, "bold"), width=120, text_color=ip_color, anchor="center")
+            ip_label = ctk.CTkLabel(row_frame, text=ip, font=("Arial", 10, "bold"), width=110, text_color=ip_color, anchor="center")
             ip_label.pack(side="left", padx=2)
             
             # Port
-            port_label = ctk.CTkLabel(row_frame, text=port, font=("Arial", 12, "bold"), width=70, anchor="center")
+            port_label = ctk.CTkLabel(row_frame, text=port, font=("Arial", 10, "bold"), width=60, anchor="center")
             port_label.pack(side="left", padx=2)
             
             # Bind click event for details (only on labels, not checkbox)
@@ -699,50 +715,50 @@ class ServerDataGUI:
             # Create row frame
             row_frame = ctk.CTkFrame(self.table_frame_right,
                                      fg_color="#3a3a3a" if stt % 2 == 0 else "#2b2b2b",
-                                     height=45)
+                                     height=35)
             row_frame.pack(fill="x", pady=1)
             row_frame.pack_propagate(False)
             
             # Hàm helper để tạo label và bind click
-            def create_clickable_label(parent, text, width, font=("Arial", 12, "bold"), text_color=None, anchor="center"):
+            def create_clickable_label(parent, text, width, font=("Arial", 10, "bold"), text_color=None, anchor="center"):
                 lbl = ctk.CTkLabel(parent, text=text, font=font, width=width, text_color=text_color, anchor=anchor)
                 lbl.pack(side="left", padx=2)
                 lbl.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
                 return lbl
 
             # STT
-            create_clickable_label(row_frame, str(stt), 40)
+            create_clickable_label(row_frame, str(stt), 35)
             
             # Name (editable on double-click)
-            name_frame = ctk.CTkFrame(row_frame, fg_color="transparent", width=120)
+            name_frame = ctk.CTkFrame(row_frame, fg_color="transparent", width=110)
             name_frame.pack(side="left", padx=2)
             name_frame.pack_propagate(False)
-            name_label = ctk.CTkLabel(name_frame, text=name, font=("Arial", 12, "bold"), anchor="center")
+            name_label = ctk.CTkLabel(name_frame, text=name, font=("Arial", 10, "bold"), anchor="center")
             name_label.pack(fill="both", expand=True)
             name_label.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
             name_label.bind("<Double-1>", lambda e, idx=stt-1, frame=name_frame, lbl=name_label: self.edit_name_inline(idx, frame, lbl))
             
             # Các cột thông tin
-            create_clickable_label(row_frame, ip,    120)
-            create_clickable_label(row_frame, ipwan, 120)
+            create_clickable_label(row_frame, ip,    110)
+            create_clickable_label(row_frame, ipwan, 110)
             
             status_color = "#4CAF50" if status == "ON" else "#f44336"
-            create_clickable_label(row_frame, status, 80, text_color=status_color)
+            create_clickable_label(row_frame, status, 70, text_color=status_color)
             
-            create_clickable_label(row_frame, port, 70)
+            create_clickable_label(row_frame, port, 60)
             
             app_color = "#4CAF50" if statusapp == 1 else "#f44336"
-            create_clickable_label(row_frame, statusapp_text, 55, text_color=app_color)
+            create_clickable_label(row_frame, statusapp_text, 45, text_color=app_color)
             
             ping_color = "#4CAF50" if ping is not None else "#9E9E9E"
-            create_clickable_label(row_frame, ping_str, 80, font=("Arial", 11), text_color=ping_color)
+            create_clickable_label(row_frame, ping_str, 70, font=("Arial", 9), text_color=ping_color)
             
             to_color = "#f44336" if ping_timeouts and int(ping_timeouts) > 0 else "#9E9E9E"
-            create_clickable_label(row_frame, timeout_str, 80, font=("Arial", 11, "bold"), text_color=to_color)
+            create_clickable_label(row_frame, timeout_str, 70, font=("Arial", 9, "bold"), text_color=to_color)
             
-            create_clickable_label(row_frame, cpu_str, 75, font=("Arial", 11))
-            create_clickable_label(row_frame, mem_str, 75, font=("Arial", 11))
-            create_clickable_label(row_frame, ts, 145, font=("Arial", 10))
+            create_clickable_label(row_frame, cpu_str, 65, font=("Arial", 9))
+            create_clickable_label(row_frame, mem_str, 65, font=("Arial", 9))
+            create_clickable_label(row_frame, ts, 130, font=("Arial", 9))
             
             # Delete button (Không bind click detail vào đây)
             delete_btn = ctk.CTkButton(row_frame, text="❌", width=30, height=30, fg_color="#f44336", hover_color="#d32f2f",
@@ -943,17 +959,15 @@ class ServerDataGUI:
                     # Update toàn bộ thông tin (bao gồm IP, IPWAN mới)
                     self.selected_data[i] = entry
                     matched = True
-                    print(f"🔄 Updated by NAME: {sel_name} - New IP: {entry_d.get('ip', '')}, New IPWAN: {entry_d.get('ipwan', '')}")
                     break
                 # Nếu không có name, match theo PORT
                 elif not sel_name and sel_port and sel_port == entry_port:
                     self.selected_data[i] = entry
                     matched = True
-                    print(f"🔄 Updated by PORT: {sel_port} - New IP: {entry_d.get('ip', '')}, New IPWAN: {entry_d.get('ipwan', '')}")
                     break
             
             if not matched:
-                print(f"⚠ Cannot find match for: {sel_name or sel_port}")
+                pass
 
     def clear_selected(self):
         """Clear selected list"""
@@ -1104,13 +1118,13 @@ class ServerDataGUI:
         host_lbl.pack(side="left", padx=8)
 
         toggle_btn = ctk.CTkButton(title_bar, text="⏹", width=26, height=22,
-                                   fg_color="transparent", hover_color="#55555580",
+                                   fg_color="transparent", hover_color="#666666",
                                    command=lambda h=host: self.toggle_ping_host(h),
                                    font=("Arial", 11))
         toggle_btn.pack(side="right", padx=2)
 
         remove_btn = ctk.CTkButton(title_bar, text="✕", width=26, height=22,
-                                   fg_color="transparent", hover_color="#55555580",
+                                   fg_color="transparent", hover_color="#666666",
                                    command=lambda h=host: self.remove_ping_card(h),
                                    font=("Arial", 11, "bold"))
         remove_btn.pack(side="right", padx=2)
