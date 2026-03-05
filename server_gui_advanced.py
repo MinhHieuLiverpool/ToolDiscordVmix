@@ -10,6 +10,7 @@ import websocket
 import time
 import subprocess
 import re
+import os
 
 # Set appearance mode and color theme
 ctk.set_appearance_mode("dark")  # Modes: "dark", "light", "system"
@@ -36,9 +37,9 @@ class ServerDataGUI:
         # Mo fullscreen (maximized) khi khoi chay
         self.root.after(100, lambda: self.root.state('zoomed'))
 
-        # use local server by default
-        self.api_url = "http://localhost:8088/logs"
-        self.ws_url = "ws://localhost:8088/ws"
+        # use Render.com server
+        self.api_url = "https://tooldiscordvmix.onrender.com/logs"
+        self.ws_url = "wss://tooldiscordvmix.onrender.com/ws"
         self.webhook_var = ctk.StringVar(value="")
         self.prefix_var = ctk.StringVar(value="SRT")
         self.data = []  # All data from database
@@ -47,6 +48,7 @@ class ServerDataGUI:
         self.auto_send_enabled = False
         self.is_sending = False  # Flag để tránh gửi duplicate
         self.ptz_ping_threads = {}  # PTZ ping threads: key=name:port, value={running, thread}
+        self._log_last_write = {}    # Tracking thời gian ghi log: key=name, value=timestamp
         
         # WebSocket variables
         self.ws = None
@@ -116,9 +118,9 @@ class ServerDataGUI:
         self.select_all_cb = ctk.CTkCheckBox(header_frame, text="", variable=self.select_all_var,
                                              width=35, command=self.toggle_select_all)
         self.select_all_cb.pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame, text="STT", font=("Arial", 10, "bold"), width=35).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame, text="IP MÁY", font=("Arial", 10, "bold"), width=110).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame, text="PORT",  font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame, text="STT", font=("Arial", 12, "bold"), width=35).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame, text="IP MÁY", font=("Arial", 12, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame, text="PORT",  font=("Arial", 12, "bold"), width=60).pack(side="left", padx=2)
         
         self.left_table_rows = []
         self.left_table_checkboxes = {}
@@ -138,18 +140,18 @@ class ServerDataGUI:
         header_frame_right.pack(fill="x", pady=(0, 5))
         header_frame_right.pack_propagate(False)
         
-        ctk.CTkLabel(header_frame_right, text="STT",     font=("Arial", 10, "bold"), width=35).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="TÊN",     font=("Arial", 10, "bold"), width=110).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="IP MÁY",   font=("Arial", 10, "bold"), width=110).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="IP WAN",   font=("Arial", 10, "bold"), width=110).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="STATUS",   font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="PORT",     font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="APP",      font=("Arial", 10, "bold"), width=45).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="📡 PING",   font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="❌ TIMEOUT",font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="⚡ CPU%",   font=("Arial", 10, "bold"), width=65).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="💾 RAM%",   font=("Arial", 10, "bold"), width=65).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="TIME",     font=("Arial", 10, "bold"), width=130).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="STT",     font=("Arial", 12, "bold"), width=35).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="TÊN",     font=("Arial", 12, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="IP MÁY",   font=("Arial", 12, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="IP WAN",   font=("Arial", 12, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="STATUS",   font=("Arial", 12, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="PORT",     font=("Arial", 12, "bold"), width=60).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="APP",      font=("Arial", 12, "bold"), width=45).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="📡 PING",   font=("Arial", 12, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="❌ TIMEOUT",font=("Arial", 12, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="⚡ CPU%",   font=("Arial", 12, "bold"), width=65).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="💾 RAM%",   font=("Arial", 12, "bold"), width=65).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="TIME",     font=("Arial", 12, "bold"), width=130).pack(side="left", padx=2)
         
         self.right_table_rows = []
 
@@ -665,16 +667,16 @@ class ServerDataGUI:
             self.left_table_checkboxes[idx] = (checkbox, checkbox_var, entry)
             
             # STT
-            stt_label = ctk.CTkLabel(row_frame, text=str(stt), font=("Arial", 10, "bold"), width=35, anchor="center")
+            stt_label = ctk.CTkLabel(row_frame, text=str(stt), font=("Arial", 12, "bold"), width=35, anchor="center")
             stt_label.pack(side="left", padx=2)
             
             # IP
             ip_color = "#4CAF50" if statusapp == 1 else "#f44336"
-            ip_label = ctk.CTkLabel(row_frame, text=ip, font=("Arial", 10, "bold"), width=110, text_color=ip_color, anchor="center")
+            ip_label = ctk.CTkLabel(row_frame, text=ip, font=("Arial", 12, "bold"), width=110, text_color=ip_color, anchor="center")
             ip_label.pack(side="left", padx=2)
             
             # Port
-            port_label = ctk.CTkLabel(row_frame, text=port, font=("Arial", 10, "bold"), width=60, anchor="center")
+            port_label = ctk.CTkLabel(row_frame, text=port, font=("Arial", 12, "bold"), width=60, anchor="center")
             port_label.pack(side="left", padx=2)
             
             # Bind click event for details (only on labels, not checkbox)
@@ -722,7 +724,7 @@ class ServerDataGUI:
             row_frame.pack_propagate(False)
             
             # Hàm helper để tạo label và bind click
-            def create_clickable_label(parent, text, width, font=("Arial", 10, "bold"), text_color=None, anchor="center"):
+            def create_clickable_label(parent, text, width, font=("Arial", 12, "bold"), text_color=None, anchor="center"):
                 lbl = ctk.CTkLabel(parent, text=text, font=font, width=width, text_color=text_color, anchor=anchor)
                 lbl.pack(side="left", padx=2)
                 lbl.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
@@ -735,7 +737,7 @@ class ServerDataGUI:
             name_frame = ctk.CTkFrame(row_frame, fg_color="transparent", width=110)
             name_frame.pack(side="left", padx=2)
             name_frame.pack_propagate(False)
-            name_label = ctk.CTkLabel(name_frame, text=name, font=("Arial", 10, "bold"), anchor="center")
+            name_label = ctk.CTkLabel(name_frame, text=name, font=("Arial", 12, "bold"), anchor="center")
             name_label.pack(fill="both", expand=True)
             name_label.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
             name_label.bind("<Double-1>", lambda e, idx=stt-1, frame=name_frame, lbl=name_label: self.edit_name_inline(idx, frame, lbl))
@@ -753,14 +755,14 @@ class ServerDataGUI:
             create_clickable_label(row_frame, statusapp_text, 45, text_color=app_color)
             
             ping_color = "#4CAF50" if ping is not None else "#9E9E9E"
-            create_clickable_label(row_frame, ping_str, 70, font=("Arial", 9), text_color=ping_color)
+            create_clickable_label(row_frame, ping_str, 70, font=("Arial", 11), text_color=ping_color)
             
             to_color = "#f44336" if ping_timeouts and int(ping_timeouts) > 0 else "#9E9E9E"
-            create_clickable_label(row_frame, timeout_str, 70, font=("Arial", 9, "bold"), text_color=to_color)
+            create_clickable_label(row_frame, timeout_str, 70, font=("Arial", 11, "bold"), text_color=to_color)
             
-            create_clickable_label(row_frame, cpu_str, 65, font=("Arial", 9))
-            create_clickable_label(row_frame, mem_str, 65, font=("Arial", 9))
-            create_clickable_label(row_frame, ts, 130, font=("Arial", 9))
+            create_clickable_label(row_frame, cpu_str, 65, font=("Arial", 11))
+            create_clickable_label(row_frame, mem_str, 65, font=("Arial", 11))
+            create_clickable_label(row_frame, ts, 130, font=("Arial", 11))
             
             # Delete button (Không bind click detail vào đây)
             delete_btn = ctk.CTkButton(row_frame, text="❌", width=30, height=30, fg_color="#f44336", hover_color="#d32f2f",
@@ -947,6 +949,90 @@ class ServerDataGUI:
             threading.Thread(target=update_name, daemon=True).start()
             self.update_selected_table()
 
+    # ── Debug File Logging ───────────────────────────────────────────────
+
+    def _write_ptz_log(self, name, ms_or_timeout, status_changed=False, new_status=None):
+        """Ghi log PTZ đơn giản: [HH:MM:SS] - 30ms  hoặc  [HH:MM:SS] - timeout"""
+        try:
+            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+            today = datetime.now(VIETNAM_TZ).strftime("%d-%m-%Y")
+            debug_dir = os.path.join(desktop, f"Debug {today}")
+            os.makedirs(debug_dir, exist_ok=True)
+
+            now_str = datetime.now(VIETNAM_TZ).strftime("%H:%M:%S")
+
+            safe_name = "".join(c for c in name if c.isalnum() or c in " _-.").strip() or "unknown"
+
+            # Ghi vào file riêng của PTZ
+            fpath = os.path.join(debug_dir, f"{safe_name}.txt")
+            result_str = f"{ms_or_timeout}ms" if isinstance(ms_or_timeout, (int, float)) else "timeout"
+            line = f"[{now_str}] - {result_str}\n"
+            with open(fpath, "a", encoding="utf-8") as f:
+                f.write(line)
+
+            # Ghi vào error.txt chung khi status thay đổi ON↔OFF
+            if status_changed and new_status in ("ON", "OFF"):
+                epath = os.path.join(debug_dir, "error.txt")
+                err_line = f"[{now_str}] [{name}] - {new_status}  ({result_str})\n"
+                with open(epath, "a", encoding="utf-8") as f:
+                    f.write(err_line)
+        except Exception as e:
+            print(f"⚠ PTZ log write error: {e}")
+
+    def _write_debug_log(self, name, d, is_error=False):
+        """Ghi log vào Desktop/Debug DD-MM-YYYY/{name}.txt hoặc error.txt (chung)"""
+        try:
+            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+            today = datetime.now(VIETNAM_TZ).strftime("%d-%m-%Y")
+            debug_dir = os.path.join(desktop, f"Debug {today}")
+            os.makedirs(debug_dir, exist_ok=True)
+
+            if is_error:
+                # Tất cả error ghi vào 1 file chung
+                fpath = os.path.join(debug_dir, "error.txt")
+            else:
+                # Mỗi máy 1 file riêng
+                safe_name = "".join(c for c in name if c.isalnum() or c in " _-.").strip()
+                if not safe_name:
+                    safe_name = "unknown"
+                fpath = os.path.join(debug_dir, f"{safe_name}.txt")
+
+            now_str = datetime.now(VIETNAM_TZ).strftime("%H:%M:%S")
+
+            ping_val = d.get('ping', None)
+            ping_s   = f"{ping_val:.0f}ms" if ping_val is not None else "—"
+            cpu_val  = d.get('cpu', None)
+            cpu_s    = f"{cpu_val:.1f}%" if cpu_val is not None else "—"
+            mem_val  = d.get('memory', None)
+            mem_s    = f"{mem_val:.1f}%" if mem_val is not None else "—"
+            temp_val = d.get('temperature', None)
+            temp_s   = f"{temp_val}°C" if temp_val is not None else "—"
+            app_s    = "ON" if d.get('statusapp', 0) == 1 else "OFF"
+
+            parts = [
+                f"ip: {d.get('ip','')}  ",
+                f"ipwan: {d.get('ipwan','')}  ",
+                f"status: {d.get('status','')}  ",
+                f"port: {d.get('port','')}  ",
+                f"app: {app_s}  ",
+                f"ping: {ping_s}  ",
+                f"timeouts: {d.get('ping_timeouts', 0)}  ",
+                f"cpu: {cpu_s}  ",
+                f"ram: {mem_s}  ",
+                f"temp: {temp_s}",
+            ]
+            if is_error:
+                line = f"[{now_str}] [{name}] - " + "".join(parts) + "\n"
+            else:
+                line = f"[{now_str}] - " + "".join(parts) + "\n"
+
+            with open(fpath, "a", encoding="utf-8") as f:
+                f.write(line)
+        except Exception as e:
+            print(f"⚠ Log write error: {e}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+
     def update_selected_data(self):
         """Update selected data with latest info from database - Match by NAME or PORT"""
         for i, sel_entry in enumerate(self.selected_data):
@@ -978,8 +1064,25 @@ class ServerDataGUI:
                     matched = True
                     break
             
-            if not matched:
-                pass
+            if matched:
+                new_d = self.selected_data[i].get("data", {})
+                disp_name = new_d.get("name", "") or sel_name
+                old_status = sel_d.get("status", "")
+                new_status = new_d.get("status", "")
+                status_changed = (old_status != new_status
+                                  and new_status in ("ON", "OFF")
+                                  and old_status in ("ON", "OFF"))
+                # Ghi regular log: mỗi 5 giây HOẶC khi status thay đổi
+                now_ts = time.time()
+                since_last = now_ts - self._log_last_write.get(disp_name, 0)
+                if since_last >= 5 or status_changed:
+                    self._log_last_write[disp_name] = now_ts
+                    threading.Thread(target=self._write_debug_log,
+                                     args=(disp_name, new_d, False), daemon=True).start()
+                # Ghi error log CHỈ khi status thay đổi ON↔OFF
+                if status_changed:
+                    threading.Thread(target=self._write_debug_log,
+                                     args=(disp_name, new_d, True), daemon=True).start()
 
     def clear_selected(self):
         """Clear selected list"""
@@ -1142,18 +1245,30 @@ class ServerDataGUI:
                 is_up = "ttl=" in output.lower()
                 new_status = "ON" if is_up else "OFF"
                 old_status = ptz_entry.get("data", {}).get("status", "")
-                
+                status_changed = (new_status != old_status
+                                  and old_status in ("ON", "OFF")
+                                  and new_status in ("ON", "OFF"))
+
+                # Parse ms từ output ping
+                ms_match = re.search(r"time[=<](\d+)", output, re.IGNORECASE)
+                ping_ms = int(ms_match.group(1)) if ms_match else None
+
                 # Cập nhật status nếu thay đổi
                 if new_status != old_status:
                     self.selected_data[ptz_idx]["data"]["status"] = new_status
                     print(f"📡 PTZ [{ptz_key}] status: {old_status or '—'} → {new_status}")
-                    
                     # Refresh table trên UI thread
                     self.root.after(0, self.update_selected_table)
-                    
                     # Trigger Discord notification nếu auto_send đang bật
                     if self.auto_send_enabled:
                         self.root.after(100, self.send_to_discord_auto)
+
+                # Ghi PTZ log đơn giản mỗi vòng (5 giây)
+                ptz_name = ptz_entry.get("data", {}).get("name", ptz_key)
+                log_val = ping_ms if is_up else "timeout"
+                threading.Thread(target=self._write_ptz_log,
+                                 args=(ptz_name, log_val, status_changed, new_status),
+                                 daemon=True).start()
                 
             except Exception as e:
                 print(f"⚠ PTZ ping error [{ptz_key}]: {e}")
@@ -1304,6 +1419,12 @@ class ServerDataGUI:
                                 unique[key] = entry
                         self.selected_data = list(unique.values())
                         print(f"✓ Loaded {len(self.selected_data)} items from database (unique)")
+                        # Start ping threads for PTZ entries
+                        for entry in self.selected_data:
+                            d = entry.get("data", {})
+                            if d.get("ptz", False):
+                                ptz_key = f"{d.get('name','')}:{d.get('port','')}"
+                                self.root.after(0, lambda k=ptz_key: self._start_ptz_ping(k))
                         # Update UI
                         self.root.after(0, self.update_selected_table)
                         self.root.after(0, self.update_all_table)
