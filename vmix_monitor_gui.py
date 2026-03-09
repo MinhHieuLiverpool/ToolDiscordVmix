@@ -1,4 +1,4 @@
-
+﻿
 import tkinter as tk
 from tkinter import scrolledtext, messagebox, filedialog
 import ttkbootstrap as ttk
@@ -15,6 +15,9 @@ import sys
 
 # Timezone configuration - Vietnam
 VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
+
+# Server URL - FastAPI server
+SERVER_URL = "https://tooldiscordvmix.onrender.com"
 
 # Global socket for single instance
 SINGLE_INSTANCE_SOCKET = None
@@ -523,7 +526,7 @@ class VmixMonitorGUI:
             self.log(f"📥 Đang import data từ IP {old_ip}...")
             
             # Lấy data từ IP cũ
-            url = f"https://tooldiscordvmix.onrender.com/get_by_ip?ip={old_ip}"
+            url = f"{SERVER_URL}/get_by_ip?ip={old_ip}"
             response = requests.get(url, timeout=20)
             
             if response.status_code == 200:
@@ -582,7 +585,7 @@ class VmixMonitorGUI:
                 "port": port,
                 "name": name
             }
-            url = "https://tooldiscordvmix.onrender.com/update_ip"
+            url = f"{SERVER_URL}/update_ip"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=10)
             
@@ -632,7 +635,7 @@ class VmixMonitorGUI:
                     "port": entry['port'],
                     "name": entry['name']
                 }
-                url = "https://tooldiscordvmix.onrender.com/update_ip"
+                url = f"{SERVER_URL}/update_ip"
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, json=data, headers=headers, timeout=10)
                 
@@ -657,7 +660,7 @@ class VmixMonitorGUI:
         start_time = time.time()
         
         try:
-            url = "https://tooldiscordvmix.onrender.com/logs"
+            url = f"{SERVER_URL}/logs"
             response = requests.get(url, timeout=30)
             elapsed = time.time() - start_time
             
@@ -679,7 +682,7 @@ class VmixMonitorGUI:
         import requests
         try:
             ip = self.ip_var.get().strip()
-            url = f"https://tooldiscordvmix.onrender.com/get_by_ip?ip={ip}"
+            url = f"{SERVER_URL}/get_by_ip?ip={ip}"
             self.log(f"⏳ Đang tải dữ liệu từ server...")
             response = requests.get(url, timeout=20)
             
@@ -744,7 +747,7 @@ class VmixMonitorGUI:
         import requests
         try:
             # Get all data from database
-            url = "https://tooldiscordvmix.onrender.com/logs"
+            url = f"{SERVER_URL}/logs"
             response = requests.get(url, timeout=10)
             
             if response.status_code == 200:
@@ -894,7 +897,7 @@ class VmixMonitorGUI:
                 "ip": ip,
                 "port": port
             }
-            url = "https://tooldiscordvmix.onrender.com/delete"
+            url = f"{SERVER_URL}/delete"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=15)
             if response.status_code == 200:
@@ -925,7 +928,7 @@ class VmixMonitorGUI:
                     "ip": current_ip,  # Dùng IP hiện tại của máy này
                     "port": entry['port']
                 }
-                url = "https://tooldiscordvmix.onrender.com/delete"
+                url = f"{SERVER_URL}/delete"
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, json=data, headers=headers, timeout=10)
                 if response.status_code == 200:
@@ -961,7 +964,7 @@ class VmixMonitorGUI:
                     "port": entry['port'],
                     "statusapp": status_value  # App status: 1=ON, 0=OFF
                 }
-                url = "https://tooldiscordvmix.onrender.com"
+                url = SERVER_URL
                 headers = {"Content-Type": "application/json"}
                 
                 # Retry logic (3 attempts)
@@ -1165,8 +1168,8 @@ class VmixMonitorGUI:
             return '—'
 
         try:
-            tree = ET.parse(project_file)
-            root = tree.getroot()
+            xml_text = self._read_file_shared(project_file)
+            root = ET.fromstring(xml_text)
 
             # vMix 26: resolution trong <OutputFormat OutputSize="1920x1080" OutputFrameRate="333667">
             out_fmt = root.find('.//OutputFormat')
@@ -1221,6 +1224,35 @@ class VmixMonitorGUI:
                 or r'C:\ProgramData')
         return os.path.join(base, 'vMix')
 
+    @staticmethod
+    def _read_file_shared(filepath: str) -> str:
+        """Đọc file ngay cả khi bị vMix lock (Windows API)."""
+        import ctypes
+        from ctypes import wintypes
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        GENERIC_READ        = 0x80000000
+        FILE_SHARE_ALL      = 0x07
+        OPEN_EXISTING       = 3
+        FILE_ATTRIBUTE_NORMAL = 0x80
+        INVALID_HANDLE      = ctypes.c_void_p(-1).value
+        handle = kernel32.CreateFileW(
+            filepath, GENERIC_READ, FILE_SHARE_ALL,
+            None, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, None,
+        )
+        if handle == INVALID_HANDLE:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            size = kernel32.GetFileSize(handle, None)
+            if size == 0xFFFFFFFF:
+                raise ctypes.WinError(ctypes.get_last_error())
+            buf = ctypes.create_string_buffer(size)
+            read = wintypes.DWORD(0)
+            if not kernel32.ReadFile(handle, buf, size, ctypes.byref(read), None):
+                raise ctypes.WinError(ctypes.get_last_error())
+            return buf.raw[:read.value].decode('utf-8', errors='replace')
+        finally:
+            kernel32.CloseHandle(handle)
+
     def get_res_and_srt_from_file(self) -> tuple:
         """
         Lấy Resolution và SRT Quality từ C:\\ProgramData\\vMix\\ (Python thuần, không API).
@@ -1242,8 +1274,8 @@ class VmixMonitorGUI:
         # Định dạng: line0=width  line1=height  line2=frame_rate_ticks(100ns/frame)
         resolution = '—'
         try:
-            with open(video_txt, encoding='utf-8', errors='replace') as f:
-                v = [l.strip() for l in f.readlines()]
+            raw_text = self._read_file_shared(video_txt)
+            v = [l.strip() for l in raw_text.splitlines()]
             h = v[1] if len(v) > 1 else ''
             fps_str = ''
             if len(v) > 2:
@@ -1267,8 +1299,7 @@ class VmixMonitorGUI:
         # Dùng regex để bắt đúng khối, rồi parse XML con để lấy SRT fields.
         srt_by_port: dict = {}
         try:
-            with open(config_file, encoding='utf-8', errors='replace') as f:
-                content = f.read()
+            content = self._read_file_shared(config_file)
 
             for ext_name in ('OutputsExternal', 'OutputsExternal2',
                              'OutputsExternal3', 'OutputsExternal4'):
@@ -1583,7 +1614,7 @@ class VmixMonitorGUI:
                                 "port": port,
                                 "statusapp": 1
                             }
-                            url = "https://tooldiscordvmix.onrender.com"
+                            url = SERVER_URL
                             headers = {"Content-Type": "application/json"}
                             response = requests.post(url, json=data, headers=headers, timeout=10)
                             if response.status_code == 200:
@@ -1617,7 +1648,7 @@ class VmixMonitorGUI:
                                 "port": port,
                                 "statusapp": 1
                             }
-                            url = "https://tooldiscordvmix.onrender.com"
+                            url = SERVER_URL
                             headers = {"Content-Type": "application/json"}
                             response = requests.post(url, json=data, headers=headers, timeout=10)
                             if response.status_code == 200:
@@ -1696,8 +1727,11 @@ class VmixMonitorGUI:
                         "vmix_recording": vmix_stats.get('recording', False),
                         "vmix_streaming": vmix_stats.get('streaming', False),
                         "vmix_external":  vmix_stats.get('external',  False),
+                        # ── Resolution & SRT Quality ──
+                        "resolution":  res_str,
+                        "srt_quality": srt_str,
                     }
-                    url = "https://tooldiscordvmix.onrender.com"
+                    url = SERVER_URL
                     headers = {"Content-Type": "application/json"}
                     response = self.http_session.post(url, json=data, headers=headers, timeout=5)
                     if response.status_code == 200:

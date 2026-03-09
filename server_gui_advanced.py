@@ -38,8 +38,8 @@ class ServerDataGUI:
         self.root.after(100, lambda: self.root.state('zoomed'))
 
         # use Render.com server
-        self.api_url = "http://localhost:8000/logs"
-        self.ws_url = "ws://localhost:8000/ws"
+        self.api_url = "https://tooldiscordvmix.onrender.com"
+        self.ws_url = "wss://tooldiscordvmix.onrender.com/ws"
         self.webhook_var = ctk.StringVar(value="")
         self.prefix_var = ctk.StringVar(value="SRT")
         self.data = []  # All data from database
@@ -118,9 +118,9 @@ class ServerDataGUI:
         self.select_all_cb = ctk.CTkCheckBox(header_frame, text="", variable=self.select_all_var,
                                              width=35, command=self.toggle_select_all)
         self.select_all_cb.pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame, text="STT", font=("Arial", 12, "bold"), width=35).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame, text="IP MÁY", font=("Arial", 12, "bold"), width=110).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame, text="PORT",  font=("Arial", 12, "bold"), width=60).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame, text="STT", font=("Arial", 11, "bold"), width=35).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame, text="IP MÁY", font=("Arial", 11, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame, text="PORT",  font=("Arial", 11, "bold"), width=60).pack(side="left", padx=2)
         
         self.left_table_rows = []
         self.left_table_checkboxes = {}
@@ -140,23 +140,23 @@ class ServerDataGUI:
         header_frame_right.pack(fill="x", pady=(0, 5))
         header_frame_right.pack_propagate(False)
         
-        ctk.CTkLabel(header_frame_right, text="STT",        font=("Arial", 11, "bold"), width=35).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="TÊN",        font=("Arial", 11, "bold"), width=110).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="IP MÁY",     font=("Arial", 11, "bold"), width=110).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="IP WAN",     font=("Arial", 11, "bold"), width=110).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="STATUS",     font=("Arial", 11, "bold"), width=70).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="PORT",       font=("Arial", 11, "bold"), width=60).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="APP",        font=("Arial", 11, "bold"), width=45).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="📡 PING",    font=("Arial", 11, "bold"), width=70).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="❌ TIMEOUT", font=("Arial", 11, "bold"), width=70).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="⚡ CPU%",    font=("Arial", 11, "bold"), width=65).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="💾 RAM%",    font=("Arial", 11, "bold"), width=65).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="● REC",      font=("Arial", 11, "bold"), width=60).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="🔴 LIVE",    font=("Arial", 11, "bold"), width=60).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="🟢 EXT",     font=("Arial", 11, "bold"), width=60).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="🖥 RES",      font=("Arial", 11, "bold"), width=90).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="📹 SRT",     font=("Arial", 11, "bold"), width=180).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="TIME",       font=("Arial", 11, "bold"), width=130).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="STT",        font=("Arial", 10, "bold"), width=35).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="TÊN",        font=("Arial", 10, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="IP MÁY",     font=("Arial", 10, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="IP WAN",     font=("Arial", 10, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="STATUS",     font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="PORT",       font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="APP",        font=("Arial", 10, "bold"), width=45).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="📡 PING",    font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="❌ TIMEOUT", font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="⚡ CPU%",    font=("Arial", 10, "bold"), width=65).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="💾 RAM%",    font=("Arial", 10, "bold"), width=65).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="● REC",      font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="🔴 LIVE",    font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="🟢 EXT",     font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="🖥 RES",      font=("Arial", 10, "bold"), width=90).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="📹 SRT",     font=("Arial", 10, "bold"), width=180).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="TIME",       font=("Arial", 10, "bold"), width=130).pack(side="left", padx=2)
         
         self.right_table_rows = []
 
@@ -318,7 +318,7 @@ class ServerDataGUI:
         
         def poll():
             try:
-                resp = requests.get(self.api_url, timeout=5)
+                resp = requests.get(f"{self.api_url}/logs", timeout=5)
                 if resp.status_code == 200:
                     data = resp.json()
                     if isinstance(data, list):
@@ -443,7 +443,7 @@ class ServerDataGUI:
         
         # Chỉ check status của selected items, không update bảng trái
         def check():
-            url = self.api_url
+            url = f"{self.api_url}/logs"
             try:
                 resp = requests.get(url, timeout=10)
                 if resp.status_code == 200:
@@ -586,7 +586,7 @@ class ServerDataGUI:
     def refresh_data(self):
         """Refresh all logs from database"""
         def fetch():
-            url = self.api_url
+            url = f"{self.api_url}/logs"
             try:
                 resp = requests.get(url, timeout=10)
                 if resp.status_code == 200:
@@ -672,16 +672,16 @@ class ServerDataGUI:
             self.left_table_checkboxes[idx] = (checkbox, checkbox_var, entry)
             
             # STT
-            stt_label = ctk.CTkLabel(row_frame, text=str(stt), font=("Arial", 12, "bold"), width=35, anchor="center")
+            stt_label = ctk.CTkLabel(row_frame, text=str(stt), font=("Arial", 11, "bold"), width=35, anchor="center")
             stt_label.pack(side="left", padx=2)
             
             # IP
             ip_color = "#4CAF50" if statusapp == 1 else "#f44336"
-            ip_label = ctk.CTkLabel(row_frame, text=ip, font=("Arial", 12, "bold"), width=110, text_color=ip_color, anchor="center")
+            ip_label = ctk.CTkLabel(row_frame, text=ip, font=("Arial", 11, "bold"), width=110, text_color=ip_color, anchor="center")
             ip_label.pack(side="left", padx=2)
             
             # Port
-            port_label = ctk.CTkLabel(row_frame, text=port, font=("Arial", 12, "bold"), width=60, anchor="center")
+            port_label = ctk.CTkLabel(row_frame, text=port, font=("Arial", 11, "bold"), width=60, anchor="center")
             port_label.pack(side="left", padx=2)
             
             # Bind click event for details (only on labels, not checkbox)
@@ -734,7 +734,7 @@ class ServerDataGUI:
             row_frame.pack_propagate(False)
             
             # Hàm helper để tạo label và bind click
-            def create_clickable_label(parent, text, width, font=("Arial", 11, "bold"), text_color=None, anchor="center"):
+            def create_clickable_label(parent, text, width, font=("Arial", 10, "bold"), text_color=None, anchor="center"):
                 lbl = ctk.CTkLabel(parent, text=text, font=font, width=width, text_color=text_color, anchor=anchor)
                 lbl.pack(side="left", padx=2)
                 lbl.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
@@ -747,7 +747,7 @@ class ServerDataGUI:
             name_frame = ctk.CTkFrame(row_frame, fg_color="transparent", width=110)
             name_frame.pack(side="left", padx=2)
             name_frame.pack_propagate(False)
-            name_label = ctk.CTkLabel(name_frame, text=name, font=("Arial", 11, "bold"), anchor="center")
+            name_label = ctk.CTkLabel(name_frame, text=name, font=("Arial", 10, "bold"), anchor="center")
             name_label.pack(fill="both", expand=True)
             name_label.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
             name_label.bind("<Double-1>", lambda e, idx=stt-1, frame=name_frame, lbl=name_label: self.edit_name_inline(idx, frame, lbl))
@@ -765,22 +765,22 @@ class ServerDataGUI:
             create_clickable_label(row_frame, statusapp_text, 45, text_color=app_color)
             
             ping_color = "#4CAF50" if ping is not None else "#9E9E9E"
-            create_clickable_label(row_frame, ping_str, 70, font=("Arial", 11), text_color=ping_color)
+            create_clickable_label(row_frame, ping_str, 70, font=("Arial", 10), text_color=ping_color)
             
             to_color = "#f44336" if ping_timeouts and int(ping_timeouts) > 0 else "#9E9E9E"
-            create_clickable_label(row_frame, timeout_str, 70, font=("Arial", 11, "bold"), text_color=to_color)
+            create_clickable_label(row_frame, timeout_str, 70, font=("Arial", 10, "bold"), text_color=to_color)
             
-            create_clickable_label(row_frame, cpu_str, 65, font=("Arial", 11))
-            create_clickable_label(row_frame, mem_str, 65, font=("Arial", 11))
+            create_clickable_label(row_frame, cpu_str, 65, font=("Arial", 10))
+            create_clickable_label(row_frame, mem_str, 65, font=("Arial", 10))
             rec_color  = "#f44336" if vmix_rec  else "#555555"
             live_color = "#f44336" if vmix_live else "#555555"
             ext_color  = "#4CAF50" if vmix_ext  else "#555555"
-            create_clickable_label(row_frame, "● ON" if vmix_rec  else "○ OFF", 60,  font=("Arial", 10), text_color=rec_color)
-            create_clickable_label(row_frame, "● ON" if vmix_live else "○ OFF", 60,  font=("Arial", 10), text_color=live_color)
-            create_clickable_label(row_frame, "● ON" if vmix_ext  else "○ OFF", 60,  font=("Arial", 10), text_color=ext_color)
-            create_clickable_label(row_frame, resolution,  90,  font=("Arial", 10))
-            create_clickable_label(row_frame, srt_quality, 180, font=("Arial", 10))
-            create_clickable_label(row_frame, ts, 130, font=("Arial", 10))
+            create_clickable_label(row_frame, "● ON" if vmix_rec  else "○ OFF", 60,  font=("Arial", 9), text_color=rec_color)
+            create_clickable_label(row_frame, "● ON" if vmix_live else "○ OFF", 60,  font=("Arial", 9), text_color=live_color)
+            create_clickable_label(row_frame, "● ON" if vmix_ext  else "○ OFF", 60,  font=("Arial", 9), text_color=ext_color)
+            create_clickable_label(row_frame, resolution,  90,  font=("Arial", 9, "bold"), text_color="#4CAF50")
+            create_clickable_label(row_frame, srt_quality, 180, font=("Arial", 9, "bold"), text_color="#f44336")
+            create_clickable_label(row_frame, ts, 130, font=("Arial", 9))
             
             # Delete button (Không bind click detail vào đây)
             delete_btn = ctk.CTkButton(row_frame, text="❌", width=30, height=30, fg_color="#f44336", hover_color="#d32f2f",
@@ -1407,7 +1407,7 @@ class ServerDataGUI:
         """Đồng bộ selected list lên database"""
         def save():
             try:
-                url = "http://localhost:8088/save_selected_list"
+                url = f"{self.api_url}/save_selected_list"
                 payload = {"selected_data": self.selected_data}
                 resp = requests.post(url, json=payload, timeout=10)
                 if resp.status_code == 200:
@@ -1423,7 +1423,7 @@ class ServerDataGUI:
         """Load selected list từ database"""
         def load():
             try:
-                url = "http://localhost:8088/load_selected_list"
+                url = f"{self.api_url}/load_selected_list"
                 resp = requests.get(url, timeout=10)
                 if resp.status_code == 200:
                     loaded_data = resp.json()

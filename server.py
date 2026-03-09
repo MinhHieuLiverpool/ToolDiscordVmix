@@ -25,7 +25,7 @@ except ImportError:
     DISCORD_WEBHOOK = os.getenv('DISCORD_WEBHOOK', '')  # Optional Discord webhook
 
 # Port configuration
-PORT = int(os.getenv('PORT', 8088))
+PORT = int(os.getenv('PORT', 8000))
 
 # Timezone configuration - Vietnam
 VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
@@ -106,6 +106,11 @@ def get_all_logs():
                     "ping_timeouts": doc.get("ping_timeouts", 0),
                     "cpu":       doc.get("temperature"),
                     "memory":    doc.get("memory"),
+                    "vmix_recording": doc.get("vmix_recording", False),
+                    "vmix_streaming": doc.get("vmix_streaming", False),
+                    "vmix_external":  doc.get("vmix_external", False),
+                    "resolution":     doc.get("resolution", "—"),
+                    "srt_quality":    doc.get("srt_quality", "—"),
                     "srt_off_time": doc.get("srt_off_time", ""),
                 }
             }
@@ -145,6 +150,11 @@ async def receive_data(data: dict):
             "ping_timeouts": data.get('ping_timeouts', 0),
             "temperature": data.get('temperature'),
             "memory":      data.get('memory'),
+            "vmix_recording": data.get('vmix_recording', False),
+            "vmix_streaming": data.get('vmix_streaming', False),
+            "vmix_external":  data.get('vmix_external', False),
+            "resolution":     data.get('resolution', '—'),
+            "srt_quality":    data.get('srt_quality', '—'),
             "last_updated": timestamp,
             "timestamp":   timestamp,
         }

@@ -62,6 +62,40 @@ def _vmix_data_dir() -> str:
     return os.path.join(base, "vMix")
 
 
+def _read_file_shared(filepath: str) -> str:
+    """
+    Đọc file ngay cả khi bị vMix lock (Windows).
+    Dùng CreateFileW với FILE_SHARE_READ|WRITE|DELETE để bypass exclusive lock.
+    """
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+
+    GENERIC_READ        = 0x80000000
+    FILE_SHARE_ALL      = 0x07  # READ | WRITE | DELETE
+    OPEN_EXISTING       = 3
+    FILE_ATTRIBUTE_NORMAL = 0x80
+    INVALID_HANDLE      = ctypes.c_void_p(-1).value
+
+    handle = kernel32.CreateFileW(
+        filepath, GENERIC_READ, FILE_SHARE_ALL,
+        None, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, None,
+    )
+    if handle == INVALID_HANDLE:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        size = kernel32.GetFileSize(handle, None)
+        if size == 0xFFFFFFFF:
+            raise ctypes.WinError(ctypes.get_last_error())
+        buf = ctypes.create_string_buffer(size)
+        read = wintypes.DWORD(0)
+        if not kernel32.ReadFile(handle, buf, size, ctypes.byref(read), None):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return buf.raw[:read.value].decode('utf-8', errors='replace')
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _fps_from_ticks(ticks_str: str) -> str:
     """Chuyển ticks (100 ns/frame) → chuỗi fps thân thiện."""
     try:
@@ -119,8 +153,8 @@ def test_file_based() -> tuple[str, dict]:
         err("video.txt", "KHÔNG TÌM THẤY")
     else:
         try:
-            with open(video_txt, encoding="utf-8", errors="replace") as f:
-                lines = [ln.strip() for ln in f.readlines()]
+            raw_text = _read_file_shared(video_txt)
+            lines = [ln.strip() for ln in raw_text.splitlines()]
 
             raw_w   = lines[0] if len(lines) > 0 else ""
             raw_h   = lines[1] if len(lines) > 1 else ""
@@ -169,8 +203,7 @@ def test_file_based() -> tuple[str, dict]:
         err("current.config", "KHÔNG TÌM THẤY")
     else:
         try:
-            with open(config_file, encoding="utf-8", errors="replace") as f:
-                content = f.read()
+            content = _read_file_shared(config_file)
 
             found_any = False
             for ext_name in ("OutputsExternal", "OutputsExternal2",
