@@ -1,0 +1,617 @@
+"""
+test_vmix_resolution_srt.py
+────────────────────────────────────────────────────────────────────────────────
+Standalone tester cho vMix Resolution & SRT Quality.
+
+Ba phương pháp được test:
+  1. file-based  – doc C:/ProgramData/vMix/video.txt + settingbackups/current.config
+  2. preset-based – tìm file *.vmix mới nhất rồi parse XML
+  3. HTTP API     – GET http://localhost:{port}/api
+
+Chạy:  python test_vmix_resolution_srt.py [--port 8088]
+────────────────────────────────────────────────────────────────────────────────
+"""
+
+import os
+import sys
+import glob
+import html
+import re
+import argparse
+import xml.etree.ElementTree as ET
+from datetime import datetime
+
+# ─── màu ANSI (tắt tự động nếu stdout không phải terminal / Windows cũ) ───────
+_USE_COLOR = sys.stdout.isatty() or os.environ.get("TERM") not in (None, "")
+_R  = "\033[91m" if _USE_COLOR else ""
+_G  = "\033[92m" if _USE_COLOR else ""
+_Y  = "\033[93m" if _USE_COLOR else ""
+_C  = "\033[96m" if _USE_COLOR else ""
+_B  = "\033[1m"  if _USE_COLOR else ""
+_X  = "\033[0m"  if _USE_COLOR else ""
+
+SEP = f"{_C}{'─' * 70}{_X}"
+
+
+def header(text: str):
+    print(f"\n{SEP}")
+    print(f"{_B}{_C}  {text}{_X}")
+    print(SEP)
+
+
+def ok(label: str, value: str):
+    print(f"  {_G}✔{_X}  {_B}{label:<28}{_X}  {value}")
+
+
+def warn(label: str, value: str):
+    print(f"  {_Y}⚠{_X}  {_B}{label:<28}{_X}  {value}")
+
+
+def err(label: str, value: str):
+    print(f"  {_R}✘{_X}  {_B}{label:<28}{_X}  {value}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Helpers chung
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _vmix_data_dir() -> str:
+    base = (os.environ.get("PROGRAMDATA")
+            or os.environ.get("ALLUSERSPROFILE")
+            or r"C:\ProgramData")
+    return os.path.join(base, "vMix")
+
+
+def _fps_from_ticks(ticks_str: str) -> str:
+    """Chuyển ticks (100 ns/frame) → chuỗi fps thân thiện."""
+    try:
+        ticks = int(ticks_str)
+        if ticks <= 0:
+            return "?"
+        fps_val = 10_000_000 / ticks
+        for std, lbl in [
+            (23.976, "23.976"), (24, "24"), (25, "25"),
+            (29.97,  "29.97"),  (30, "30"), (50, "50"),
+            (59.94,  "59.94"),  (60, "60"),
+        ]:
+            if abs(fps_val - std) < 0.1:
+                return lbl
+        return f"{fps_val:.4g}"
+    except (ValueError, ZeroDivisionError):
+        return "?"
+
+
+def _bw_str(bps_str: str) -> str:
+    """Chuyển bandwidth bps → chuỗi dễ đọc."""
+    try:
+        bps = int(bps_str)
+        if bps >= 1_000_000:
+            return f"{bps // 1_000_000}Mbps"
+        return f"{bps // 1_000}kbps"
+    except ValueError:
+        return "?"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Method 1 – File-based (video.txt + current.config)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_file_based() -> tuple[str, dict]:
+    """
+    Đọc Resolution từ <ProgramData>\\vMix\\video.txt
+    Đọc SRT Quality từ <ProgramData>\\vMix\\settingbackups\\current.config
+    Trả về: (resolution_str, {port: quality_str})
+    """
+    header("METHOD 1 – File-based  (video.txt + current.config)")
+
+    vmix_dir    = _vmix_data_dir()
+    video_txt   = os.path.join(vmix_dir, "video.txt")
+    config_file = os.path.join(vmix_dir, "settingbackups", "current.config")
+
+    print(f"  Thư mục vMix ProgramData : {vmix_dir}")
+    print(f"  video.txt                : {video_txt}")
+    print(f"  current.config           : {config_file}")
+    print()
+
+    # ── Resolution ──────────────────────────────────────────────────────────
+    resolution = "—"
+    if not os.path.isfile(video_txt):
+        err("video.txt", "KHÔNG TÌM THẤY")
+    else:
+        try:
+            with open(video_txt, encoding="utf-8", errors="replace") as f:
+                lines = [ln.strip() for ln in f.readlines()]
+
+            raw_w   = lines[0] if len(lines) > 0 else ""
+            raw_h   = lines[1] if len(lines) > 1 else ""
+            raw_fps = lines[2] if len(lines) > 2 else ""
+
+            ok("video.txt line 0 (width)", raw_w  or "(trống)")
+            ok("video.txt line 1 (height)", raw_h or "(trống)")
+            ok("video.txt line 2 (ticks)", raw_fps or "(trống)")
+
+            fps_str = _fps_from_ticks(raw_fps) if raw_fps else ""
+            if raw_h:
+                resolution = f"{raw_h}p{fps_str}" if fps_str else f"{raw_h}p"
+                ok("→ Resolution (canvas)", resolution)
+                warn("⚠ Lưu ý",
+                     "video.txt = canvas/master resolution (có thể KHÁC output resolution)")
+            else:
+                warn("→ Resolution", "Không đọc được height")
+        except Exception as ex:
+            err("Đọc video.txt", str(ex))
+
+    # ── Cross-check: đọc OutputFormat từ last.vmix trong APPDATA ────────────
+    appdata_preset = os.path.join(os.environ.get("APPDATA", ""), "last.vmix")
+    if os.path.isfile(appdata_preset):
+        try:
+            _pt = ET.parse(appdata_preset)
+            _of = _pt.getroot().find(".//OutputFormat")
+            if _of is not None:
+                _size = _of.get("OutputSize", "")
+                _fr_t = _of.get("OutputFrameRate", "")
+                _h    = _size.split("x")[1] if "x" in _size else ""
+                _fps  = _fps_from_ticks(_fr_t) if _fr_t else ""
+                cross_res = f"{_h}p{_fps}" if _h and _fps else (f"{_h}p" if _h else "—")
+                ok("→ Output resolution (preset)", cross_res)
+                if cross_res != resolution and cross_res != "—":
+                    warn("→ KHÁC NHAU vì",
+                         f"canvas={resolution}  |  output={cross_res}  "
+                         "← output/stream dùng giá trị này")
+        except Exception:
+            pass
+    else:
+        warn("Cross-check preset", f"{appdata_preset}  không tìm thấy")
+
+    # ── SRT Quality ─────────────────────────────────────────────────────────
+    srt_by_port: dict = {}
+    if not os.path.isfile(config_file):
+        err("current.config", "KHÔNG TÌM THẤY")
+    else:
+        try:
+            with open(config_file, encoding="utf-8", errors="replace") as f:
+                content = f.read()
+
+            found_any = False
+            for ext_name in ("OutputsExternal", "OutputsExternal2",
+                             "OutputsExternal3", "OutputsExternal4"):
+                m = re.search(
+                    rf'name="{re.escape(ext_name)}"[^>]*>\s*<value>(.*?)</value>',
+                    content, re.DOTALL,
+                )
+                if not m:
+                    continue
+
+                decoded = html.unescape(m.group(1).strip())
+                try:
+                    sub = ET.fromstring(f"<root>{decoded}</root>")
+                except ET.ParseError as pe:
+                    warn(ext_name, f"Parse lỗi XML: {pe}")
+                    continue
+
+                found_any = True
+                port_str  = (sub.findtext("SRTPort") or "0").strip()
+                try:
+                    port = int(port_str)
+                except ValueError:
+                    port = 0
+
+                enabled  = (sub.findtext("SRTEnabled") or "0").strip()
+                codec_id = (sub.findtext("SRTVideoCodec") or "").strip()
+                warn(f"{ext_name} SRTVideoCodec (raw)", repr(codec_id) + "  (0=H264, 1=HEVC)")
+                codec    = "HEVC" if codec_id == "1" else "H264"
+                vbw_s    = _bw_str(sub.findtext("SRTVideoBandwidth") or "0")
+                abw_s    = _bw_str(sub.findtext("SRTAudioBandwidth") or "0")
+                hw       = " HW" if (sub.findtext("SRTHardwareEncoder") or "0").strip() == "1" else ""
+                quality  = f"{codec} {vbw_s} AAC {abw_s}{hw}"
+
+                label = f"{ext_name} (port {port or 'N/A'})"
+                if enabled == "1" and port:
+                    ok(label, f"{quality}  [ENABLED]")
+                    srt_by_port[port] = quality
+                elif port:
+                    warn(label, f"{quality}  [disabled]")
+                else:
+                    warn(ext_name, f"{quality}  [port=0, bỏ qua]")
+
+            if not found_any:
+                warn("SRT", "Không tìm thấy khối OutputsExternal* trong current.config")
+        except Exception as ex:
+            err("Đọc current.config", str(ex))
+
+    print()
+    print(f"  {_B}KẾT QUẢ Method 1:{_X}")
+    ok("Resolution", resolution)
+    if srt_by_port:
+        for p, q in srt_by_port.items():
+            ok(f"SRT (port {p})", q)
+    else:
+        warn("SRT", "Không có SRT nào đang bật")
+
+    return resolution, srt_by_port
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Method 2 – Preset-based (*.vmix file XML)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _find_vmix_preset() -> str | None:
+    """Tìm file *.vmix từ process cmdline → documents → desktop."""
+    # Thử lấy từ cmdline tiến trình vMix
+    try:
+        import psutil
+        for proc in psutil.process_iter(["name", "cmdline"]):
+            try:
+                if "vmix" in (proc.info["name"] or "").lower():
+                    for arg in (proc.info.get("cmdline") or []):
+                        if arg.lower().endswith(".vmix") and os.path.isfile(arg):
+                            return arg
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+    except ImportError:
+        pass
+
+    # Tìm file mới nhất trong các thư mục phổ biến
+    search_dirs = []
+    appdata = os.environ.get("APPDATA", "")
+    if appdata:
+        search_dirs.append(os.path.join(appdata, "vMix"))
+    home = os.path.expanduser("~")
+    search_dirs += [
+        os.path.join(home, "Documents", "vMix"),
+        os.path.join(home, "Desktop"),
+        os.path.join(home, "Documents"),
+    ]
+    candidates = []
+    for d in search_dirs:
+        candidates.extend(glob.glob(os.path.join(d, "*.vmix")))
+    if candidates:
+        return max(candidates, key=os.path.getmtime)
+    return None
+
+
+def test_preset_based() -> tuple[str, dict]:
+    """Parse file *.vmix – lấy Resolution từ <OutputFormat> và SRT từ <OutputsExternal*>."""
+    header("METHOD 2 – Preset-based  (*.vmix XML file)")
+
+    preset = _find_vmix_preset()
+    if not preset:
+        err("File *.vmix", "Không tìm thấy (vMix chưa mở hoặc chưa lưu preset)")
+        print()
+        return "—", {}
+
+    mtime = datetime.fromtimestamp(os.path.getmtime(preset)).strftime("%Y-%m-%d %H:%M:%S")
+    ok("Preset file", preset)
+    ok("Modified", mtime)
+    print()
+
+    resolution = "—"
+    srt_by_port: dict = {}
+
+    try:
+        tree = ET.parse(preset)
+        root = tree.getroot()
+
+        # ── Resolution ────────────────────────────────────────────────────────
+        out_fmt = root.find(".//OutputFormat")
+        if out_fmt is not None:
+            size   = out_fmt.get("OutputSize", "")        # "1920x1080"
+            fr_t   = out_fmt.get("OutputFrameRate", "")   # ticks
+            h      = size.split("x")[1] if "x" in size else ""
+            fps_str = _fps_from_ticks(fr_t) if fr_t else ""
+            ok("<OutputFormat> OutputSize",       size or "(trống)")
+            ok("<OutputFormat> OutputFrameRate",  fr_t or "(trống)")
+            if h:
+                resolution = f"{h}p{fps_str}" if fps_str else f"{h}p"
+                ok("→ Resolution", resolution)
+        else:
+            warn("<OutputFormat>", "Không tìm thấy – thử fallback <output>")
+            # Fallback
+            for path in [".//output", ".//Output", ".//settings/output"]:
+                out_e = root.find(path)
+                if out_e is not None:
+                    h  = out_e.get("height") or out_e.findtext("height", "")
+                    fr = (out_e.get("framerate") or out_e.get("frameRate")
+                          or out_e.findtext("framerate") or out_e.findtext("frameRate", ""))
+                    if h:
+                        fps_str = ""
+                        if fr:
+                            try:
+                                fps_str = f"{float(str(fr).replace(',', '.')):.4g}"
+                            except ValueError:
+                                fps_str = fr
+                        resolution = f"{h}p{fps_str}" if fps_str else f"{h}p"
+                        ok(f"→ Resolution (fallback {path})", resolution)
+                        break
+            else:
+                warn("→ Resolution", "Không đọc được từ preset")
+
+        # ── SRT Quality ────────────────────────────────────────────────────────
+        for ext_name in ("OutputsExternal", "OutputsExternal2",
+                          "OutputsExternal3", "OutputsExternal4"):
+            ext = root.find(f".//{ext_name}")
+            if ext is None:
+                continue
+            enabled = (ext.findtext("SRTEnabled") or "0").strip()
+            port_str = (ext.findtext("SRTPort") or "0").strip()
+            try:
+                port = int(port_str)
+            except ValueError:
+                port = 0
+
+            codec_id = (ext.findtext("SRTVideoCodec") or "").strip()
+            warn(f"<{ext_name}> SRTVideoCodec (raw)", repr(codec_id) + "  (0=H264, 1=HEVC)")
+            codec    = "HEVC" if codec_id == "1" else "H264"
+            vbw_s    = _bw_str(ext.findtext("SRTVideoBandwidth") or "0")
+            abw_s    = _bw_str(ext.findtext("SRTAudioBandwidth") or "0")
+            hw       = " HW" if (ext.findtext("SRTHardwareEncoder") or "0").strip() == "1" else ""
+            quality  = f"{codec} {vbw_s} AAC {abw_s}{hw}"
+
+            label = f"<{ext_name}> port={port or 'N/A'}"
+            if enabled == "1" and port:
+                ok(label, f"{quality}  [ENABLED]")
+                srt_by_port[port] = quality
+            elif port:
+                warn(label, f"{quality}  [disabled]")
+            else:
+                warn(f"<{ext_name}>", f"{quality}  [port=0, bỏ qua]")
+
+    except ET.ParseError as pe:
+        err("Parse XML preset", str(pe))
+    except Exception as ex:
+        err("Đọc preset", str(ex))
+
+    print()
+    print(f"  {_B}KẾT QUẢ Method 2:{_X}")
+    ok("Resolution", resolution)
+    if srt_by_port:
+        for p, q in srt_by_port.items():
+            ok(f"SRT (port {p})", q)
+    else:
+        warn("SRT", "Không có SRT nào đang bật")
+
+    return resolution, srt_by_port
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Method 3 – HTTP API  (localhost:{port}/api)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_http_api(api_port: int = 8088) -> tuple[str, dict]:
+    """GET http://localhost:{api_port}/api rồi parse XML response."""
+    header(f"METHOD 3 – HTTP API  (http://localhost:{api_port}/api)")
+
+    try:
+        import requests as req
+    except ImportError:
+        err("requests", "Module 'requests' chưa được cài – pip install requests")
+        return "—", {}
+
+    url = f"http://localhost:{api_port}/api"
+    print(f"  URL: {url}")
+    print()
+
+    resolution = "—"
+    srt_by_port: dict = {}
+
+    try:
+        resp = req.get(url, timeout=3)
+        ok("HTTP status", str(resp.status_code))
+
+        if resp.status_code != 200:
+            err("Response", f"Không phải 200 OK – vMix có đang chạy không?")
+            return "—", {}
+
+        root = ET.fromstring(resp.content)
+
+        # ── Thông tin chung ───────────────────────────────────────────────────
+        version   = root.findtext("version",   "—")
+        edition   = root.findtext("edition",   "—")
+        recording = root.findtext("recording", "False")
+        streaming = root.findtext("streaming", "False")
+        external  = root.findtext("external",  "False")
+        ok("version", version)
+        ok("edition", edition)
+        ok("recording",  recording)
+        ok("streaming",  streaming)
+        ok("external",   external)
+        print()
+
+        # ── Resolution từ API root ────────────────────────────────────────────
+        h = (root.get("height", "") or root.findtext("height", "")
+             or root.findtext("outputHeight", ""))
+        fps_raw = (root.findtext("masterFrameRate", "")
+                   or root.findtext("frameRate", "")
+                   or root.findtext("outputFrameRate", ""))
+
+        # Thử lấy từ inputs/input đầu tiên nếu root chưa có
+        inputs_elem = root.find("inputs")
+        if not h and inputs_elem is not None:
+            first_inp = inputs_elem.find("input")
+            if first_inp is not None:
+                h       = first_inp.get("height", "")
+                fps_raw = fps_raw or first_inp.get("framerate", "") or first_inp.get("frameRate", "")
+
+        ok("height (raw)",    h       or "(trống)")
+        ok("fps_raw",         fps_raw or "(trống)")
+
+        fps_str = "—"
+        if fps_raw:
+            try:
+                fps_val = float(fps_raw.replace(",", "."))
+                fps_str = f"{fps_val:.4g}"
+            except ValueError:
+                fps_str = fps_raw
+
+        if h:
+            resolution = f"{h}p{fps_str}" if fps_str != "—" else f"{h}p"
+
+        # ── Dùng preset_path từ API → đọc lại OutputFormat nếu cần ─────────
+        preset_path = root.findtext("preset", "") or root.findtext("Preset", "")
+        if preset_path:
+            ok("preset path (từ API)", preset_path)
+            if os.path.isfile(preset_path):
+                try:
+                    _pt = ET.parse(preset_path)
+                    _pr = _pt.getroot()
+                    _of = _pr.find(".//OutputFormat")
+                    if _of is not None and resolution == "—":
+                        _size = _of.get("OutputSize", "")
+                        _fr_t = _of.get("OutputFrameRate", "")
+                        _h    = _size.split("x")[1] if "x" in _size else ""
+                        _fps  = _fps_from_ticks(_fr_t) if _fr_t else ""
+                        if _h:
+                            resolution = f"{_h}p{_fps}" if _fps else f"{_h}p"
+                            ok("→ Resolution (từ preset)", resolution)
+                    # SRT từ preset
+                    for ext_name in ("OutputsExternal", "OutputsExternal2",
+                                     "OutputsExternal3", "OutputsExternal4"):
+                        ext = _pr.find(f".//{ext_name}")
+                        if ext is None:
+                            continue
+                        enabled  = (ext.findtext("SRTEnabled") or "0").strip()
+                        port_str = (ext.findtext("SRTPort") or "0").strip()
+                        try:
+                            port = int(port_str)
+                        except ValueError:
+                            port = 0
+                        codec_id = (ext.findtext("SRTVideoCodec") or "").strip()
+                        warn(f"<{ext_name}> SRTVideoCodec (raw)", repr(codec_id) + "  (0=H264, 1=HEVC)")
+                        codec    = "HEVC" if codec_id == "1" else "H264"
+                        vbw_s    = _bw_str(ext.findtext("SRTVideoBandwidth") or "0")
+                        abw_s    = _bw_str(ext.findtext("SRTAudioBandwidth") or "0")
+                        hw       = " HW" if (ext.findtext("SRTHardwareEncoder") or "0") == "1" else ""
+                        quality  = f"{codec} {vbw_s} AAC {abw_s}{hw}"
+                        label    = f"<{ext_name}> port={port or 'N/A'}"
+                        if enabled == "1" and port:
+                            ok(label, f"{quality}  [ENABLED]")
+                            srt_by_port[port] = quality
+                        elif port:
+                            warn(label, f"{quality}  [disabled]")
+                except Exception as ex:
+                    warn("Đọc preset từ API path", str(ex))
+            else:
+                warn("preset path", "File không tồn tại trên ổ đĩa – skip")
+        else:
+            warn("preset path", "API không trả về <preset> (vMix cũ hơn 26?)")
+
+    except req.exceptions.ConnectionError:
+        err("Kết nối", f"Không thể kết nối localhost:{api_port}  – vMix có đang chạy không?")
+        return "—", {}
+    except req.exceptions.Timeout:
+        err("Timeout", f"API không phản hồi trong 3 giây")
+        return "—", {}
+    except ET.ParseError as pe:
+        err("Parse XML", str(pe))
+        return "—", {}
+    except Exception as ex:
+        err("Lỗi không xác định", str(ex))
+        return "—", {}
+
+    print()
+    print(f"  {_B}KẾT QUẢ Method 3:{_X}")
+    ok("Resolution", resolution)
+    if srt_by_port:
+        for p, q in srt_by_port.items():
+            ok(f"SRT (port {p})", q)
+    else:
+        warn("SRT", "Không có SRT nào đang bật (hoặc preset không trả về)")
+
+    return resolution, srt_by_port
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Tổng hợp
+# ══════════════════════════════════════════════════════════════════════════════
+
+def print_summary(results: dict):
+    header("TỔNG HỢP KẾT QUẢ")
+    note = {
+        "1-file":   "canvas res (video.txt) – có thể khác output",
+        "2-preset": "output res từ OutputFormat trong *.vmix",
+        "3-http":   "★ CHÍNH XÁC NHẤT – output res từ preset qua API",
+    }
+    fmt = f"  {{:<14}}  {{:<22}}  {{:<32}}  {{}}"
+    print(fmt.format("Method", "Resolution", "SRT Quality", "Ghi chú"))
+    print(f"  {'─'*12}  {'─'*20}  {'─'*30}  {'─'*45}")
+    for method, (res, srt) in results.items():
+        srt_str = ", ".join(f"port {p}: {q}" for p, q in srt.items()) if srt else "—"
+        print(fmt.format(method, res, srt_str, note.get(method, "")))
+    print()
+    print(f"  {_Y}Lý do file khác API:{_X} video.txt lưu canvas/master resolution.")
+    print(f"  OutputFormat trong preset mới là output/streaming resolution thực tế.")
+    print()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Main
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _run_once(method: str, api_port: int) -> dict:
+    results = {}
+    if method in ("1", "all"):
+        results["1-file"]   = test_file_based()
+    if method in ("2", "all"):
+        results["2-preset"] = test_preset_based()
+    if method in ("3", "all"):
+        results["3-http"]   = test_http_api(api_port)
+    return results
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Test vMix Resolution & SRT Quality bằng 3 phương pháp."
+    )
+    parser.add_argument(
+        "--port", type=int, default=8088,
+        help="vMix HTTP API port (mặc định: 8088)"
+    )
+    parser.add_argument(
+        "--method", choices=["1", "2", "3", "all"], default="all",
+        help="Chọn phương pháp cần test: 1=file, 2=preset, 3=http, all=tất cả (mặc định: all)"
+    )
+    parser.add_argument(
+        "--watch", type=int, metavar="GIÂY", nargs="?", const=3,
+        help="Tự động refresh mỗi N giây (mặc định 3s nếu không truyền số). Nhấn Ctrl+C để thoát."
+    )
+    args = parser.parse_args()
+
+    if args.watch is None:
+        # Chế độ chạy 1 lần
+        print(f"\n{_B}{'=' * 70}")
+        print(f"  vMix Resolution & SRT Quality Tester")
+        print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'=' * 70}{_X}")
+        results = _run_once(args.method, args.port)
+        if len(results) > 1:
+            print_summary(results)
+        print(f"{SEP}\n")
+    else:
+        # Chế độ watch – tự refresh
+        interval = max(1, args.watch)
+        print(f"\n{_B}{'=' * 70}")
+        print(f"  vMix Resolution & SRT Quality Tester  [WATCH mode – {interval}s]")
+        print(f"  Nhấn Ctrl+C để thoát.")
+        print(f"{'=' * 70}{_X}")
+
+        import time
+        try:
+            while True:
+                # Xoá màn hình (Windows: cls, Unix: clear)
+                os.system("cls" if os.name == "nt" else "clear")
+                print(f"\n{_B}{'=' * 70}")
+                print(f"  vMix Monitor  [WATCH {interval}s]   {datetime.now().strftime('%H:%M:%S')}   Ctrl+C = thoát")
+                print(f"{'=' * 70}{_X}")
+
+                results = _run_once(args.method, args.port)
+                if len(results) > 1:
+                    print_summary(results)
+                print(f"{SEP}")
+                print(f"  {_Y}Cập nhật lại sau {interval}s ...{_X}\n")
+                time.sleep(interval)
+        except KeyboardInterrupt:
+            print(f"\n{_Y}Đã thoát watch mode.{_X}\n")
+
+
+if __name__ == "__main__":
+    main()

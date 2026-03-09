@@ -38,8 +38,8 @@ class ServerDataGUI:
         self.root.after(100, lambda: self.root.state('zoomed'))
 
         # use Render.com server
-        self.api_url = "https://tooldiscordvmix.onrender.com/logs"
-        self.ws_url = "wss://tooldiscordvmix.onrender.com/ws"
+        self.api_url = "http://localhost:8000/logs"
+        self.ws_url = "ws://localhost:8000/ws"
         self.webhook_var = ctk.StringVar(value="")
         self.prefix_var = ctk.StringVar(value="SRT")
         self.data = []  # All data from database
@@ -140,18 +140,23 @@ class ServerDataGUI:
         header_frame_right.pack(fill="x", pady=(0, 5))
         header_frame_right.pack_propagate(False)
         
-        ctk.CTkLabel(header_frame_right, text="STT",     font=("Arial", 12, "bold"), width=35).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="TÊN",     font=("Arial", 12, "bold"), width=110).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="IP MÁY",   font=("Arial", 12, "bold"), width=110).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="IP WAN",   font=("Arial", 12, "bold"), width=110).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="STATUS",   font=("Arial", 12, "bold"), width=70).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="PORT",     font=("Arial", 12, "bold"), width=60).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="APP",      font=("Arial", 12, "bold"), width=45).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="📡 PING",   font=("Arial", 12, "bold"), width=70).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="❌ TIMEOUT",font=("Arial", 12, "bold"), width=70).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="⚡ CPU%",   font=("Arial", 12, "bold"), width=65).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="💾 RAM%",   font=("Arial", 12, "bold"), width=65).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="TIME",     font=("Arial", 12, "bold"), width=130).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="STT",        font=("Arial", 11, "bold"), width=35).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="TÊN",        font=("Arial", 11, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="IP MÁY",     font=("Arial", 11, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="IP WAN",     font=("Arial", 11, "bold"), width=110).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="STATUS",     font=("Arial", 11, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="PORT",       font=("Arial", 11, "bold"), width=60).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="APP",        font=("Arial", 11, "bold"), width=45).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="📡 PING",    font=("Arial", 11, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="❌ TIMEOUT", font=("Arial", 11, "bold"), width=70).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="⚡ CPU%",    font=("Arial", 11, "bold"), width=65).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="💾 RAM%",    font=("Arial", 11, "bold"), width=65).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="● REC",      font=("Arial", 11, "bold"), width=60).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="🔴 LIVE",    font=("Arial", 11, "bold"), width=60).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="🟢 EXT",     font=("Arial", 11, "bold"), width=60).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="🖥 RES",      font=("Arial", 11, "bold"), width=90).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="📹 SRT",     font=("Arial", 11, "bold"), width=180).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="TIME",       font=("Arial", 11, "bold"), width=130).pack(side="left", padx=2)
         
         self.right_table_rows = []
 
@@ -715,6 +720,11 @@ class ServerDataGUI:
             timeout_str  = str(ping_timeouts) if ping_timeouts is not None else "0"
             cpu_str      = f"{cpu:.1f}%"   if cpu    is not None else "—"
             mem_str      = f"{memory:.1f}%" if memory is not None else "—"
+            vmix_rec     = d.get("vmix_recording", False)
+            vmix_live    = d.get("vmix_streaming", False)
+            vmix_ext     = d.get("vmix_external",  False)
+            resolution   = d.get("resolution", "—") or "—"
+            srt_quality  = d.get("srt_quality", "—") or "—"
             
             # Create row frame
             row_frame = ctk.CTkFrame(self.table_frame_right,
@@ -724,7 +734,7 @@ class ServerDataGUI:
             row_frame.pack_propagate(False)
             
             # Hàm helper để tạo label và bind click
-            def create_clickable_label(parent, text, width, font=("Arial", 12, "bold"), text_color=None, anchor="center"):
+            def create_clickable_label(parent, text, width, font=("Arial", 11, "bold"), text_color=None, anchor="center"):
                 lbl = ctk.CTkLabel(parent, text=text, font=font, width=width, text_color=text_color, anchor=anchor)
                 lbl.pack(side="left", padx=2)
                 lbl.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
@@ -737,7 +747,7 @@ class ServerDataGUI:
             name_frame = ctk.CTkFrame(row_frame, fg_color="transparent", width=110)
             name_frame.pack(side="left", padx=2)
             name_frame.pack_propagate(False)
-            name_label = ctk.CTkLabel(name_frame, text=name, font=("Arial", 12, "bold"), anchor="center")
+            name_label = ctk.CTkLabel(name_frame, text=name, font=("Arial", 11, "bold"), anchor="center")
             name_label.pack(fill="both", expand=True)
             name_label.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
             name_label.bind("<Double-1>", lambda e, idx=stt-1, frame=name_frame, lbl=name_label: self.edit_name_inline(idx, frame, lbl))
@@ -762,7 +772,15 @@ class ServerDataGUI:
             
             create_clickable_label(row_frame, cpu_str, 65, font=("Arial", 11))
             create_clickable_label(row_frame, mem_str, 65, font=("Arial", 11))
-            create_clickable_label(row_frame, ts, 130, font=("Arial", 11))
+            rec_color  = "#f44336" if vmix_rec  else "#555555"
+            live_color = "#f44336" if vmix_live else "#555555"
+            ext_color  = "#4CAF50" if vmix_ext  else "#555555"
+            create_clickable_label(row_frame, "● ON" if vmix_rec  else "○ OFF", 60,  font=("Arial", 10), text_color=rec_color)
+            create_clickable_label(row_frame, "● ON" if vmix_live else "○ OFF", 60,  font=("Arial", 10), text_color=live_color)
+            create_clickable_label(row_frame, "● ON" if vmix_ext  else "○ OFF", 60,  font=("Arial", 10), text_color=ext_color)
+            create_clickable_label(row_frame, resolution,  90,  font=("Arial", 10))
+            create_clickable_label(row_frame, srt_quality, 180, font=("Arial", 10))
+            create_clickable_label(row_frame, ts, 130, font=("Arial", 10))
             
             # Delete button (Không bind click detail vào đây)
             delete_btn = ctk.CTkButton(row_frame, text="❌", width=30, height=30, fg_color="#f44336", hover_color="#d32f2f",
@@ -1389,7 +1407,7 @@ class ServerDataGUI:
         """Đồng bộ selected list lên database"""
         def save():
             try:
-                url = "https://tooldiscordvmix.onrender.com/save_selected_list"
+                url = "http://localhost:8088/save_selected_list"
                 payload = {"selected_data": self.selected_data}
                 resp = requests.post(url, json=payload, timeout=10)
                 if resp.status_code == 200:
@@ -1405,7 +1423,7 @@ class ServerDataGUI:
         """Load selected list từ database"""
         def load():
             try:
-                url = "https://tooldiscordvmix.onrender.com/load_selected_list"
+                url = "http://localhost:8088/load_selected_list"
                 resp = requests.get(url, timeout=10)
                 if resp.status_code == 200:
                     loaded_data = resp.json()

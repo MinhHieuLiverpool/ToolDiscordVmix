@@ -50,6 +50,7 @@ class VmixMonitorGUI:
         self.tray_icon = None
         self.port_list = []  # Danh sách các port entries
         self.ping_timeout_count = 0  # Đếm số lần ping 8.8.8.8 timeout trong session
+        self.vmix_api_port_var = tk.StringVar(value="8088")  # vMix HTTP API port
 
         # ── Tối ưu tốc độ ──
         import requests as _req
@@ -64,6 +65,11 @@ class VmixMonitorGUI:
             pass
         # Bắt đầu background ping thread (ping mỗi 3 giây, non-blocking trong monitor loop)
         threading.Thread(target=self._ping_bg_loop, daemon=True).start()
+
+        # Cache cho file-based vMix resolution/SRT (Python-only, không dùng API)
+        self._vmix_file_cache: tuple = ('—', {})
+        self._vmix_file_ts: float    = 0.0
+
         self.setup_ui()
         self.setup_tray()
         self.check_log_queue()
@@ -76,7 +82,7 @@ class VmixMonitorGUI:
 
     def setup_ui(self):
         # Cố định kích thước cửa sổ
-        win_w, win_h = 1200, 720
+        win_w, win_h = 1400, 750
         self.root.geometry(f"{win_w}x{win_h}")
         self.root.resizable(True, False)
         self.root.update_idletasks()
@@ -192,8 +198,14 @@ class VmixMonitorGUI:
         table_container = ttk.Frame(table_frame)
         table_container.pack(fill=BOTH, expand=YES)
         
+        # Smaller font for table
+        style = ttk.Style()
+        style.configure('Treeview', font=('Segoe UI', 8), rowheight=22)
+        style.configure('Treeview.Heading', font=('Segoe UI', 8, 'bold'))
+
         # Create Treeview
-        columns = ("name", "ip", "ipwan", "port", "ping", "timeout", "cpu", "memory")
+        columns = ("name", "ip", "ipwan", "port", "ping", "timeout", "cpu", "memory",
+                   "rec", "live", "ext", "resolution", "srt")
         self.tree = ttk.Treeview(
             table_container, 
             columns=columns, 
@@ -203,24 +215,34 @@ class VmixMonitorGUI:
         )
         
         # Headings with icons
-        self.tree.heading("name",    text="📌 Tên máy",    anchor=CENTER)
-        self.tree.heading("ip",      text="🖥️ IP Local",   anchor=CENTER)
-        self.tree.heading("ipwan",   text="🌐 IP WAN",      anchor=CENTER)
-        self.tree.heading("port",    text="🔌 Port",        anchor=CENTER)
-        self.tree.heading("ping",    text="📡 Ping (ms)",   anchor=CENTER)
-        self.tree.heading("timeout", text="❌ Timeout",     anchor=CENTER)
-        self.tree.heading("cpu",     text="⚡ CPU (%)",     anchor=CENTER)
-        self.tree.heading("memory",  text="💾 RAM (%)",     anchor=CENTER)
+        self.tree.heading("name",       text="📌 Tên máy",    anchor=CENTER)
+        self.tree.heading("ip",         text="🖥️ IP Local",   anchor=CENTER)
+        self.tree.heading("ipwan",      text="🌐 IP WAN",      anchor=CENTER)
+        self.tree.heading("port",       text="🔌 Port",        anchor=CENTER)
+        self.tree.heading("ping",       text="📡 Ping",        anchor=CENTER)
+        self.tree.heading("timeout",    text="❌ Timeout",     anchor=CENTER)
+        self.tree.heading("cpu",        text="⚡ CPU%",        anchor=CENTER)
+        self.tree.heading("memory",     text="💾 RAM%",        anchor=CENTER)
+        self.tree.heading("rec",        text="🔴 REC",        anchor=CENTER)
+        self.tree.heading("live",       text="📡 LIVE",       anchor=CENTER)
+        self.tree.heading("ext",        text="📤 EXT",        anchor=CENTER)
+        self.tree.heading("resolution", text="📺 Res",        anchor=CENTER)
+        self.tree.heading("srt",        text="📶 SRT Quality", anchor=CENTER)
         
         # Column widths
-        self.tree.column("name",    width=210, anchor=CENTER)
-        self.tree.column("ip",      width=130, anchor=CENTER)
-        self.tree.column("ipwan",   width=130, anchor=CENTER)
-        self.tree.column("port",    width=70,  anchor=CENTER)
-        self.tree.column("ping",    width=90,  anchor=CENTER)
-        self.tree.column("timeout", width=90,  anchor=CENTER)
-        self.tree.column("cpu",     width=90,  anchor=CENTER)
-        self.tree.column("memory",  width=90,  anchor=CENTER)
+        self.tree.column("name",       width=150, anchor=CENTER)
+        self.tree.column("ip",         width=110, anchor=CENTER)
+        self.tree.column("ipwan",      width=110, anchor=CENTER)
+        self.tree.column("port",       width=55,  anchor=CENTER)
+        self.tree.column("ping",       width=60,  anchor=CENTER)
+        self.tree.column("timeout",    width=65,  anchor=CENTER)
+        self.tree.column("cpu",        width=55,  anchor=CENTER)
+        self.tree.column("memory",     width=55,  anchor=CENTER)
+        self.tree.column("rec",        width=45,  anchor=CENTER)
+        self.tree.column("live",       width=45,  anchor=CENTER)
+        self.tree.column("ext",        width=45,  anchor=CENTER)
+        self.tree.column("resolution", width=80,  anchor=CENTER)
+        self.tree.column("srt",        width=180, anchor=CENTER)
         
         # Scrollbar
         scrollbar = ttk.Scrollbar(
@@ -245,7 +267,36 @@ class VmixMonitorGUI:
             width=20
         )
         self.delete_btn.pack()
-        
+
+        # === VMIX API PORT CONFIG ===
+        vmix_cfg_frame = ttk.Frame(main_frame)
+        vmix_cfg_frame.pack(fill=X, pady=(0, 10))
+        ttk.Label(
+            vmix_cfg_frame,
+            text="vMix HTTP Port:",
+            font=('Segoe UI', 9),
+            bootstyle="secondary"
+        ).pack(side=LEFT, padx=(0, 4))
+        ttk.Entry(
+            vmix_cfg_frame,
+            textvariable=self.vmix_api_port_var,
+            width=7,
+            font=('Segoe UI', 9)
+        ).pack(side=LEFT)
+        ttk.Label(
+            vmix_cfg_frame,
+            text="(mặc định: 8088)",
+            font=('Segoe UI', 8),
+            bootstyle="secondary"
+        ).pack(side=LEFT, padx=(6, 0))
+        ttk.Button(
+            vmix_cfg_frame,
+            text="🔍 Test API",
+            command=self.test_vmix_api,
+            bootstyle="warning-outline",
+            width=10
+        ).pack(side=LEFT, padx=(10, 0))
+
         # === CONTROL SECTION ===
         control_frame = ttk.Frame(main_frame)
         control_frame.pack(fill=X, pady=(0, 15))
@@ -498,9 +549,10 @@ class VmixMonitorGUI:
                             if not exists:
                                 # Add to list
                                 self.port_list.append({"name": name, "port": port, "ip": current_ip, "ipwan": ipwan,
-                                                       "ping": '—', "timeout": '0', "cpu": '—', "memory": '—'})
+                                                       "ping": '—', "timeout": '0', "cpu": '—', "memory": '—',
+                                                       "rec": '—', "live": '—', "ext": '—', "resolution": '—', "srt": '—'})
                                 # Add to tree
-                                self.tree.insert("", tk.END, values=(name, current_ip, ipwan, port, '—', '0', '—', '—'))  # ping, timeout, cpu, mem
+                                self.tree.insert("", tk.END, values=(name, current_ip, ipwan, port, '—', '0', '—', '—', '—', '—', '—', '—', '—'))
                                 imported_count += 1
                                 
                                 # Update database với IP mới
@@ -659,12 +711,13 @@ class VmixMonitorGUI:
                                 "ping":   f"{ping:.0f}"  if ping   is not None else '—',
                                 "cpu":    f"{cpu:.1f}"   if cpu    is not None else '—',
                                 "memory": f"{memory:.1f}" if memory is not None else '—',
+                                "rec": '—', "live": '—', "ext": '—', "resolution": '—', "srt": '—',
                             })
                             # Add to tree
                             ping_str = f"{ping:.0f}"  if ping   is not None else '—'
                             cpu_str  = f"{cpu:.1f}"   if cpu    is not None else '—'
                             mem_str  = f"{memory:.1f}" if memory is not None else '—'
-                            self.tree.insert("", tk.END, values=(name, entry_ip, ipwan, port, ping_str, cpu_str, mem_str))
+                            self.tree.insert("", tk.END, values=(name, entry_ip, ipwan, port, ping_str, '0', cpu_str, mem_str, '—', '—', '—', '—', '—'))
                             loaded_count += 1
                     
                     if loaded_count > 0:
@@ -781,10 +834,11 @@ class VmixMonitorGUI:
         
         # Add to list NGAY (với wan_ip tạm thời là "loading...")
         self.port_list.append({"name": name, "port": port, "ip": ip, "ipwan": "loading...",
-                               "ping": '—', "timeout": '0', "cpu": '—', "memory": '—'})
+                               "ping": '—', "timeout": '0', "cpu": '—', "memory": '—',
+                               "rec": '—', "live": '—', "ext": '—', "resolution": '—', "srt": '—'})
         
         # Add to tree NGAY
-        self.tree.insert("", tk.END, values=(name, ip, "loading...", port, '—', '0', '—', '—'))
+        self.tree.insert("", tk.END, values=(name, ip, "loading...", port, '—', '0', '—', '—', '—', '—', '—', '—', '—'))
         
         # Clear input fields
         self.name_var.set("")
@@ -1002,7 +1056,12 @@ class VmixMonitorGUI:
             timeout = entry.get('timeout', '0')
             cpu     = entry.get('cpu', '—')
             memory  = entry.get('memory', '—')
-            self.tree.insert("", tk.END, values=(name, ip, ipwan, port, ping, timeout, cpu, memory))
+            rec     = entry.get('rec', '—')
+            live    = entry.get('live', '—')
+            ext     = entry.get('ext', '—')
+            resolution = entry.get('resolution', '—')
+            srt     = entry.get('srt', '—')
+            self.tree.insert("", tk.END, values=(name, ip, ipwan, port, ping, timeout, cpu, memory, rec, live, ext, resolution, srt))
 
     # ── Background ping thread ──────────────────────────────────────────────
     def _ping_bg_loop(self):
@@ -1054,6 +1113,386 @@ class VmixMonitorGUI:
             pass
         return None
 
+    # ── vMix HTTP API ─────────────────────────────────────────────────────────
+    def get_vmix_resolution_from_file(self, preset_path: str = '') -> str:
+        """Đọc output resolution từ file project .vmix trên ổ đĩa (không cần HTTP API)"""
+        import os, glob
+        import xml.etree.ElementTree as ET
+
+        # Ưu tiên dùng preset path lấy từ API response (chính xác nhất)
+        project_file = preset_path if preset_path and os.path.isfile(preset_path) else None
+
+        # Bước 1: Lấy đường dẫn file project từ command line của tiến trình vMix
+        if not project_file:
+            try:
+                import psutil
+                for proc in psutil.process_iter(['name', 'cmdline']):
+                    try:
+                        if 'vmix' in (proc.info['name'] or '').lower():
+                            for arg in (proc.info.get('cmdline') or []):
+                                if arg.lower().endswith('.vmix') and os.path.isfile(arg):
+                                    project_file = arg
+                                    break
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+                    if project_file:
+                        break
+            except Exception:
+                pass
+
+        # Bước 2: Tìm file .vmix mới nhất trong các thư mục phổ biến
+        if not project_file:
+            try:
+                search_dirs = []
+                appdata = os.environ.get('APPDATA', '')
+                if appdata:
+                    search_dirs.append(os.path.join(appdata, 'vMix'))
+                home = os.path.expanduser('~')
+                search_dirs += [
+                    os.path.join(home, 'Documents', 'vMix'),
+                    os.path.join(home, 'Desktop'),
+                    os.path.join(home, 'Documents'),
+                ]
+                candidates = []
+                for d in search_dirs:
+                    candidates.extend(glob.glob(os.path.join(d, '*.vmix')))
+                if candidates:
+                    project_file = max(candidates, key=os.path.getmtime)
+            except Exception:
+                pass
+
+        if not project_file:
+            return '—'
+
+        try:
+            tree = ET.parse(project_file)
+            root = tree.getroot()
+
+            # vMix 26: resolution trong <OutputFormat OutputSize="1920x1080" OutputFrameRate="333667">
+            out_fmt = root.find('.//OutputFormat')
+            if out_fmt is not None:
+                size = out_fmt.get('OutputSize', '')   # e.g. "1920x1080"
+                fr_ticks = out_fmt.get('OutputFrameRate', '')  # e.g. "333667" (100ns ticks/frame)
+                h = size.split('x')[1] if 'x' in size else ''
+                fps_str = ''
+                if fr_ticks:
+                    try:
+                        ticks = int(fr_ticks)
+                        fps_val = 10_000_000 / ticks if ticks else 0
+                        fps_str = f"{fps_val:.4g}"
+                    except Exception:
+                        pass
+                if h:
+                    return f"{h}p{fps_str}" if fps_str else f"{h}p"
+
+            # Fallback cũ cho các phiên bản khác
+            w, h, fr = None, None, None
+            for path in ['.//output', './/Output', './/settings/output', './/Settings/Output']:
+                out_e = root.find(path)
+                if out_e is not None:
+                    w  = out_e.get('width')  or out_e.findtext('width')
+                    h  = out_e.get('height') or out_e.findtext('height')
+                    fr = (out_e.get('framerate') or out_e.get('frameRate')
+                          or out_e.findtext('framerate') or out_e.findtext('frameRate'))
+                    if h:
+                        break
+
+            if h:
+                if fr:
+                    try:
+                        fps_val = float(str(fr).replace(',', '.'))
+                        fps_str = f"{fps_val:.4g}"
+                    except ValueError:
+                        fps_str = str(fr)
+                    return f"{h}p{fps_str}"
+                return f"{h}p"
+        except Exception:
+            pass
+
+        return '—'
+
+    # ── Python-only: tìm file preset + đọc Resolution/SRT ──────────────────
+
+    @staticmethod
+    def _vmix_data_dir() -> str:
+        import os
+        base = (os.environ.get('PROGRAMDATA')
+                or os.environ.get('ALLUSERSPROFILE')
+                or r'C:\ProgramData')
+        return os.path.join(base, 'vMix')
+
+    def get_res_and_srt_from_file(self) -> tuple:
+        """
+        Lấy Resolution và SRT Quality từ C:\\ProgramData\\vMix\\ (Python thuần, không API).
+        - Resolution : video.txt  →  dòng 1=height, dòng 2=ticks(100ns/frame)
+        - SRT Quality: current.config → OutputsExternal* → các field SRTPort/SRTVideo*/SRTAudio*
+        Cache 5 giây. Trả về: (resolution_str, {port: quality_str, ...})
+        """
+        import time, os, re, html
+        import xml.etree.ElementTree as ET
+
+        if time.time() - self._vmix_file_ts < 5:
+            return self._vmix_file_cache
+
+        vmix_dir    = self._vmix_data_dir()
+        video_txt   = os.path.join(vmix_dir, 'video.txt')
+        config_file = os.path.join(vmix_dir, 'settingbackups', 'current.config')
+
+        # ── Resolution từ video.txt ──────────────────────────────────────────
+        # Định dạng: line0=width  line1=height  line2=frame_rate_ticks(100ns/frame)
+        resolution = '—'
+        try:
+            with open(video_txt, encoding='utf-8', errors='replace') as f:
+                v = [l.strip() for l in f.readlines()]
+            h = v[1] if len(v) > 1 else ''
+            fps_str = ''
+            if len(v) > 2:
+                ticks = int(v[2])
+                fps_val = 10_000_000 / ticks if ticks > 0 else 0
+                for std, lbl in [(23.976,'23.976'),(24,'24'),(25,'25'),
+                                  (29.97,'29.97'),(30,'30'),(50,'50'),
+                                  (59.94,'59.94'),(60,'60')]:
+                    if abs(fps_val - std) < 0.1:
+                        fps_str = lbl; break
+                else:
+                    fps_str = f'{fps_val:.4g}'
+            if h:
+                resolution = f'{h}p{fps_str}' if fps_str else f'{h}p'
+        except Exception:
+            pass
+
+        # ── SRT Quality từ current.config ────────────────────────────────────
+        # current.config là .NET Application Settings XML.
+        # Mỗi OutputsExternal* lưu một đoạn XML bị HTML-encode trong thẻ <value>…</value>.
+        # Dùng regex để bắt đúng khối, rồi parse XML con để lấy SRT fields.
+        srt_by_port: dict = {}
+        try:
+            with open(config_file, encoding='utf-8', errors='replace') as f:
+                content = f.read()
+
+            for ext_name in ('OutputsExternal', 'OutputsExternal2',
+                             'OutputsExternal3', 'OutputsExternal4'):
+                # Tìm đoạn: name="OutputsExternal*"  …  <value>…</value>
+                m = re.search(
+                    rf'name="{re.escape(ext_name)}"[^>]*>\s*<value>(.*?)</value>',
+                    content, re.DOTALL
+                )
+                if not m:
+                    continue
+                decoded = html.unescape(m.group(1).strip())
+                try:
+                    sub = ET.fromstring(f'<root>{decoded}</root>')
+                except Exception:
+                    continue
+
+                # Lấy SRTPort — bỏ qua nếu port = 0
+                try:
+                    port = int((sub.findtext('SRTPort') or '0').strip())
+                except ValueError:
+                    port = 0
+                if not port:
+                    continue
+
+                # Codec: SRTVideoCodec  0=H264  1=HEVC
+                codec = 'HEVC' if (sub.findtext('SRTVideoCodec') or '0').strip() == '1' else 'H264'
+
+                # Video bandwidth (bps)
+                try:
+                    vbw = int(sub.findtext('SRTVideoBandwidth') or '0')
+                    vbw_s = (f'{vbw // 1_000_000}Mbps' if vbw >= 1_000_000
+                             else f'{vbw // 1000}kbps')
+                except Exception:
+                    vbw_s = '?'
+
+                # Audio bandwidth (bps)
+                try:
+                    abw = int(sub.findtext('SRTAudioBandwidth') or '0')
+                    abw_s = f'{abw // 1000}kbps'
+                except Exception:
+                    abw_s = '?'
+
+                hw = ' HW' if (sub.findtext('SRTHardwareEncoder') or '0').strip() == '1' else ''
+                srt_by_port[port] = f'{codec} {vbw_s} AAC {abw_s}{hw}'
+
+        except Exception:
+            pass
+
+        result = (resolution, srt_by_port)
+        self._vmix_file_cache = result
+        self._vmix_file_ts    = time.time()
+        return result
+
+    def test_vmix_api(self):
+        """Dump raw vMix XML vào log để debug"""
+        import requests
+        def _run():
+            try:
+                port = self.vmix_api_port_var.get().strip() or "8088"
+                url = f"http://localhost:{port}/api"
+                self.log(f"[vMix Test] GET {url}")
+                resp = requests.get(url, timeout=3)
+                self.log(f"[vMix Test] Status: {resp.status_code}")
+                if resp.status_code == 200:
+                    text = resp.text
+                    # Log từng 300 ký tự
+                    for i in range(0, min(len(text), 900), 300):
+                        self.log(f"[vMix XML] {text[i:i+300]}")
+                else:
+                    self.log(f"[vMix Test] Body: {resp.text[:200]}")
+            except Exception as e:
+                self.log(f"[vMix Test] Error: {e}")
+        import threading
+        threading.Thread(target=_run, daemon=True).start()
+
+    def get_vmix_stats(self) -> dict:
+        """Lấy thông số vMix từ HTTP API tại localhost (mặc định port 8088)"""
+        import xml.etree.ElementTree as ET
+        import requests
+        try:
+            port = self.vmix_api_port_var.get().strip() or "8088"
+            url = f"http://localhost:{port}/api"
+            resp = requests.get(url, timeout=2)
+            if resp.status_code == 200:
+                root = ET.fromstring(resp.content)
+                inputs_elem = root.find('inputs')
+                input_count = len(list(inputs_elem)) if inputs_elem is not None else 0
+
+                # FPS – thử child element trước (vMix mới), rồi fallback attribute của input đầu tiên
+                fps_raw = (root.findtext('masterFrameRate', '')
+                           or root.findtext('frameRate', '')
+                           or root.findtext('outputFrameRate', ''))
+                if not fps_raw and inputs_elem is not None:
+                    first_inp = inputs_elem.find('input')
+                    if first_inp is not None:
+                        # vMix lưu fps trong attribute 'framerate' (thường là số nguyên như "25", "30")
+                        fps_raw = (first_inp.get('framerate', '')
+                                   or first_inp.get('frameRate', '')
+                                   or first_inp.get('fps', ''))
+                try:
+                    fps_val = float(fps_raw.replace(',', '.')) if fps_raw else None
+                    fps_str = f"{fps_val:.4g}" if fps_val is not None else '—'
+                except (ValueError, AttributeError):
+                    fps_str = fps_raw.replace(',', '.') if fps_raw else '—'
+
+                # Height/Width – vMix thường không có ở root, chủ yếu lấy từ input
+                h = (root.get('height', '')
+                     or root.findtext('height', '')
+                     or root.findtext('outputHeight', ''))
+                w = (root.get('width', '')
+                     or root.findtext('width', '')
+                     or root.findtext('outputWidth', ''))
+                # Fallback: sub-element <output>
+                if not (h and w):
+                    out_e = root.find('output')
+                    if out_e is not None:
+                        h = h or out_e.get('height', '') or out_e.findtext('height', '')
+                        w = w or out_e.get('width', '') or out_e.findtext('width', '')
+                # Primary fallback: lấy từ input đầu tiên (vMix lưu resolution tại đây)
+                if not (h and w) and inputs_elem is not None:
+                    first_inp = inputs_elem.find('input')
+                    if first_inp is not None:
+                        h = h or first_inp.get('height', '')
+                        w = w or first_inp.get('width', '')
+
+                if h:
+                    resolution = f"{h}p{fps_str}" if fps_str != '—' else f"{h}p"
+                elif fps_str != '—':
+                    resolution = fps_str
+                else:
+                    resolution = '—'
+
+                # Lấy preset path từ API response (vMix 26 trả về <preset>)
+                preset_path = root.findtext('preset', '') or root.findtext('Preset', '')
+
+                # Đọc resolution + SRT quality từ file preset
+                srt_quality = '—'
+                srt_by_port = {}  # {port_number: quality_string}
+                if preset_path and __import__('os').path.isfile(preset_path):
+                    try:
+                        _pt = ET.parse(preset_path)
+                        _pr = _pt.getroot()
+
+                        # Resolution từ <OutputFormat OutputSize="1920x1080" OutputFrameRate="333667">
+                        if resolution == '—':
+                            _of = _pr.find('.//OutputFormat')
+                            if _of is not None:
+                                _size = _of.get('OutputSize', '')
+                                _fr_t = _of.get('OutputFrameRate', '')
+                                _h = _size.split('x')[1] if 'x' in _size else ''
+                                _fps = ''
+                                if _fr_t:
+                                    try:
+                                        _fps = f"{10_000_000 / int(_fr_t):.4g}"
+                                    except Exception:
+                                        pass
+                                if _h:
+                                    resolution = f"{_h}p{_fps}" if _fps else f"{_h}p"
+                                    # Cập nhật fps_str nếu chưa có
+                                    if fps_str == '—' and _fps:
+                                        fps_str = _fps
+
+                        # SRT quality từ OutputsExternal*/SRTEnabled=1 — thu thập TẤT CẢ theo port
+                        for _ext_tag in ['OutputsExternal', 'OutputsExternal2',
+                                         'OutputsExternal3', 'OutputsExternal4']:
+                            _ext = _pr.find(f'.//{_ext_tag}')
+                            if _ext is None:
+                                continue
+                            _srt_on = _ext.findtext('SRTEnabled', '0')
+                            if _srt_on.strip() != '1':
+                                continue
+                            # Lấy SRT port
+                            _srt_port_str = _ext.findtext('SRTPort', '0').strip()
+                            try:
+                                _srt_port = int(_srt_port_str)
+                            except ValueError:
+                                _srt_port = 0
+                            # Giải mã codec
+                            _codec_id = _ext.findtext('SRTVideoCodec', '0')
+                            _codec = 'HEVC' if _codec_id.strip() == '1' else 'H264'
+                            # Bandwidth
+                            try:
+                                _vbw = int(_ext.findtext('SRTVideoBandwidth', '0'))
+                                _vbw_s = f"{_vbw // 1_000_000}Mbps" if _vbw >= 1_000_000 else f"{_vbw // 1000}kbps"
+                            except Exception:
+                                _vbw_s = '?'
+                            try:
+                                _abw = int(_ext.findtext('SRTAudioBandwidth', '0'))
+                                _abw_s = f"{_abw // 1000}kbps"
+                            except Exception:
+                                _abw_s = '?'
+                            _hw = ' HW' if _ext.findtext('SRTHardwareEncoder', '0') == '1' else ''
+                            _q = f"{_codec} {_vbw_s} AAC {_abw_s}{_hw}"
+                            if _srt_port:
+                                srt_by_port[_srt_port] = _q
+                            # Giữ lại giá trị chung (fallback)
+                            if srt_quality == '—':
+                                srt_quality = _q
+                    except Exception:
+                        pass
+
+                return {
+                    'connected':   True,
+                    'recording':   root.findtext('recording',  'False').strip() == 'True',
+                    'streaming':   root.findtext('streaming',  'False').strip() == 'True',
+                    'external':    root.findtext('external',   'False').strip() == 'True',
+                    'fullscreen':  root.findtext('fullscreen', 'False').strip() == 'True',
+                    'version':     root.findtext('version',    '—'),
+                    'edition':     root.findtext('edition',    '—'),
+                    'input_count': input_count,
+                    'fps':         fps_str,
+                    'resolution':  resolution,
+                    'srt_quality': srt_quality,
+                    'srt_by_port': srt_by_port,
+                }
+        except Exception as e:
+            self.log(f"[vMix] Error: {e}")
+        res_from_file = self.get_vmix_resolution_from_file()
+        return {
+            'connected': False, 'recording': False, 'streaming': False,
+            'external': False,  'fullscreen': False, 'version': '—',
+            'edition': '—',     'input_count': 0,   'fps': '—',
+            'resolution': res_from_file, 'srt_quality': '—', 'srt_by_port': {},
+        }
 
     def is_vmix_on_port(self, port):
         """Kiểm tra vMix có đang lắng nghe trên port UDP không – dùng psutil (nhanh hơn netstat)"""
@@ -1194,21 +1633,46 @@ class VmixMonitorGUI:
             cpu_pct = self.measure_cpu()   # non-blocking
             mem_pct = self.measure_memory()
 
+            # ── vMix API Stats (một lần mỗi chu kỳ, dùng localhost) ──
+            vmix_stats = self.get_vmix_stats()
+
             ping_str    = f"{ping_ms:.0f}" if ping_ms is not None else '—'
             timeout_str = str(self.ping_timeout_count)
             cpu_str     = f"{cpu_pct:.1f}" if cpu_pct is not None else '—'
             mem_str     = f"{mem_pct:.1f}" if mem_pct is not None else '—'
+
+            # vMix status strings for table
+            rec_str  = '🔴 ON' if vmix_stats['recording'] else 'OFF'
+            live_str = '🔴 ON' if vmix_stats['streaming'] else 'OFF'
+            ext_str  = '🟢 ON' if vmix_stats['external']  else 'OFF'
+
+            # ── Resolution: ưu tiên API/preset (output res), fallback file ──
+            res_str = vmix_stats.get('resolution', '—') or '—'
+
+            # ── SRT Quality: ưu tiên API/preset (real-time), fallback current.config ──
+            srt_by_port = vmix_stats.get('srt_by_port', {})
+            if not srt_by_port:
+                _, srt_by_port = self.get_res_and_srt_from_file()
+            srt_fallback = next(iter(srt_by_port.values()), '—')
 
             # Check each port
             for entry in self.port_list:
                 port = entry['port']
                 name = entry['name']
 
+                # SRT quality: ưu tiên match theo port, fallback giá trị chung
+                srt_str = srt_by_port.get(port, srt_fallback)
+
                 # Cập nhật thông số vào port_list để update_table_display dùng
                 entry['ping']    = ping_str
                 entry['timeout'] = timeout_str
                 entry['cpu']     = cpu_str
                 entry['memory']  = mem_str
+                entry['rec']     = rec_str
+                entry['live']    = live_str
+                entry['ext']     = ext_str
+                entry['resolution'] = res_str
+                entry['srt']     = srt_str
                 
                 # Kiểm tra trạng thái thực tế của vMix
                 vmix_running = self.is_vmix_on_port(port)
@@ -1228,6 +1692,10 @@ class VmixMonitorGUI:
                         "ping_timeouts": self.ping_timeout_count,
                         "temperature": cpu_pct,
                         "memory": mem_pct,
+                        # ── vMix Status ──
+                        "vmix_recording": vmix_stats.get('recording', False),
+                        "vmix_streaming": vmix_stats.get('streaming', False),
+                        "vmix_external":  vmix_stats.get('external',  False),
                     }
                     url = "https://tooldiscordvmix.onrender.com"
                     headers = {"Content-Type": "application/json"}
@@ -1294,8 +1762,8 @@ def focus_existing_window():
         
         win32gui.EnumWindows(callback, None)
         return True
-    except ImportError:
-        # Không có pywin32, chỉ thông báo
+    except (ImportError, Exception):
+        # Không có pywin32 hoặc EnumWindows lỗi
         return False
 
 def main():
