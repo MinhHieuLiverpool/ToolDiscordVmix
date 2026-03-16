@@ -19,7 +19,7 @@ try:
     except ImportError:
         DISCORD_WEBHOOK = ''
 except ImportError:
-    MONGODB_URI = os.getenv('MONGODB_URI', '')
+    MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017')
     DATABASE_NAME = os.getenv('DATABASE_NAME', 'vmix_monitor')
     COLLECTION_NAME = os.getenv('COLLECTION_NAME', 'logs')
     DISCORD_WEBHOOK = os.getenv('DISCORD_WEBHOOK', '')  # Optional Discord webhook
@@ -32,12 +32,13 @@ VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 
 # MongoDB connection
 try:
-    client = MongoClient(
-        MONGODB_URI, 
-        serverSelectionTimeoutMS=10000,
-        tls=True,
-        tlsAllowInvalidCertificates=True
-    )
+    mongo_kwargs = {
+        "serverSelectionTimeoutMS": 10000,
+    }
+    if MONGODB_URI.startswith("mongodb+srv://"):
+        mongo_kwargs["tls"] = True
+        mongo_kwargs["tlsAllowInvalidCertificates"] = True
+    client = MongoClient(MONGODB_URI, **mongo_kwargs)
     db = client[DATABASE_NAME]
     collection = db[COLLECTION_NAME]
     selected_collection = db['selected_list']  # Collection mới cho selected list
@@ -466,4 +467,4 @@ if __name__ == "__main__":
     print(f"🚀 Starting WebSocket server on http://localhost:{PORT}")
     print(f"📡 WebSocket endpoint: ws://localhost:{PORT}/ws")
     print(f"🔌 REST API endpoint: http://localhost:{PORT}/")
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    uvicorn.run(app, host="127.0.0.1", port=PORT)

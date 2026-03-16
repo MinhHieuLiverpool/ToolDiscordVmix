@@ -554,6 +554,170 @@ def test_http_api(api_port: int = 8088) -> tuple[str, dict]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Method 4 – External Output hardware settings (Device / SDI / HDMI)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _parse_ext_output_elem(ext, ext_name: str, idx: int) -> dict:
+    """Extract hardware external-output fields from an XML element."""
+    def _t(name: str) -> str:
+        return (ext.findtext(name) or "").strip()
+
+    info: dict = {}
+
+    # ── trạng thái tổng ──────────────────────────────────────────────────────
+    info["Enabled"]               = _t("Enabled") or _t("enabled")
+    info["UseStreamingSettings"]  = _t("UseStreamingSettings")
+    info["UseDisplaySettings"]    = _t("UseDisplaySettings")
+    info["ExternalRenderer"]      = _t("ExternalRenderer")
+    info["VMixVideoStreaming"]     = _t("VMixVideoStreaming") or _t("vMixVideoStreaming")
+
+    # ── thông số output ───────────────────────────────────────────────────────
+    size = _t("OutputSize") or _t("ExternalOutputSize")
+    info["OutputSize"]  = size
+
+    fr = (_t("FrameRate") or _t("OutputFrameRate") or _t("ExternalFrameRate"))
+    if not fr:
+        ticks = _t("FrameRateTicks") or _t("OutputFrameRateTicks")
+        fr = _fps_from_ticks(ticks) if ticks else ""
+    info["FrameRate"]   = fr
+
+    info["Device"]        = _t("DeviceName") or _t("Device")
+    info["Port"]          = _t("Port") or _t("OutputPort")
+    info["AudioChannels"] = _t("AudioChannels") or _t("AudioChannel")
+    info["AlphaChannel"]  = _t("AlphaChannel")
+    info["AudioDelay"]    = _t("AudioDelay")
+
+    # ── SRT (tóm tắt) ─────────────────────────────────────────────────────────
+    info["SRTEnabled"]  = _t("SRTEnabled")
+    info["SRTPort"]     = _t("SRTPort")
+    codec_id = _t("SRTVideoCodec")
+    info["SRTCodec"]    = ("HEVC" if codec_id == "1" else "H264") if codec_id else ""
+    info["SRTVideoBW"]  = _bw_str(_t("SRTVideoBandwidth") or "0") if _t("SRTVideoBandwidth") else ""
+    info["SRTAudioBW"]  = _bw_str(_t("SRTAudioBandwidth")  or "0") if _t("SRTAudioBandwidth") else ""
+    info["SRTHW"]       = _t("SRTHardwareEncoder")
+
+    return info
+
+
+def _print_ext_output_info(info: dict, idx: int, ext_name: str):
+    """Format and print one External Output block."""
+    def _show(label: str, key: str, fn=None):
+        val = info.get(key, "")
+        if val:
+            display = fn(val) if fn else val
+            ok(f"[Ext{idx}] {label}", display)
+        else:
+            warn(f"[Ext{idx}] {label}", "(không có)")
+
+    enabled = info.get("Enabled", "—")
+    color = _G if enabled.lower() in ("true", "1") else _Y
+    print(f"\n  {_B}{color}── {ext_name}  (External {idx})  Enabled={enabled}{_X}")
+
+    _show("Output Size",             "OutputSize")
+    _show("Frame Rate",              "FrameRate")
+    _show("Device",                  "Device")
+    _show("Port",                    "Port")
+    _show("Audio Channels",          "AudioChannels")
+    _show("Alpha Channel",           "AlphaChannel")
+    _show("Audio Delay (ms)",        "AudioDelay")
+    _show("Use Streaming Settings",  "UseStreamingSettings")
+    _show("Use Display Settings",    "UseDisplaySettings")
+    _show("External Renderer",       "ExternalRenderer")
+    _show("vMix Video/Streaming",    "VMixVideoStreaming")
+
+    srt_enabled = info.get("SRTEnabled", "0")
+    if srt_enabled == "1":
+        port = info.get("SRTPort", "?")
+        codec = info.get("SRTCodec", "H264")
+        vbw   = info.get("SRTVideoBW", "?")
+        abw   = info.get("SRTAudioBW", "?")
+        hw    = " HW" if info.get("SRTHW") == "1" else ""
+        ok(f"[Ext{idx}] SRT",
+           f"port={port}  {codec} {vbw} AAC {abw}{hw}  [ENABLED]")
+    else:
+        warn(f"[Ext{idx}] SRT", "disabled")
+
+
+def test_external_output() -> list[dict]:
+    """
+    Đọc toàn bộ thông số External Output (hardware + SRT) từ preset *.vmix.
+    Trả về danh sách dict thông số mỗi External Output.
+    """
+    header("METHOD 4 – External Output  (Device / SDI / HDMI / SRT tổng hợp)")
+
+    # ── Tìm nguồn dữ liệu ────────────────────────────────────────────────────
+    root = None
+    source_label = ""
+
+    preset = _find_vmix_preset()
+    if preset:
+        try:
+            root = ET.parse(preset).getroot()
+            mtime = datetime.fromtimestamp(os.path.getmtime(preset)).strftime("%Y-%m-%d %H:%M:%S")
+            source_label = f"{os.path.basename(preset)}  [{mtime}]"
+        except Exception as ex:
+            warn("Đọc preset", str(ex))
+            root = None
+
+    if root is None:
+        # Fallback: current.config (regex → parse inner XML value)
+        config_file = os.path.join(_vmix_data_dir(), "settingbackups", "current.config")
+        if os.path.isfile(config_file):
+            try:
+                content = _read_file_shared(config_file)
+                # Ghép tất cả OutputsExternal* thành pseudo-XML để parse
+                # (dùng như Method 1 đã làm)
+                source_label = "current.config"
+                results_list = []
+                for idx, ext_name in enumerate(
+                    ("OutputsExternal", "OutputsExternal2",
+                     "OutputsExternal3", "OutputsExternal4"), start=1
+                ):
+                    m = re.search(
+                        rf'name="{re.escape(ext_name)}"[^>]*>\s*<value>(.*?)</value>',
+                        content, re.DOTALL,
+                    )
+                    if not m:
+                        continue
+                    decoded = html.unescape(m.group(1).strip())
+                    try:
+                        sub = ET.fromstring(f"<root>{decoded}</root>")
+                    except ET.ParseError:
+                        continue
+                    info = _parse_ext_output_elem(sub, ext_name, idx)
+                    results_list.append(info)
+                    _print_ext_output_info(info, idx, ext_name)
+                ok("Nguồn dữ liệu", source_label)
+                return results_list
+            except Exception as ex:
+                err("Đọc current.config", str(ex))
+        err("Nguồn dữ liệu", "Không tìm thấy preset *.vmix hay current.config")
+        return []
+
+    ok("Nguồn dữ liệu", source_label)
+
+    results_list = []
+    found_any = False
+    for idx, ext_name in enumerate(
+        ("OutputsExternal", "OutputsExternal2",
+         "OutputsExternal3", "OutputsExternal4"), start=1
+    ):
+        ext = root.find(f".//{ext_name}")
+        if ext is None:
+            continue
+        found_any = True
+        info = _parse_ext_output_elem(ext, ext_name, idx)
+        results_list.append(info)
+        _print_ext_output_info(info, idx, ext_name)
+
+    if not found_any:
+        warn("External Output", "Không tìm thấy OutputsExternal* trong preset")
+
+    print()
+    return results_list
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Tổng hợp
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -588,6 +752,8 @@ def _run_once(method: str, api_port: int) -> dict:
         results["2-preset"] = test_preset_based()
     if method in ("3", "all"):
         results["3-http"]   = test_http_api(api_port)
+    if method in ("ext", "all"):
+        test_external_output()
     return results
 
 
@@ -600,8 +766,8 @@ def main():
         help="vMix HTTP API port (mặc định: 8088)"
     )
     parser.add_argument(
-        "--method", choices=["1", "2", "3", "all"], default="all",
-        help="Chọn phương pháp cần test: 1=file, 2=preset, 3=http, all=tất cả (mặc định: all)"
+        "--method", choices=["1", "2", "3", "ext", "all"], default="all",
+        help="Chọn phương pháp: 1=file, 2=preset, 3=http, ext=external-output, all=tất cả (mặc định: all)"
     )
     parser.add_argument(
         "--watch", type=int, metavar="GIÂY", nargs="?", const=3,

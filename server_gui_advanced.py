@@ -37,7 +37,7 @@ class ServerDataGUI:
         # Mo fullscreen (maximized) khi khoi chay
         self.root.after(100, lambda: self.root.state('zoomed'))
 
-        # use Render.com server
+        # Use remote Render server
         self.api_url = "https://tooldiscordvmix.onrender.com"
         self.ws_url = "wss://tooldiscordvmix.onrender.com/ws"
         self.webhook_var = ctk.StringVar(value="")

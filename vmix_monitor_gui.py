@@ -1359,7 +1359,7 @@ class VmixMonitorGUI:
         def _run():
             try:
                 port = self.vmix_api_port_var.get().strip() or "8088"
-                url = f"http://localhost:{port}/api"
+                url = f"http://127.0.0.1:{port}/api"
                 self.log(f"[vMix Test] GET {url}")
                 resp = requests.get(url, timeout=3)
                 self.log(f"[vMix Test] Status: {resp.status_code}")
@@ -1381,7 +1381,7 @@ class VmixMonitorGUI:
         import requests
         try:
             port = self.vmix_api_port_var.get().strip() or "8088"
-            url = f"http://localhost:{port}/api"
+            url = f"http://127.0.0.1:{port}/api"
             resp = requests.get(url, timeout=2)
             if resp.status_code == 200:
                 root = ET.fromstring(resp.content)
@@ -1515,6 +1515,8 @@ class VmixMonitorGUI:
                     'srt_quality': srt_quality,
                     'srt_by_port': srt_by_port,
                 }
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            pass  # vMix không chạy hoặc chưa khởi động – bình thường
         except Exception as e:
             self.log(f"[vMix] Error: {e}")
         res_from_file = self.get_vmix_resolution_from_file()
@@ -1544,22 +1546,8 @@ class VmixMonitorGUI:
             return False
     
     def get_wan_ip(self):
-        import requests
-        urls = [
-            'https://api.ipify.org',
-            'https://ifconfig.me/ip',
-            'https://ipinfo.io/ip',
-            'https://checkip.amazonaws.com'
-        ]
-        for u in urls:
-            try:
-                ip = requests.get(u, timeout=5).text.strip()
-                # CHỈ lấy IPv4 (có dấu chấm), BỞ QUA IPv6 (có dấu hai chấm)
-                if ip and '.' in ip and ':' not in ip:
-                    return ip
-            except Exception:
-                pass
-        return "unknown"
+        # Local mode: always use loopback WAN placeholder to avoid external calls.
+        return "127.0.0.1"
 
     def monitor_loop(self):
         import requests

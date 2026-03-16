@@ -8,3 +8,4 @@ uvicorn==0.30.6
 websockets==13.1
 ttkbootstrap
 websocket-client
+psutil

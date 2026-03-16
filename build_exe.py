@@ -5,6 +5,21 @@ Sử dụng PyInstaller để đóng gói Python + tất cả dependencies
 import subprocess
 import sys
 import os
+import psutil
+
+
+def kill_running_exe(exe_name: str):
+    """Kill tiến trình EXE đang chạy trước khi build (tránh PermissionError)"""
+    killed = []
+    for proc in psutil.process_iter(['pid', 'name']):
+        try:
+            if proc.info['name'] and proc.info['name'].lower() == exe_name.lower():
+                proc.kill()
+                killed.append(proc.info['pid'])
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    if killed:
+        print(f"⚠️  Đã dừng tiến trình {exe_name} (PID: {', '.join(map(str, killed))}) trước khi build.")
 
 def install_pyinstaller():
     """Cài đặt PyInstaller nếu chưa có"""
@@ -39,7 +54,8 @@ def build_vmix_monitor_exe():
         "--hidden-import=pytz",
         "vmix_monitor_gui.py"
     ]
-    
+
+    kill_running_exe("VmixMonitor.exe")
     subprocess.run(cmd, check=True)
     print("\n✅ VmixMonitor.exe đã được tạo thành công trong thư mục 'dist'!")
 
@@ -68,7 +84,8 @@ def build_server_gui_exe():
         "--hidden-import=datetime",
         "server_gui_advanced.py"
     ]
-    
+
+    kill_running_exe("ServerLogViewer.exe")
     subprocess.run(cmd, check=True)
     print("\n✅ ServerLogViewer.exe đã được tạo thành công trong thư mục 'dist'!")
 
@@ -89,7 +106,8 @@ def build_server_exe():
         "--hidden-import=pytz",
         "server.py"
     ]
-    
+
+    kill_running_exe("ServerConsole.exe")
     subprocess.run(cmd, check=True)
     print("\n✅ ServerConsole.exe đã được tạo thành công trong thư mục 'dist'!")
 
