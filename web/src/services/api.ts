@@ -23,6 +23,18 @@ export interface BackendLogItem {
   }
 }
 
+export interface StatisticsPoint {
+  cpu: number | string | null
+  ram: number | string | null
+  time: string
+}
+
+export interface StatisticsResponse {
+  id: string
+  data: StatisticsPoint[]
+  updated_at?: string
+}
+
 const apiClient = axios.create({
   baseURL: BACKEND_BASE_URL,
   timeout: REQUEST_TIMEOUT_MS,
@@ -30,5 +42,13 @@ const apiClient = axios.create({
 
 export async function fetchAllLogs(): Promise<BackendLogItem[]> {
   const response = await apiClient.get<BackendLogItem[]>(API_ENDPOINTS.logs)
+  return response.data
+}
+
+export async function fetchStatistics(statisticsId: string, limit = 200): Promise<StatisticsResponse> {
+  const response = await apiClient.get<StatisticsResponse>(
+    `${API_ENDPOINTS.statistics}/${encodeURIComponent(statisticsId)}`,
+    { params: { limit } },
+  )
   return response.data
 }

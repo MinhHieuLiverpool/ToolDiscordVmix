@@ -37,9 +37,9 @@ class ServerDataGUI:
         # Mo fullscreen (maximized) khi khoi chay
         self.root.after(100, lambda: self.root.state('zoomed'))
 
-        # Use remote Render server
-        self.api_url = "https://tooldiscordvmix.onrender.com"
-        self.ws_url = "wss://tooldiscordvmix.onrender.com/ws"
+        # Use local server
+        self.api_url = "http://localhost:8000"
+        self.ws_url = "ws://localhost:8000/ws"
         self.webhook_var = ctk.StringVar(value="")
         self.prefix_var = ctk.StringVar(value="SRT")
         self.data = []  # All data from database
@@ -76,58 +76,47 @@ class ServerDataGUI:
         self.prefix_entry = ctk.CTkEntry(row2, textvariable=self.prefix_var, width=80, font=("Arial", 10))
         self.prefix_entry.pack(side="left", padx=5)
         
-        ctk.CTkButton(row2, text="� Scan máy", command=self.refresh_data, fg_color="#4CAF50", hover_color="#45a049", width=100, font=("Arial", 10, "bold")).pack(side="left", padx=3)
+        ctk.CTkButton(row2, text="🔍 Scan máy", command=self.open_scan_dialog, fg_color="#4CAF50", hover_color="#45a049", width=110, font=("Arial", 10, "bold")).pack(side="left", padx=3)
         self.toggle_btn = ctk.CTkButton(row2, text="AUTO SEND: OFF", command=self.toggle_auto_send, fg_color="#9E9E9E", hover_color="#757575", width=130, font=("Arial", 10, "bold"))
         self.toggle_btn.pack(side="left", padx=3)
-        ctk.CTkButton(row2, text="➡️ Add", command=self.add_to_selected, fg_color="#2196F3", hover_color="#1976D2", width=90).pack(side="left", padx=3)
         ctk.CTkButton(row2, text="🗑️ Clear", command=self.clear_selected, fg_color="#f44336", hover_color="#d32f2f", width=90).pack(side="left", padx=3)
         ctk.CTkButton(row2, text="💾 Save", command=self.save_selected_to_file, fg_color="#9C27B0", hover_color="#7B1FA2", width=90).pack(side="left", padx=3)
         ctk.CTkButton(row2, text="📂 Open", command=self.load_selected_from_file, fg_color="#673AB7", hover_color="#512DA8", width=90).pack(side="left", padx=3)
+        ctk.CTkButton(row2, text="🌐 Web", command=self.open_web_dialog, fg_color="#00ACC1", hover_color="#00838F", width=90, font=("Arial", 10, "bold")).pack(side="left", padx=3)
         ctk.CTkButton(row2, text="➕ Add PTZ", command=self.add_ptz_manual, fg_color="#FF9800", hover_color="#F57C00", width=100, font=("Arial", 10, "bold")).pack(side="left", padx=3)
         
         # Connection status
         self.status_label = ctk.CTkLabel(row2, text="⚪ Disconnected", font=("Arial", 9, "bold"), text_color="#9E9E9E")
         self.status_label.pack(side="right", padx=10)
 
-        # Main content area - Split into 2 panels
-        main_frame = ctk.CTkFrame(self.root)
-        main_frame.pack(fill="both", expand=True, padx=10, pady=5)
-        
-        # Configure grid
-        # Configure grid - Thu nhỏ tối đa cột 0 (trái), mở rộng cột 1 (phải)
-        main_frame.grid_columnconfigure(0, weight=1)
-        main_frame.grid_columnconfigure(1, weight=6)
-        main_frame.grid_rowconfigure(0, weight=1)
+        # Main content area with draggable splitter between table and vmPing
+        self.vertical_splitter = tk.PanedWindow(
+            self.root,
+            orient=tk.VERTICAL,
+            sashwidth=8,
+            sashrelief=tk.RAISED,
+            showhandle=True,
+            bg="#1f1f1f",
+        )
+        self.vertical_splitter.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
-        # LEFT PANEL - All logs from database (scan)
-        left_frame = ctk.CTkFrame(main_frame)
-        left_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
-        
-        ctk.CTkLabel(left_frame, text="📡 ALL LOGS FROM DATABASE", font=("Arial", 11, "bold")).pack(pady=5)
-        
-        # Left table - Custom with checkboxes
-        self.table_frame_left = ctk.CTkScrollableFrame(left_frame, fg_color="#2b2b2b")
-        self.table_frame_left.pack(fill="both", expand=True, padx=5, pady=5)
-        
-        # Header
-        header_frame = ctk.CTkFrame(self.table_frame_left, fg_color="#1a1a1a", height=40)
-        header_frame.pack(fill="x", pady=(0, 5))
-        header_frame.pack_propagate(False)
-        
+        main_frame = ctk.CTkFrame(self.vertical_splitter)
+        main_frame.grid_columnconfigure(0, weight=1)
+        main_frame.grid_rowconfigure(0, weight=1)
+        self.vertical_splitter.add(main_frame, minsize=260)
+
+        # Scan dialog state (All logs table lives in this popup)
+        self.scan_dialog = None
+        self.table_frame_left = None
         self.select_all_var = ctk.BooleanVar(value=False)
-        self.select_all_cb = ctk.CTkCheckBox(header_frame, text="", variable=self.select_all_var,
-                                             width=35, command=self.toggle_select_all)
-        self.select_all_cb.pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame, text="STT", font=("Arial", 11, "bold"), width=35).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame, text="IP MÁY", font=("Arial", 11, "bold"), width=110).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame, text="PORT",  font=("Arial", 11, "bold"), width=60).pack(side="left", padx=2)
+        self.select_all_cb = None
         
         self.left_table_rows = []
         self.left_table_checkboxes = {}
 
-        # RIGHT PANEL - Selected logs to monitor
+        # Selected logs to monitor (full width)
         right_frame = ctk.CTkFrame(main_frame)
-        right_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        right_frame.grid(row=0, column=0, sticky="nsew")
         
         ctk.CTkLabel(right_frame, text="⭐ SELECTED MONITOR LIST", font=("Arial", 11, "bold")).pack(pady=5)
         
@@ -161,8 +150,8 @@ class ServerDataGUI:
         self.right_table_rows = []
 
         # ── vmPing Panel ────────────────────────────────────────────────────
-        vmping_outer = ctk.CTkFrame(self.root, fg_color="#181818")
-        vmping_outer.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        vmping_outer = ctk.CTkFrame(self.vertical_splitter, fg_color="#181818")
+        self.vertical_splitter.add(vmping_outer, minsize=170)
 
         # Header bar
         vmping_header = ctk.CTkFrame(vmping_outer, fg_color="#1a1a1a", height=38)
@@ -186,6 +175,9 @@ class ServerDataGUI:
         for col in range(4):
             self.ping_cards_frame.grid_columnconfigure(col, weight=1)
 
+        # Default split ratio: table section a bit larger than vmPing section.
+        self.root.after(120, self._set_default_split_position)
+
         # vmPing state
         self.ping_hosts = {}   # host -> info dict
         self.ping_grid_cols = 4
@@ -194,8 +186,8 @@ class ServerDataGUI:
         self.detail_text = ctk.CTkTextbox(vmping_outer, height=0, font=("Consolas", 10), fg_color="#1e1e1e", text_color="#00ff00")
         # (not packed – kept only so show_detail_from_entry doesn't crash)
 
-        # Load initial data once
-        self.refresh_data()
+        # Load initial data once (without opening scan dialog)
+        self.refresh_data(show_dialog=False)
         
         # Load selected list from database
         self.load_selected_from_database()
@@ -206,6 +198,205 @@ class ServerDataGUI:
         else:
             # Fallback to REST polling
             self.start_rest_polling_backup()
+
+    def _set_default_split_position(self):
+        """Place splitter so top table area is larger than vmPing by default."""
+        try:
+            total_h = self.root.winfo_height()
+            y = max(260, int(total_h * 0.62))
+            self.vertical_splitter.sash_place(0, 0, y)
+        except Exception:
+            pass
+
+    def open_web_dialog(self):
+        """Open web account dialog with create and delete account actions."""
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("Web Account")
+        dialog.geometry("520x520")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        self.root.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - 260
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 260
+        dialog.geometry(f"520x520+{x}+{y}")
+
+        container = ctk.CTkFrame(dialog, fg_color="transparent")
+        container.pack(fill="both", expand=True, padx=16, pady=14)
+
+        ctk.CTkLabel(container, text="TẠO TÀI KHOẢN WEB", font=("Arial", 14, "bold")).pack(pady=(2, 12))
+
+        username_var = ctk.StringVar(value="")
+        password_var = ctk.StringVar(value="")
+
+        user_row = ctk.CTkFrame(container, fg_color="transparent")
+        user_row.pack(fill="x", pady=4)
+        ctk.CTkLabel(user_row, text="Username:", width=90, anchor="w", font=("Arial", 10, "bold")).pack(side="left")
+        user_entry = ctk.CTkEntry(user_row, textvariable=username_var, placeholder_text="Nhập tài khoản")
+        user_entry.pack(side="left", fill="x", expand=True)
+
+        pass_row = ctk.CTkFrame(container, fg_color="transparent")
+        pass_row.pack(fill="x", pady=4)
+        ctk.CTkLabel(pass_row, text="Password:", width=90, anchor="w", font=("Arial", 10, "bold")).pack(side="left")
+        pass_entry = ctk.CTkEntry(pass_row, textvariable=password_var, placeholder_text="Nhập mật khẩu", show="*")
+        pass_entry.pack(side="left", fill="x", expand=True)
+
+        status_label = ctk.CTkLabel(container, text="", text_color="#9E9E9E", font=("Arial", 10))
+        status_label.pack(anchor="w", pady=(8, 2))
+
+        btn_row = ctk.CTkFrame(container, fg_color="transparent")
+        btn_row.pack(fill="x", pady=(10, 0))
+
+        create_btn = ctk.CTkButton(btn_row, text="Tạo tài khoản", fg_color="#4CAF50", hover_color="#45a049", width=120)
+        create_btn.pack(side="left", padx=(0, 8))
+        refresh_btn = ctk.CTkButton(btn_row, text="Làm mới", fg_color="#2196F3", hover_color="#1976D2", width=90)
+        refresh_btn.pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btn_row, text="Đóng", fg_color="#616161", hover_color="#4E4E4E", width=90, command=dialog.destroy).pack(side="left")
+
+        ctk.CTkLabel(container, text="Danh sách tài khoản", font=("Arial", 11, "bold")).pack(anchor="w", pady=(12, 4))
+        accounts_frame = ctk.CTkScrollableFrame(container, fg_color="#242424", height=250)
+        accounts_frame.pack(fill="both", expand=True)
+
+        def render_accounts(accounts: list):
+            for child in accounts_frame.winfo_children():
+                child.destroy()
+
+            if not accounts:
+                ctk.CTkLabel(accounts_frame, text="Chưa có tài khoản", text_color="#9E9E9E").pack(anchor="w", padx=6, pady=6)
+                return
+
+            for acc in accounts:
+                username = acc.get("username", "")
+                password = acc.get("password", "")
+                created_at = acc.get("created_at", "")
+
+                row = ctk.CTkFrame(accounts_frame, fg_color="#2e2e2e", corner_radius=6)
+                row.pack(fill="x", pady=3, padx=2)
+
+                text_col = ctk.CTkFrame(row, fg_color="transparent")
+                text_col.pack(side="left", fill="x", expand=True, padx=8, pady=6)
+                ctk.CTkLabel(text_col, text=f"Tài khoản: {username}", font=("Arial", 10, "bold"), anchor="w").pack(anchor="w")
+
+                shown_password = password if password else "(không có dữ liệu cũ)"
+                masked_password = "*" * max(8, len(password)) if password else "********"
+                password_var = ctk.StringVar(value=f"Mật khẩu: {masked_password}")
+                is_revealed = {"value": False}
+
+                pass_row = ctk.CTkFrame(text_col, fg_color="transparent")
+                pass_row.pack(fill="x")
+                pass_label = ctk.CTkLabel(pass_row, textvariable=password_var, font=("Arial", 10), anchor="w")
+                pass_label.pack(side="left", anchor="w")
+
+                def toggle_password_view(var=password_var, reveal=is_revealed, real=shown_password, masked=masked_password):
+                    reveal["value"] = not reveal["value"]
+                    if reveal["value"]:
+                        var.set(f"Mật khẩu: {real}")
+                    else:
+                        var.set(f"Mật khẩu: {masked}")
+
+                ctk.CTkButton(
+                    pass_row,
+                    text="👁",
+                    width=52,
+                    height=24,
+                    fg_color="#5E35B1",
+                    hover_color="#4527A0",
+                    command=toggle_password_view,
+                ).pack(side="left", padx=(8, 0))
+
+                ctk.CTkLabel(text_col, text=created_at, font=("Arial", 9), text_color="#9E9E9E", anchor="w").pack(anchor="w", pady=(2, 0))
+
+                def do_delete(u=username):
+                    if not messagebox.askyesno("Xác nhận", f"Xóa tài khoản '{u}'?"):
+                        return
+
+                    def worker_delete():
+                        try:
+                            resp = requests.post(f"{self.api_url}/delete_account", json={"username": u}, timeout=8)
+                            if resp.status_code == 200:
+                                self.root.after(0, lambda: status_label.configure(text=f"Đã xóa tài khoản: {u}", text_color="#4CAF50"))
+                                self.root.after(0, load_accounts)
+                            else:
+                                self.root.after(0, lambda: status_label.configure(text=f"Xóa thất bại: HTTP {resp.status_code}", text_color="#ff6b6b"))
+                        except Exception as e:
+                            self.root.after(0, lambda err=str(e): status_label.configure(text=f"Lỗi kết nối: {err}", text_color="#ff6b6b"))
+
+                    threading.Thread(target=worker_delete, daemon=True).start()
+
+                ctk.CTkButton(row, text="Xóa", width=64, fg_color="#f44336", hover_color="#d32f2f", command=do_delete).pack(side="right", padx=8, pady=6)
+
+        def load_accounts():
+            status_label.configure(text="Đang tải danh sách tài khoản...", text_color="#9E9E9E")
+
+            def worker_list():
+                try:
+                    resp = requests.get(f"{self.api_url}/accounts", timeout=8)
+                    if resp.status_code == 200:
+                        payload = resp.json()
+                        accounts = payload if isinstance(payload, list) else []
+                        self.root.after(0, lambda data=accounts: render_accounts(data))
+                        self.root.after(0, lambda: status_label.configure(text=f"Đã tải {len(accounts)} tài khoản", text_color="#9E9E9E"))
+                    else:
+                        self.root.after(0, lambda: status_label.configure(text=f"Không tải được danh sách: HTTP {resp.status_code}", text_color="#ff6b6b"))
+                except Exception as e:
+                    self.root.after(0, lambda err=str(e): status_label.configure(text=f"Lỗi kết nối: {err}", text_color="#ff6b6b"))
+
+            threading.Thread(target=worker_list, daemon=True).start()
+
+        def do_create_account():
+            username = username_var.get().strip()
+            password = password_var.get().strip()
+
+            if not username:
+                status_label.configure(text="Vui lòng nhập username", text_color="#ff6b6b")
+                return
+            if len(password) < 4:
+                status_label.configure(text="Mật khẩu tối thiểu 4 ký tự", text_color="#ff6b6b")
+                return
+
+            create_btn.configure(state="disabled")
+            status_label.configure(text="Đang tạo tài khoản...", text_color="#9E9E9E")
+
+            def worker():
+                payload = {"username": username, "password": password}
+                endpoints = [
+                    f"{self.api_url}/create_account",
+                    f"{self.api_url}/register",
+                ]
+
+                not_found_count = 0
+                for url in endpoints:
+                    try:
+                        resp = requests.post(url, json=payload, timeout=8)
+                        if resp.status_code in (200, 201):
+                            self.root.after(0, lambda: status_label.configure(text="Tạo tài khoản thành công", text_color="#4CAF50"))
+                            self.root.after(0, lambda: create_btn.configure(state="normal"))
+                            self.root.after(0, load_accounts)
+                            self.root.after(0, lambda: password_var.set(""))
+                            return
+                        if resp.status_code in (404, 405):
+                            not_found_count += 1
+                            continue
+                        self.root.after(0, lambda: status_label.configure(text=f"Tạo thất bại: HTTP {resp.status_code}", text_color="#ff6b6b"))
+                        self.root.after(0, lambda: create_btn.configure(state="normal"))
+                        return
+                    except Exception as e:
+                        self.root.after(0, lambda err=str(e): status_label.configure(text=f"Lỗi kết nối: {err}", text_color="#ff6b6b"))
+                        self.root.after(0, lambda: create_btn.configure(state="normal"))
+                        return
+
+                if not_found_count == len(endpoints):
+                    self.root.after(0, lambda: status_label.configure(text="Server chưa có API tạo tài khoản", text_color="#ffb74d"))
+                    self.root.after(0, lambda: create_btn.configure(state="normal"))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        create_btn.configure(command=do_create_account)
+        refresh_btn.configure(command=load_accounts)
+
+        load_accounts()
+        user_entry.focus_set()
 
     def connect_websocket(self):
         """Kết nối WebSocket để nhận realtime updates"""
@@ -583,8 +774,77 @@ class ServerDataGUI:
         
         threading.Thread(target=send, daemon=True).start()
 
-    def refresh_data(self):
-        """Refresh all logs from database"""
+    def open_scan_dialog(self):
+        """Open centered dialog that contains the All Logs table."""
+        if self.scan_dialog is not None and self.scan_dialog.winfo_exists():
+            self.scan_dialog.lift()
+            self.scan_dialog.focus_force()
+            self.refresh_data(show_dialog=False)
+            return
+
+        self.scan_dialog = ctk.CTkToplevel(self.root)
+        self.scan_dialog.title("All Logs From Database")
+        self.scan_dialog.transient(self.root)
+        self.scan_dialog.grab_set()
+
+        self.root.update_idletasks()
+        root_w = self.root.winfo_width()
+        root_h = self.root.winfo_height()
+        # Keep scan dialog clearly smaller in both width and height
+        dlg_w = min(700, max(520, int(root_w * 0.4)))
+        dlg_h = min(460, max(460, int(root_h * 0.5)))
+        x = self.root.winfo_x() + (root_w - dlg_w) // 2
+        y = self.root.winfo_y() + (root_h - dlg_h) // 2
+        self.scan_dialog.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
+        self.scan_dialog.minsize(520, 420)
+
+        dialog_root = ctk.CTkFrame(self.scan_dialog)
+        dialog_root.pack(fill="both", expand=True, padx=10, pady=10)
+
+        top_bar = ctk.CTkFrame(dialog_root, fg_color="transparent")
+        top_bar.pack(fill="x", pady=(0, 6))
+        ctk.CTkLabel(top_bar, text="📡 ALL LOGS FROM DATABASE", font=("Arial", 12, "bold")).pack(side="left")
+        ctk.CTkButton(top_bar, text="Refresh", width=90, command=lambda: self.refresh_data(show_dialog=False),
+                      fg_color="#4CAF50", hover_color="#45a049").pack(side="right", padx=4)
+        ctk.CTkButton(top_bar, text="Add Selected", width=110, command=self.add_to_selected,
+                      fg_color="#2196F3", hover_color="#1976D2").pack(side="right", padx=4)
+
+        self.table_frame_left = ctk.CTkScrollableFrame(dialog_root, fg_color="#2b2b2b")
+        self.table_frame_left.pack(fill="both", expand=True)
+
+        header_frame = ctk.CTkFrame(self.table_frame_left, fg_color="#1a1a1a", height=40)
+        header_frame.pack(fill="x", pady=(0, 5))
+        header_frame.pack_propagate(False)
+
+        self.select_all_var.set(False)
+        self.select_all_cb = ctk.CTkCheckBox(header_frame, text="", variable=self.select_all_var,
+                                             width=35, command=self.toggle_select_all)
+        self.select_all_cb.pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame, text="STT", font=("Arial", 11, "bold"), width=35).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame, text="IP MÁY", font=("Arial", 11, "bold"), width=130).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame, text="PORT", font=("Arial", 11, "bold"), width=80).pack(side="left", padx=2)
+
+        self.scan_dialog.protocol("WM_DELETE_WINDOW", self._close_scan_dialog)
+
+        self.update_all_table()
+        self.refresh_data(show_dialog=False)
+
+    def _close_scan_dialog(self):
+        if self.scan_dialog is not None and self.scan_dialog.winfo_exists():
+            self.scan_dialog.destroy()
+        self.scan_dialog = None
+        self.table_frame_left = None
+        self.select_all_var.set(False)
+        self.select_all_cb = None
+        self.left_table_rows = []
+        self.left_table_checkboxes = {}
+
+    def refresh_data(self, show_dialog=True):
+        """Refresh all logs from database."""
+        if show_dialog:
+            self.open_scan_dialog()
+            return
+
         def fetch():
             url = f"{self.api_url}/logs"
             try:
@@ -607,22 +867,22 @@ class ServerDataGUI:
                             if self.has_data_changed(self.data, data):
                                 print("✓ Data changed, refreshing table...")
                                 self.data = data
-                                self.update_all_table()
+                                self.root.after(0, self.update_all_table)
                                 # Also update selected data with new info
                                 self.update_selected_data()
-                                self.update_selected_table()
+                                self.root.after(0, self.update_selected_table)
                             else:
                                 # Chỉ update selected table (để cập nhật status realtime)
                                 self.update_selected_data()
-                                self.update_selected_table()
+                                self.root.after(0, self.update_selected_table)
                         else:
                             self.data = []
                     except Exception as e:
-                        messagebox.showerror("Error", f"JSON decode error: {e}")
+                        self.root.after(0, lambda: messagebox.showerror("Error", f"JSON decode error: {e}"))
                 else:
-                    messagebox.showerror("Error", f"HTTP {resp.status_code}: {resp.text}")
+                    self.root.after(0, lambda: messagebox.showerror("Error", f"HTTP {resp.status_code}: {resp.text}"))
             except Exception as e:
-                messagebox.showerror("Error", f"ERROR: {str(e)}")
+                self.root.after(0, lambda: messagebox.showerror("Error", f"ERROR: {str(e)}"))
         threading.Thread(target=fetch, daemon=True).start()
     
     def has_data_changed(self, old_data, new_data):
@@ -643,11 +903,17 @@ class ServerDataGUI:
 
     def update_all_table(self):
         """Update left table with all logs - Custom view with checkboxes"""
+        if self.table_frame_left is None or not self.table_frame_left.winfo_exists():
+            self.left_table_rows = []
+            self.left_table_checkboxes = {}
+            return
+
         # Clear old rows
         for row in self.left_table_rows:
             row.destroy()
         self.left_table_rows = []
         self.left_table_checkboxes = {}
+        self.select_all_var.set(False)
         
         stt = 1
         for idx, entry in enumerate(self.data):
@@ -806,6 +1072,8 @@ class ServerDataGUI:
 
     def toggle_select_all(self):
         """Select / deselect all checkboxes in the left table"""
+        if not self.left_table_checkboxes:
+            return
         state = self.select_all_var.get()
         for idx, (checkbox, var, entry) in self.left_table_checkboxes.items():
             var.set(state)
@@ -958,7 +1226,7 @@ class ServerDataGUI:
                     resp = requests.post(f"{self.api_url}/update_name", json=update_data, timeout=5)
                     if resp.status_code == 200:
                         print(f"✓ Updated: {old_name} → {new_name}")
-                        self.refresh_data()
+                        self.refresh_data(show_dialog=False)
                     else:
                         print(f"✗ Update error: {resp.status_code}")
                 except Exception as e:

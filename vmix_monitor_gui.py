@@ -17,7 +17,7 @@ import sys
 VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 
 # Server URL - FastAPI server
-SERVER_URL = "https://tooldiscordvmix.onrender.com"
+SERVER_URL = "http://localhost:8000"
 
 # Global socket for single instance
 SINGLE_INSTANCE_SOCKET = None

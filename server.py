@@ -8,6 +8,7 @@ import pytz
 from pymongo import MongoClient, DESCENDING
 import os
 import sys
+import hashlib
 from typing import List
 
 # Try to import from config.py
@@ -42,6 +43,10 @@ try:
     db = client[DATABASE_NAME]
     collection = db[COLLECTION_NAME]
     selected_collection = db['selected_list']  # Collection mới cho selected list
+    accounts_collection = db['web_accounts']
+    statistics_collection = db['statistics']
+    accounts_collection.create_index("username_key", unique=True)
+    statistics_collection.create_index("id", unique=True)
     client.admin.command('ping')
     print("✓ Connected to MongoDB successfully!")
 except Exception as e:
@@ -161,6 +166,14 @@ async def receive_data(data: dict):
         }
         _data_cache[machine_name] = document
 
+        # Lưu lịch sử CPU/RAM theo dạng: {id, data:[{cpu,ram,time}, ...]}
+        cpu_value = data.get('cpu', data.get('temperature'))
+        ram_value = data.get('ram', data.get('memory'))
+        ip_val = data.get('ip', '')
+        port_val = data.get('port', '')
+        statistics_id = f"{ip_val}:{port_val}" if ip_val or port_val else machine_name
+        asyncio.create_task(_mongo_append_statistics(statistics_id, cpu_value, ram_value, timestamp))
+
         # So sánh thay đổi với cache cũ (không cần query MongoDB)
         fields_to_check = ['ip', 'ipwan', 'status', 'port']
         has_changes = not prev or any(
@@ -181,6 +194,7 @@ async def receive_data(data: dict):
             "status": "success",
             "message": f"Data received for {machine_name}",
             "changes_detected": has_changes,
+            "statistics_id": statistics_id,
         })
 
     except Exception as e:
@@ -202,6 +216,30 @@ async def _mongo_upsert(name: str, document: dict):
         )
     except Exception as e:
         print(f"✗ MongoDB upsert error ({name}): {e}")
+
+async def _mongo_append_statistics(statistics_id: str, cpu_value, ram_value, timestamp: str):
+    """Append CPU/RAM sample to statistics collection and keep last 500 points."""
+    sample = {
+        "cpu": cpu_value,
+        "ram": ram_value,
+        "time": timestamp,
+    }
+
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(
+            None,
+            lambda: statistics_collection.update_one(
+                {"id": statistics_id},
+                {
+                    "$set": {"updated_at": timestamp},
+                    "$push": {"data": {"$each": [sample], "$slice": -500}},
+                },
+                upsert=True,
+            )
+        )
+    except Exception as e:
+        print(f"✗ MongoDB statistics append error ({statistics_id}): {e}")
 
 @app.post("/delete")
 async def delete_data(payload: dict):
@@ -341,6 +379,100 @@ async def save_selected_list(payload: dict):
         })
     except Exception as e:
         print(f"✗ Save selected list error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/accounts")
+async def list_accounts():
+    """Lấy danh sách tài khoản web (không trả password hash)."""
+    try:
+        docs = list(
+            accounts_collection.find(
+                {},
+                {"_id": 0, "username": 1, "password": 1, "created_at": 1}
+            ).sort("username", 1)
+        )
+        return JSONResponse(content=docs)
+    except Exception as e:
+        print(f"✗ List accounts error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/create_account")
+async def create_account(payload: dict):
+    """Tạo tài khoản web mới."""
+    try:
+        username = str(payload.get("username", "")).strip()
+        password = str(payload.get("password", "")).strip()
+
+        if not username:
+            return JSONResponse(content={"success": False, "message": "username is required"}, status_code=400)
+        if len(password) < 4:
+            return JSONResponse(content={"success": False, "message": "password must be at least 4 characters"}, status_code=400)
+
+        username_key = username.lower()
+        password_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+        created_at = datetime.now(VIETNAM_TZ).isoformat()
+
+        existing = accounts_collection.find_one({"username_key": username_key})
+        if existing:
+            # Legacy record repair: old account may not contain plain password.
+            if not existing.get("password"):
+                accounts_collection.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {"password": password, "password_hash": password_hash}}
+                )
+                return JSONResponse(content={"success": True, "username": username, "updated": True}, status_code=200)
+            return JSONResponse(content={"success": False, "message": "username already exists"}, status_code=409)
+
+        try:
+            accounts_collection.insert_one({
+                "username": username,
+                "username_key": username_key,
+                "password": password,
+                "password_hash": password_hash,
+                "created_at": created_at,
+            })
+        except Exception:
+            return JSONResponse(content={"success": False, "message": "username already exists"}, status_code=409)
+
+        return JSONResponse(content={"success": True, "username": username, "created_at": created_at}, status_code=201)
+    except Exception as e:
+        print(f"✗ Create account error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/delete_account")
+async def delete_account(payload: dict):
+    """Xóa tài khoản web theo username."""
+    try:
+        username = str(payload.get("username", "")).strip()
+        if not username:
+            return JSONResponse(content={"success": False, "message": "username is required"}, status_code=400)
+
+        result = accounts_collection.delete_one({"username_key": username.lower()})
+        if result.deleted_count > 0:
+            return JSONResponse(content={"success": True, "deleted": 1, "username": username})
+        return JSONResponse(content={"success": False, "deleted": 0, "message": "account not found"}, status_code=404)
+    except Exception as e:
+        print(f"✗ Delete account error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/statistics/{statistics_id}")
+async def get_statistics(statistics_id: str, limit: int = 200):
+    """Get CPU/RAM history by statistics id."""
+    try:
+        safe_limit = max(1, min(limit, 1000))
+        doc = statistics_collection.find_one(
+            {"id": statistics_id},
+            {"_id": 0, "id": 1, "data": 1, "updated_at": 1}
+        )
+
+        if not doc:
+            return JSONResponse(content={"id": statistics_id, "data": [], "updated_at": ""})
+
+        samples = doc.get("data", [])
+        doc["data"] = samples[-safe_limit:]
+        return JSONResponse(content=doc)
+    except Exception as e:
+        print(f"✗ Get statistics error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 @app.get("/load_selected_list")

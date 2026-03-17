@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BACKEND_WS_URL } from './config/constants'
-import { fetchAllLogs } from './services/api'
+import { fetchAllLogs, fetchStatistics } from './services/api'
 import type { BackendLogItem } from './services/api'
 
 type MetricPoint = {
   timeLabel: string
   cpu: number
-  ping: number
+  ram: number
 }
 
 function toNumber(value: unknown): number | null {
@@ -144,12 +144,12 @@ function MetricChart({
 function App() {
   const [rows, setRows] = useState<BackendLogItem[]>([])
   const [metricHistory, setMetricHistory] = useState<MetricPoint[]>([])
+  const [selectedStatisticsId, setSelectedStatisticsId] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
 
   const wsRef = useRef<WebSocket | null>(null)
-  const rowsRef = useRef<BackendLogItem[]>([])
   const reconnectTimerRef = useRef<number | null>(null)
 
   const loadData = useCallback(async () => {
@@ -201,44 +201,64 @@ function App() {
     }
   }, [])
 
-  useEffect(() => {
-    rowsRef.current = rows
+  const statisticOptions = useMemo(() => {
+    const map = new Map<string, { id: string; label: string }>()
+    rows.forEach((item) => {
+      const ip = String(item.data.ip || '').trim()
+      const port = String(item.data.port || '').trim()
+      if (!ip && !port) {
+        return
+      }
+      const id = `${ip}:${port}`
+      const name = String(item.data.name || 'Unknown')
+      map.set(id, { id, label: `${name} (${id})` })
+    })
+    return Array.from(map.values())
   }, [rows])
 
   useEffect(() => {
-    const collectMetrics = () => {
-      const currentRows = rowsRef.current
-      if (currentRows.length === 0) {
-        return
-      }
+    if (!selectedStatisticsId && statisticOptions.length > 0) {
+      setSelectedStatisticsId(statisticOptions[0].id)
+    }
+  }, [selectedStatisticsId, statisticOptions])
 
-      const cpuValues = currentRows
-        .map((item) => toNumber(item.data.cpu))
-        .filter((value): value is number => value !== null)
-      const pingValues = currentRows
-        .map((item) => toNumber(item.data.ping))
-        .filter((value): value is number => value !== null)
-
-      const avgCpu = cpuValues.length > 0 ? cpuValues.reduce((sum, value) => sum + value, 0) / cpuValues.length : 0
-      const avgPing = pingValues.length > 0 ? pingValues.reduce((sum, value) => sum + value, 0) / pingValues.length : 0
-
-      const now = new Date()
-      const point: MetricPoint = {
-        timeLabel: now.toLocaleTimeString('vi-VN', { hour12: false }),
-        cpu: avgCpu,
-        ping: avgPing,
-      }
-
-      setMetricHistory((prev) => [...prev.slice(-23), point])
+  const loadStatisticsHistory = useCallback(async () => {
+    if (!selectedStatisticsId) {
+      setMetricHistory([])
+      return
     }
 
-    collectMetrics()
-    const intervalId = window.setInterval(collectMetrics, 5000)
+    try {
+      const payload = await fetchStatistics(selectedStatisticsId, 200)
+      const history = (payload.data || [])
+        .map((point) => {
+          const cpu = toNumber(point.cpu) ?? 0
+          const ram = toNumber(point.ram) ?? 0
+          const date = new Date(point.time)
+          const timeLabel = Number.isNaN(date.getTime())
+            ? String(point.time || '').slice(11, 19)
+            : date.toLocaleTimeString('vi-VN', { hour12: false })
+
+          return { timeLabel, cpu, ram }
+        })
+        .slice(-200)
+
+      setMetricHistory(history)
+    } catch (err) {
+      console.error(err)
+    }
+  }, [selectedStatisticsId])
+
+  useEffect(() => {
+    void loadStatisticsHistory()
+    const intervalId = window.setInterval(() => {
+      void loadStatisticsHistory()
+    }, 5000)
 
     return () => {
       window.clearInterval(intervalId)
     }
-  }, [])
+  }, [loadStatisticsHistory])
 
   useEffect(() => {
     connectWebSocket()
@@ -251,17 +271,17 @@ function App() {
   }, [connectWebSocket])
 
   const totalOnline = useMemo(
-    () => rows.filter((item) => item.data.status?.toUpperCase() === 'ONLINE').length,
+    () => rows.filter((item) => ['ONLINE', 'ON'].includes(item.data.status?.toUpperCase())).length,
     [rows],
   )
 
   const cpuSeries = useMemo(() => metricHistory.map((point) => point.cpu), [metricHistory])
-  const pingSeries = useMemo(() => metricHistory.map((point) => point.ping), [metricHistory])
+  const ramSeries = useMemo(() => metricHistory.map((point) => point.ram), [metricHistory])
   const timeLabels = useMemo(() => metricHistory.map((point) => point.timeLabel), [metricHistory])
-  const pingMax = useMemo(() => {
-    const max = pingSeries.length > 0 ? Math.max(...pingSeries) : 100
+  const ramMax = useMemo(() => {
+    const max = ramSeries.length > 0 ? Math.max(...ramSeries) : 100
     return Math.max(100, Math.ceil(max / 10) * 10)
-  }, [pingSeries])
+  }, [ramSeries])
 
   return (
     <div className="min-h-screen px-4 py-10 sm:px-8">
@@ -276,6 +296,24 @@ function App() {
           <p className="mt-4 max-w-2xl text-sm text-slate-600 sm:text-base">
             Du lieu realtime qua WebSocket tu backend: {BACKEND_WS_URL}
           </p>
+          <div className="mt-4 flex max-w-xl items-center gap-2">
+            <label className="text-xs font-bold uppercase tracking-wide text-slate-600" htmlFor="machine-select">
+              Bieu do theo may
+            </label>
+            <select
+              id="machine-select"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
+              value={selectedStatisticsId}
+              onChange={(event) => setSelectedStatisticsId(event.target.value)}
+            >
+              {statisticOptions.length === 0 ? <option value="">Chua co du lieu may</option> : null}
+              {statisticOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="mt-6 flex flex-wrap items-center gap-3 text-sm font-semibold">
             <span className="rounded-xl bg-teal-100 px-3 py-2 text-teal-700">Tong may: {rows.length}</span>
             <span className="rounded-xl bg-emerald-100 px-3 py-2 text-emerald-700">Online: {totalOnline}</span>
@@ -303,7 +341,7 @@ function App() {
 
         <section className="mb-8 grid gap-4 lg:grid-cols-2">
           <MetricChart
-            title="CPU trung binh theo time (moi 5s)"
+            title="CPU theo lich su database"
             values={cpuSeries}
             labels={timeLabels}
             colorClass="bg-emerald-100 text-emerald-700"
@@ -311,12 +349,12 @@ function App() {
             unit="%"
           />
           <MetricChart
-            title="Ping trung binh theo time (moi 5s)"
-            values={pingSeries}
+            title="RAM theo lich su database"
+            values={ramSeries}
             labels={timeLabels}
             colorClass="bg-sky-100 text-sky-700"
-            maxValue={pingMax}
-            unit="ms"
+            maxValue={ramMax}
+            unit="%"
           />
         </section>
 
