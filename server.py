@@ -467,4 +467,4 @@ if __name__ == "__main__":
     print(f"🚀 Starting WebSocket server on http://localhost:{PORT}")
     print(f"📡 WebSocket endpoint: ws://localhost:{PORT}/ws")
     print(f"🔌 REST API endpoint: http://localhost:{PORT}/")
-    uvicorn.run(app, host="127.0.0.1", port=PORT)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
