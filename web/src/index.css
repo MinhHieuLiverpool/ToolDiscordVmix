@@ -239,6 +239,25 @@
     font-size: 0.7rem;
   }
 
+  .logout-btn {
+    border: 1px solid rgba(248, 113, 113, 0.38);
+    background: rgba(127, 29, 29, 0.28);
+    color: #fda4af;
+    border-radius: 0.9rem;
+    padding: 0.58rem 0.95rem;
+    font-size: 0.76rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+
+  .logout-btn:hover {
+    background: rgba(153, 27, 27, 0.38);
+    color: #ffe4e6;
+    border-color: rgba(251, 113, 133, 0.6);
+  }
+
   /* ═══════════════════ FILTER BAR ═══════════════════ */
   .filter-bar {
     display: flex;

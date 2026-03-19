@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { BACKEND_WS_URL } from '../config/constants'
 import {
     fetchAllLogs,
@@ -17,10 +18,12 @@ import Header from '../components/Header'
 import FilterBar from '../components/FilterBar'
 import ChartSection from '../components/ChartSection'
 import StatusSection from '../components/StatusSection'
+import { logout } from '../services/auth'
 
 const REQUEST_INTERVAL_MS = 5000
 
 export default function Dashboard() {
+    const navigate = useNavigate()
     /* ─── Machine list (từ WebSocket, không cần gọi API riêng) ─── */
     const [rows, setRows] = useState<BackendLogItem[]>([])
     const [loading, setLoading] = useState(true)
@@ -68,6 +71,11 @@ export default function Dashboard() {
         () => Array.from(metricsMap.values()),
         [metricsMap],
     )
+
+    const handleLogout = useCallback(() => {
+        logout()
+        navigate('/login', { replace: true })
+    }, [navigate])
 
     /* ═══════════════════════════════════════════════════════════
      * WebSocket: nhận dữ liệu realtime cho danh sách máy
@@ -303,7 +311,7 @@ export default function Dashboard() {
     return (
         <div className="app-shell">
             <header className="dashboard-header">
-                <Header rows={rows} totalOnline={totalOnline} wsStatus={wsStatus} />
+                <Header rows={rows} totalOnline={totalOnline} wsStatus={wsStatus} onLogout={handleLogout} />
                 <FilterBar
                     deviceFilter={deviceFilter}
                     setDeviceFilter={setDeviceFilter}

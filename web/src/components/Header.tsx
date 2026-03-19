@@ -6,10 +6,12 @@ export default function Header({
     rows,
     totalOnline,
     wsStatus,
+    onLogout,
 }: {
     rows: BackendLogItem[]
     totalOnline: number
     wsStatus: WsStatus
+    onLogout: () => void
 }) {
     return (
         <div className="header-top">
@@ -46,6 +48,9 @@ export default function Header({
                     <span className="stat-number ws-dot">●</span>
                     <span className="stat-label">WS: {wsStatus}</span>
                 </div>
+                <button className="logout-btn" type="button" onClick={onLogout}>
+                    Đăng xuất
+                </button>
             </div>
         </div>
     )

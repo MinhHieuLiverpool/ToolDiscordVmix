@@ -9,6 +9,7 @@ from pymongo import MongoClient, DESCENDING
 import os
 import sys
 import hashlib
+import hmac
 from typing import List
 
 try:
@@ -798,6 +799,40 @@ async def list_accounts():
         return JSONResponse(content=docs)
     except Exception as e:
         print(f"✗ List accounts error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+
+@app.post("/login")
+async def login_account(payload: dict):
+    """Xác thực đăng nhập tài khoản web."""
+    try:
+        username = str(payload.get("username", "")).strip()
+        password = str(payload.get("password", ""))
+
+        if not username or not password:
+            return JSONResponse(
+                content={"success": False, "message": "username and password are required"},
+                status_code=400,
+            )
+
+        doc = accounts_collection.find_one(
+            {"username_key": username.lower()},
+            {"_id": 0, "username": 1, "password": 1, "password_hash": 1},
+        )
+        if not doc:
+            return JSONResponse(content={"success": False, "message": "invalid credentials"}, status_code=401)
+
+        provided_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+        stored_plain = str(doc.get("password", ""))
+        stored_hash = str(doc.get("password_hash", ""))
+
+        valid = hmac.compare_digest(stored_plain, password) or hmac.compare_digest(stored_hash, provided_hash)
+        if not valid:
+            return JSONResponse(content={"success": False, "message": "invalid credentials"}, status_code=401)
+
+        return JSONResponse(content={"success": True, "username": doc.get("username", username)})
+    except Exception as e:
+        print(f"✗ Login account error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 @app.post("/create_account")

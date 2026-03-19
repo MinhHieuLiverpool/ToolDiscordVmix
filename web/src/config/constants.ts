@@ -7,6 +7,7 @@ export const BACKEND_BASE_URL = isLocalHost
 export const API_ENDPOINTS = {
   logs: '/logs',
   ws: '/ws',
+  login: '/login',
   statistics: '/statistics',
   statisticHours: '/statistic_hours',
 } as const

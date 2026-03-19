@@ -52,6 +52,12 @@ export interface StatisticHoursResponse {
   updated_at?: string
 }
 
+export interface LoginResponse {
+  success: boolean
+  username?: string
+  message?: string
+}
+
 const apiClient = axios.create({
   baseURL: BACKEND_BASE_URL,
   timeout: REQUEST_TIMEOUT_MS,
@@ -59,6 +65,11 @@ const apiClient = axios.create({
 
 export async function fetchAllLogs(): Promise<BackendLogItem[]> {
   const response = await apiClient.get<BackendLogItem[]>(API_ENDPOINTS.logs)
+  return response.data
+}
+
+export async function loginAccount(username: string, password: string): Promise<LoginResponse> {
+  const response = await apiClient.post<LoginResponse>(API_ENDPOINTS.login, { username, password })
   return response.data
 }
 
