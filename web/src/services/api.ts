@@ -35,6 +35,23 @@ export interface StatisticsResponse {
   updated_at?: string
 }
 
+export interface StatisticHoursPoint {
+  window_start: string
+  window_end: string
+  avg_cpu: number | null
+  avg_ram: number | null
+  samples: number
+  cpu_points: number
+  ram_points: number
+  calculated_at: string
+}
+
+export interface StatisticHoursResponse {
+  id: string
+  data: StatisticHoursPoint[]
+  updated_at?: string
+}
+
 const apiClient = axios.create({
   baseURL: BACKEND_BASE_URL,
   timeout: REQUEST_TIMEOUT_MS,
@@ -49,6 +66,18 @@ export async function fetchStatistics(statisticsId: string, limit = 200): Promis
   const response = await apiClient.get<StatisticsResponse>(
     `${API_ENDPOINTS.statistics}/${encodeURIComponent(statisticsId)}`,
     { params: { limit } },
+  )
+  return response.data
+}
+
+export async function fetchAllStatisticHours(): Promise<StatisticHoursResponse[]> {
+  const response = await apiClient.get<StatisticHoursResponse[]>(API_ENDPOINTS.statisticHours)
+  return response.data
+}
+
+export async function fetchStatisticHours(statisticsId: string): Promise<StatisticHoursResponse> {
+  const response = await apiClient.get<StatisticHoursResponse>(
+    `${API_ENDPOINTS.statisticHours}/${encodeURIComponent(statisticsId)}`,
   )
   return response.data
 }

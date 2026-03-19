@@ -11,6 +11,11 @@ import sys
 import hashlib
 from typing import List
 
+try:
+    import redis
+except ImportError:
+    redis = None
+
 # Try to import from config.py
 try:
     from config import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME
@@ -27,6 +32,7 @@ except ImportError:
 
 # Port configuration
 PORT = int(os.getenv('PORT', 8000))
+REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 
 # Timezone configuration - Vietnam
 VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
@@ -45,8 +51,12 @@ try:
     selected_collection = db['selected_list']  # Collection mới cho selected list
     accounts_collection = db['web_accounts']
     statistics_collection = db['statistics']
+    statistics_hours_collection = db['statistic_hours']
     accounts_collection.create_index("username_key", unique=True)
     statistics_collection.create_index("id", unique=True)
+    # statistic_hours lưu 1 document / id, data là mảng các điểm avg 10 phút
+    statistics_hours_collection.create_index("id")
+    statistics_hours_collection.create_index("updated_at")
     client.admin.command('ping')
     print("✓ Connected to MongoDB successfully!")
 except Exception as e:
@@ -68,6 +78,16 @@ app.add_middleware(
 active_connections: List[WebSocket] = []
 _last_broadcast: datetime = datetime.min.replace(tzinfo=pytz.UTC)
 _broadcast_interval_sec = 1.0  # Broadcast tối đa 1 lần/giây
+
+# Redis cache (optional)
+_redis_client = None
+_redis_enabled = False
+_redis_stats_key_prefix = "stats:raw:"
+_redis_stats_updated_key_prefix = "stats:updated:"
+_redis_stats_ids_key = "stats:ids"
+_redis_stat_hours_key_prefix = "stats:hours:"
+_redis_stat_hours_ids_key = "stats:hours:ids"
+_redis_stats_max_points = 1000
 
 # ── In-memory cache ─────────────────────────────────────────────────────────────────
 # Key: machine_name, Value: document dict
@@ -173,6 +193,11 @@ async def receive_data(data: dict):
         port_val = data.get('port', '')
         statistics_id = f"{ip_val}:{port_val}" if ip_val or port_val else machine_name
         asyncio.create_task(_mongo_append_statistics(statistics_id, cpu_value, ram_value, timestamp))
+        asyncio.create_task(_redis_append_statistics_sample(statistics_id, {
+            "cpu": cpu_value,
+            "ram": ram_value,
+            "time": timestamp,
+        }, timestamp))
 
         # So sánh thay đổi với cache cũ (không cần query MongoDB)
         fields_to_check = ['ip', 'ipwan', 'status', 'port']
@@ -240,6 +265,385 @@ async def _mongo_append_statistics(statistics_id: str, cpu_value, ram_value, tim
         )
     except Exception as e:
         print(f"✗ MongoDB statistics append error ({statistics_id}): {e}")
+
+
+def _redis_key_stats_raw(statistics_id: str) -> str:
+    return f"{_redis_stats_key_prefix}{statistics_id}"
+
+
+def _redis_key_stats_updated(statistics_id: str) -> str:
+    return f"{_redis_stats_updated_key_prefix}{statistics_id}"
+
+
+def _redis_key_stat_hours(statistics_id: str) -> str:
+    return f"{_redis_stat_hours_key_prefix}{statistics_id}"
+
+
+def _redis_serialize(value) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _redis_deserialize(value):
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        value = value.decode("utf-8")
+    try:
+        return json.loads(value)
+    except Exception:
+        return None
+
+
+def _init_redis_cache():
+    global _redis_client, _redis_enabled
+    if redis is None:
+        print("⚠ Redis package not installed, running without Redis cache")
+        return
+
+    try:
+        client = redis.Redis.from_url(REDIS_URL, decode_responses=False, socket_timeout=1.5)
+        client.ping()
+        _redis_client = client
+        _redis_enabled = True
+        print(f"✓ Redis connected: {REDIS_URL}")
+    except Exception as e:
+        _redis_client = None
+        _redis_enabled = False
+        print(f"⚠ Redis unavailable ({REDIS_URL}): {e}")
+
+
+async def _redis_append_statistics_sample(statistics_id: str, sample: dict, timestamp: str):
+    if not _redis_enabled or _redis_client is None:
+        return
+
+    loop = asyncio.get_event_loop()
+
+    def _worker():
+        raw_key = _redis_key_stats_raw(statistics_id)
+        _redis_client.rpush(raw_key, _redis_serialize(sample))
+        _redis_client.ltrim(raw_key, -_redis_stats_max_points, -1)
+        _redis_client.set(_redis_key_stats_updated(statistics_id), timestamp)
+        _redis_client.sadd(_redis_stats_ids_key, statistics_id)
+
+    try:
+        await loop.run_in_executor(None, _worker)
+    except Exception as e:
+        print(f"⚠ Redis append sample failed ({statistics_id}): {e}")
+
+
+async def _redis_get_statistics_doc(statistics_id: str):
+    if not _redis_enabled or _redis_client is None:
+        return None
+
+    loop = asyncio.get_event_loop()
+
+    def _worker():
+        raw_key = _redis_key_stats_raw(statistics_id)
+        items = _redis_client.lrange(raw_key, 0, -1)
+        if not items:
+            return None
+
+        samples = []
+        for item in items:
+            parsed = _redis_deserialize(item)
+            if isinstance(parsed, dict):
+                samples.append(parsed)
+
+        updated_raw = _redis_client.get(_redis_key_stats_updated(statistics_id))
+        updated_at = updated_raw.decode("utf-8") if isinstance(updated_raw, bytes) else updated_raw
+        return {"id": statistics_id, "data": samples, "updated_at": updated_at or ""}
+
+    try:
+        return await loop.run_in_executor(None, _worker)
+    except Exception as e:
+        print(f"⚠ Redis read statistics failed ({statistics_id}): {e}")
+        return None
+
+
+async def _redis_set_statistics_doc(statistics_id: str, samples: list, updated_at: str):
+    if not _redis_enabled or _redis_client is None:
+        return
+
+    loop = asyncio.get_event_loop()
+
+    def _worker():
+        pipe = _redis_client.pipeline()
+        raw_key = _redis_key_stats_raw(statistics_id)
+        pipe.delete(raw_key)
+        if samples:
+            encoded = [_redis_serialize(s) for s in samples if isinstance(s, dict)]
+            if encoded:
+                pipe.rpush(raw_key, *encoded)
+        pipe.set(_redis_key_stats_updated(statistics_id), updated_at or "")
+        pipe.sadd(_redis_stats_ids_key, statistics_id)
+        pipe.execute()
+
+    try:
+        await loop.run_in_executor(None, _worker)
+    except Exception as e:
+        print(f"⚠ Redis set statistics failed ({statistics_id}): {e}")
+
+
+async def _redis_get_stat_hours_doc(statistics_id: str):
+    if not _redis_enabled or _redis_client is None:
+        return None
+
+    loop = asyncio.get_event_loop()
+
+    def _worker():
+        raw = _redis_client.get(_redis_key_stat_hours(statistics_id))
+        parsed = _redis_deserialize(raw)
+        return parsed if isinstance(parsed, dict) else None
+
+    try:
+        return await loop.run_in_executor(None, _worker)
+    except Exception as e:
+        print(f"⚠ Redis read statistic_hours failed ({statistics_id}): {e}")
+        return None
+
+
+async def _redis_set_stat_hours_doc(statistics_id: str, doc: dict):
+    if not _redis_enabled or _redis_client is None:
+        return
+
+    loop = asyncio.get_event_loop()
+
+    def _worker():
+        _redis_client.set(_redis_key_stat_hours(statistics_id), _redis_serialize(doc))
+        _redis_client.sadd(_redis_stat_hours_ids_key, statistics_id)
+
+    try:
+        await loop.run_in_executor(None, _worker)
+    except Exception as e:
+        print(f"⚠ Redis set statistic_hours failed ({statistics_id}): {e}")
+
+
+async def _redis_get_all_stat_hours_docs():
+    if not _redis_enabled or _redis_client is None:
+        return None
+
+    loop = asyncio.get_event_loop()
+
+    def _worker():
+        ids = _redis_client.smembers(_redis_stat_hours_ids_key)
+        if not ids:
+            return []
+
+        decoded_ids = [item.decode("utf-8") if isinstance(item, bytes) else str(item) for item in ids]
+        keys = [_redis_key_stat_hours(stat_id) for stat_id in decoded_ids]
+        values = _redis_client.mget(keys)
+        docs = []
+        for raw in values:
+            parsed = _redis_deserialize(raw)
+            if isinstance(parsed, dict):
+                docs.append(parsed)
+        return docs
+
+    try:
+        return await loop.run_in_executor(None, _worker)
+    except Exception as e:
+        print(f"⚠ Redis read all statistic_hours failed: {e}")
+        return None
+
+
+def _parse_sample_time(time_str):
+    """Parse sample timestamp into Vietnam timezone datetime."""
+    try:
+        dt = datetime.fromisoformat(str(time_str))
+        if dt.tzinfo is None:
+            dt = VIETNAM_TZ.localize(dt)
+        return dt.astimezone(VIETNAM_TZ)
+    except Exception:
+        return None
+
+
+def _to_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _bucket_10m(dt: datetime):
+    return dt.replace(minute=(dt.minute // 10) * 10, second=0, microsecond=0)
+
+
+async def _rollup_statistics_10m():
+    """
+    Aggregate closed 10-minute buckets from statistics -> statistic_hours,
+    then remove processed points from statistics.
+    """
+    loop = asyncio.get_event_loop()
+    now_vn = datetime.now(VIETNAM_TZ)
+    current_bucket_start = _bucket_10m(now_vn)
+    run_stamp = now_vn.isoformat()
+
+    def _worker():
+        docs = list(statistics_collection.find({}, {"_id": 0, "id": 1, "data": 1}))
+        total_rollup_rows = 0
+        total_samples_pruned = 0
+
+        for doc in docs:
+            statistics_id = doc.get("id", "")
+            samples = doc.get("data", [])
+            if not statistics_id or not isinstance(samples, list) or not samples:
+                continue
+
+            buckets = {}
+            remaining_samples = []
+            processed_samples = 0
+
+            for sample in samples:
+                if not isinstance(sample, dict):
+                    remaining_samples.append(sample)
+                    continue
+
+                sample_dt = _parse_sample_time(sample.get("time"))
+                if not sample_dt:
+                    remaining_samples.append(sample)
+                    continue
+
+                bucket_start = _bucket_10m(sample_dt)
+
+                # Keep the current (open) bucket, process only closed buckets.
+                if bucket_start >= current_bucket_start:
+                    remaining_samples.append(sample)
+                    continue
+
+                bucket = buckets.setdefault(bucket_start, {
+                    "cpu_sum": 0.0,
+                    "cpu_count": 0,
+                    "ram_sum": 0.0,
+                    "ram_count": 0,
+                    "sample_count": 0,
+                })
+
+                cpu = _to_float(sample.get("cpu"))
+                if cpu is not None:
+                    bucket["cpu_sum"] += cpu
+                    bucket["cpu_count"] += 1
+
+                ram = _to_float(sample.get("ram"))
+                if ram is not None:
+                    bucket["ram_sum"] += ram
+                    bucket["ram_count"] += 1
+
+                bucket["sample_count"] += 1
+                processed_samples += 1
+
+            if not buckets:
+                continue
+
+            rollup_rows = 0
+            new_rows = []
+            for bucket_start in sorted(buckets.keys()):
+                agg = buckets[bucket_start]
+                window_end = bucket_start + timedelta(minutes=10)
+                avg_cpu = round(agg["cpu_sum"] / agg["cpu_count"], 2) if agg["cpu_count"] else None
+                avg_ram = round(agg["ram_sum"] / agg["ram_count"], 2) if agg["ram_count"] else None
+
+                row = {
+                    "window_start": bucket_start.isoformat(),
+                    "window_end": window_end.isoformat(),
+                    "avg_cpu": avg_cpu,
+                    "avg_ram": avg_ram,
+                    "samples": agg["sample_count"],
+                    "cpu_points": agg["cpu_count"],
+                    "ram_points": agg["ram_count"],
+                    "calculated_at": run_stamp,
+                }
+                new_rows.append(row)
+                rollup_rows += 1
+
+            # Merge theo window_start để giữ format: {id, data:[avg objects...]}
+            existing_doc = statistics_hours_collection.find_one(
+                {"id": statistics_id},
+                {"_id": 0, "data": 1}
+            )
+            existing_data = existing_doc.get("data", []) if existing_doc else []
+            new_window_map = {row["window_start"]: row for row in new_rows}
+
+            merged_data = []
+            for item in existing_data:
+                if not isinstance(item, dict):
+                    continue
+                ws = item.get("window_start")
+                if ws in new_window_map:
+                    merged_data.append(new_window_map.pop(ws))
+                else:
+                    merged_data.append(item)
+
+            if new_window_map:
+                merged_data.extend(new_window_map.values())
+
+            merged_data.sort(key=lambda x: x.get("window_start", ""))
+
+            statistics_hours_collection.update_one(
+                {"id": statistics_id},
+                {
+                    "$set": {
+                        "id": statistics_id,
+                        "data": merged_data,
+                        "updated_at": run_stamp,
+                    }
+                },
+                upsert=True,
+            )
+
+            if _redis_enabled and _redis_client is not None:
+                _redis_client.delete(_redis_key_stats_raw(statistics_id))
+                if remaining_samples:
+                    encoded_remaining = [_redis_serialize(s) for s in remaining_samples if isinstance(s, dict)]
+                    if encoded_remaining:
+                        _redis_client.rpush(_redis_key_stats_raw(statistics_id), *encoded_remaining)
+                _redis_client.set(_redis_key_stats_updated(statistics_id), run_stamp)
+                _redis_client.sadd(_redis_stats_ids_key, statistics_id)
+
+                rolled_doc = {
+                    "id": statistics_id,
+                    "data": merged_data,
+                    "updated_at": run_stamp,
+                }
+                _redis_client.set(_redis_key_stat_hours(statistics_id), _redis_serialize(rolled_doc))
+                _redis_client.sadd(_redis_stat_hours_ids_key, statistics_id)
+
+            statistics_collection.update_one(
+                {"id": statistics_id},
+                {"$set": {"data": remaining_samples, "updated_at": run_stamp}},
+            )
+
+            total_rollup_rows += rollup_rows
+            total_samples_pruned += processed_samples
+            print(
+                f"📊 Rollup 10m [{statistics_id}] windows={rollup_rows} samples={processed_samples} "
+                f"remaining={len(remaining_samples)}"
+            )
+
+        return total_rollup_rows, total_samples_pruned
+
+    try:
+        rows, samples = await loop.run_in_executor(None, _worker)
+        if rows > 0 or samples > 0:
+            print(f"✓ Rollup 10m done: windows={rows}, samples_pruned={samples}")
+    except Exception as e:
+        print(f"✗ Rollup 10m error: {e}")
+
+
+async def rollup_statistics_scheduler():
+    """Run 10-minute rollup aligned to wall-clock buckets."""
+    # Run once on startup to flush any already-closed windows.
+    await _rollup_statistics_10m()
+
+    while True:
+        try:
+            now_vn = datetime.now(VIETNAM_TZ)
+            next_tick = _bucket_10m(now_vn) + timedelta(minutes=10)
+            sleep_seconds = max(1.0, (next_tick - now_vn).total_seconds())
+            await asyncio.sleep(sleep_seconds)
+            await _rollup_statistics_10m()
+        except Exception as e:
+            print(f"✗ Rollup scheduler error: {e}")
+            await asyncio.sleep(10)
 
 @app.post("/delete")
 async def delete_data(payload: dict):
@@ -460,10 +864,18 @@ async def get_statistics(statistics_id: str, limit: int = 200):
     """Get CPU/RAM history by statistics id."""
     try:
         safe_limit = max(1, min(limit, 1000))
-        doc = statistics_collection.find_one(
-            {"id": statistics_id},
-            {"_id": 0, "id": 1, "data": 1, "updated_at": 1}
-        )
+        doc = await _redis_get_statistics_doc(statistics_id)
+        if not doc:
+            loop = asyncio.get_event_loop()
+            doc = await loop.run_in_executor(
+                None,
+                lambda: statistics_collection.find_one(
+                    {"id": statistics_id},
+                    {"_id": 0, "id": 1, "data": 1, "updated_at": 1}
+                )
+            )
+            if doc:
+                await _redis_set_statistics_doc(statistics_id, doc.get("data", []), doc.get("updated_at", ""))
 
         if not doc:
             return JSONResponse(content={"id": statistics_id, "data": [], "updated_at": ""})
@@ -473,6 +885,52 @@ async def get_statistics(statistics_id: str, limit: int = 200):
         return JSONResponse(content=doc)
     except Exception as e:
         print(f"✗ Get statistics error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/statistic_hours")
+async def get_all_statistic_hours():
+    """Get all machines' hourly (10-min rollup) statistics."""
+    try:
+        docs = await _redis_get_all_stat_hours_docs()
+        if docs is None or len(docs) == 0:
+            loop = asyncio.get_event_loop()
+            docs = await loop.run_in_executor(
+                None,
+                lambda: list(statistics_hours_collection.find(
+                    {},
+                    {"_id": 0, "id": 1, "data": 1, "updated_at": 1}
+                ))
+            )
+            for doc in docs:
+                stat_id = doc.get("id")
+                if stat_id:
+                    await _redis_set_stat_hours_doc(stat_id, doc)
+        return JSONResponse(content=docs)
+    except Exception as e:
+        print(f"✗ Get all statistic_hours error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/statistic_hours/{statistics_id:path}")
+async def get_statistic_hours(statistics_id: str):
+    """Get hourly (10-min rollup) statistics for a specific machine."""
+    try:
+        doc = await _redis_get_stat_hours_doc(statistics_id)
+        if not doc:
+            loop = asyncio.get_event_loop()
+            doc = await loop.run_in_executor(
+                None,
+                lambda: statistics_hours_collection.find_one(
+                    {"id": statistics_id},
+                    {"_id": 0, "id": 1, "data": 1, "updated_at": 1}
+                )
+            )
+            if doc:
+                await _redis_set_stat_hours_doc(statistics_id, doc)
+        if not doc:
+            return JSONResponse(content={"id": statistics_id, "data": [], "updated_at": ""})
+        return JSONResponse(content=doc)
+    except Exception as e:
+        print(f"✗ Get statistic_hours error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 @app.get("/load_selected_list")
@@ -578,6 +1036,7 @@ async def check_inactive_machines():
 @app.on_event("startup")
 async def startup_event():
     """Preload cache từ MongoDB, khởi động background tasks"""
+    _init_redis_cache()
     loop = asyncio.get_event_loop()
     try:
         docs = await loop.run_in_executor(
@@ -592,7 +1051,9 @@ async def startup_event():
     except Exception as e:
         print(f"✗ Cache preload error: {e}")
     asyncio.create_task(check_inactive_machines())
+    asyncio.create_task(rollup_statistics_scheduler())
     print("✓ Background task started: Auto-OFF inactive machines (1 min timeout)")
+    print("✓ Background task started: 10-minute statistics rollup")
 
 if __name__ == "__main__":
     import uvicorn

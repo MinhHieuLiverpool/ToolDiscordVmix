@@ -8,6 +8,7 @@ export const API_ENDPOINTS = {
   logs: '/logs',
   ws: '/ws',
   statistics: '/statistics',
+  statisticHours: '/statistic_hours',
 } as const
 
 export const REQUEST_TIMEOUT_MS = 30000
