@@ -33,7 +33,7 @@ except ImportError:
 
 # Port configuration
 PORT = int(os.getenv('PORT', 8000))
-REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+REDIS_URL = os.getenv('REDIS_URL', '').strip()
 
 # Timezone configuration - Vietnam
 VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
@@ -297,6 +297,11 @@ def _redis_deserialize(value):
 
 def _init_redis_cache():
     global _redis_client, _redis_enabled
+
+    if not REDIS_URL:
+        print("ℹ Redis disabled: REDIS_URL not set")
+        return
+
     if redis is None:
         print("⚠ Redis package not installed, running without Redis cache")
         return
