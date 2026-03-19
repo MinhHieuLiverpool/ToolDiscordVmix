@@ -1,9 +1,19 @@
 /* ─── Shared types ─────────────────────────────────────────── */
 
+export type DailyExtras = {
+    windowStart: string
+    windowEnd: string
+    samples: number
+    cpuPoints: number
+    ramPoints: number
+    calculatedAt: string
+}
+
 export type MetricPoint = {
     timeLabel: string
     cpu: number
     ram: number
+    extras?: DailyExtras
 }
 
 export type MachineMetrics = {

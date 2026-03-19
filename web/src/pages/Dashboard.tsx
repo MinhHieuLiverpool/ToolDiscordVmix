@@ -48,6 +48,9 @@ export default function Dashboard() {
     const machineOptions = useMemo(() => {
         const map = new Map<string, { id: string; label: string }>()
         rows.forEach((item) => {
+            // Chỉ lấy máy đang chạy (statusapp === 1)
+            if (item.data.statusapp !== 1) return
+
             const ip = String(item.data.ip || '').trim()
             const port = String(item.data.port || '').trim()
             if (!ip && !port) return
@@ -60,6 +63,21 @@ export default function Dashboard() {
 
     useEffect(() => {
         machineOptionsRef.current = machineOptions
+
+        // Dọn dẹp biểu đồ của máy đã offline
+        const validIds = new Set(machineOptions.map((m) => m.id))
+        setMetricsMap((prev) => {
+            let changed = false
+            const next = new Map<string, MachineMetrics>()
+            prev.forEach((value, key) => {
+                if (validIds.has(key)) {
+                    next.set(key, value)
+                } else {
+                    changed = true
+                }
+            })
+            return changed ? next : prev
+        })
     }, [machineOptions])
 
     const totalOnline = useMemo(
@@ -244,7 +262,17 @@ export default function Dashboard() {
                     const timeLabel = Number.isNaN(d.getTime())
                         ? String(p.window_start || '').slice(11, 16)
                         : d.toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit' })
-                    return { timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0 }
+                    return {
+                        timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0,
+                        extras: {
+                            windowStart: p.window_start,
+                            windowEnd: p.window_end,
+                            samples: p.samples,
+                            cpuPoints: p.cpu_points,
+                            ramPoints: p.ram_points,
+                            calculatedAt: p.calculated_at,
+                        },
+                    }
                 })
                 setMetricsMap(new Map([[doc.id, { id: doc.id, label, history }]]))
             } else {
@@ -268,7 +296,17 @@ export default function Dashboard() {
                             const timeLabel = Number.isNaN(d.getTime())
                                 ? String(p.window_start || '').slice(11, 16)
                                 : d.toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit' })
-                            return { timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0 }
+                            return {
+                                timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0,
+                                extras: {
+                                    windowStart: p.window_start,
+                                    windowEnd: p.window_end,
+                                    samples: p.samples,
+                                    cpuPoints: p.cpu_points,
+                                    ramPoints: p.ram_points,
+                                    calculatedAt: p.calculated_at,
+                                },
+                            }
                         })
                         next.set(doc.id, { id: doc.id, label, history })
                     }
@@ -326,6 +364,7 @@ export default function Dashboard() {
                 machines={filteredMachines}
                 chartLoading={chartLoading}
                 totalMachines={machineOptions.length}
+                timeFilter={timeFilter}
             />
 
             <StatusSection rows={rows} loading={loading} error={error} />

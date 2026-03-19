@@ -1,14 +1,16 @@
 import MachineChartCard from './MachineChartCard'
-import type { MachineMetrics } from '../types'
+import type { MachineMetrics, TimeFilter } from '../types'
 
 export default function ChartSection({
     machines,
     chartLoading,
     totalMachines,
+    timeFilter,
 }: {
     machines: MachineMetrics[]
     chartLoading: boolean
     totalMachines: number
+    timeFilter: TimeFilter
 }) {
     if (chartLoading && machines.length === 0) {
         return (
@@ -34,7 +36,7 @@ export default function ChartSection({
         <section className="charts-section">
             <div className="charts-grid">
                 {machines.map((machine) => (
-                    <MachineChartCard key={machine.id} machine={machine} />
+                    <MachineChartCard key={machine.id} machine={machine} timeFilter={timeFilter} />
                 ))}
             </div>
         </section>
