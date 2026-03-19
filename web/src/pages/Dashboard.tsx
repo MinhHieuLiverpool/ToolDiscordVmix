@@ -48,9 +48,6 @@ export default function Dashboard() {
     const machineOptions = useMemo(() => {
         const map = new Map<string, { id: string; label: string }>()
         rows.forEach((item) => {
-            // Chỉ lấy máy đang chạy (statusapp === 1)
-            if (item.data.statusapp !== 1) return
-
             const ip = String(item.data.ip || '').trim()
             const port = String(item.data.port || '').trim()
             if (!ip && !port) return
@@ -61,23 +58,32 @@ export default function Dashboard() {
         return Array.from(map.values())
     }, [rows])
 
+    const latestRowByMachineId = useMemo(() => {
+        const map = new Map<string, BackendLogItem>()
+        rows.forEach((item) => {
+            const ip = String(item.data.ip || '').trim()
+            const port = String(item.data.port || '').trim()
+            if (!ip && !port) return
+            const id = `${ip}:${port}`
+            map.set(id, item)
+        })
+        return map
+    }, [rows])
+
+    const buildFallbackMetric = useCallback((id: string, label: string): MachineMetrics => {
+        const row = latestRowByMachineId.get(id)
+        const cpu = toNumber(row?.data.cpu) ?? 0
+        const ram = toNumber(row?.data.memory) ?? 0
+        const nowLabel = new Date().toLocaleTimeString('vi-VN', { hour12: false })
+        return {
+            id,
+            label,
+            history: [{ timeLabel: nowLabel, cpu, ram }],
+        }
+    }, [latestRowByMachineId])
+
     useEffect(() => {
         machineOptionsRef.current = machineOptions
-
-        // Dọn dẹp biểu đồ của máy đã offline
-        const validIds = new Set(machineOptions.map((m) => m.id))
-        setMetricsMap((prev) => {
-            let changed = false
-            const next = new Map<string, MachineMetrics>()
-            prev.forEach((value, key) => {
-                if (validIds.has(key)) {
-                    next.set(key, value)
-                } else {
-                    changed = true
-                }
-            })
-            return changed ? next : prev
-        })
     }, [machineOptions])
 
     const totalOnline = useMemo(
@@ -175,9 +181,13 @@ export default function Dashboard() {
                             return { timeLabel, cpu, ram }
                         })
                         .slice(-200)
-                    setMetricsMap(new Map([[opt.id, { id: opt.id, label: opt.label, history }]]))
+                    const metric = history.length > 0
+                        ? { id: opt.id, label: opt.label, history }
+                        : buildFallbackMetric(opt.id, opt.label)
+                    setMetricsMap(new Map([[opt.id, metric]]))
                 } catch (err) {
                     console.error(`Stats error ${opt.id}`, err)
+                    setMetricsMap(new Map([[opt.id, buildFallbackMetric(opt.id, opt.label)]]))
                 } finally {
                     setChartLoading(false)
                 }
@@ -223,13 +233,20 @@ export default function Dashboard() {
                     const item = settled[i]
                     const opt = options[i]
                     if (item.status === 'fulfilled') {
-                        next.set(item.value.id, {
-                            id: item.value.id,
-                            label: item.value.label,
-                            history: item.value.history,
-                        })
+                        const hasHistory = item.value.history.length > 0
+                        next.set(
+                            item.value.id,
+                            hasHistory
+                                ? {
+                                    id: item.value.id,
+                                    label: item.value.label,
+                                    history: item.value.history,
+                                }
+                                : buildFallbackMetric(item.value.id, item.value.label),
+                        )
                     } else {
                         console.error(`Stats error ${opt.id}`, item.reason)
+                        next.set(opt.id, buildFallbackMetric(opt.id, opt.label))
                     }
                 }
 
@@ -239,7 +256,7 @@ export default function Dashboard() {
         } finally {
             realtimeInFlightRef.current = false
         }
-    }, [deviceFilter])
+    }, [buildFallbackMetric, deviceFilter])
 
     /* ═══════════════════════════════════════════════════════════
      * DAILY: Gọi statistic_hours
@@ -262,19 +279,12 @@ export default function Dashboard() {
                     const timeLabel = Number.isNaN(d.getTime())
                         ? String(p.window_start || '').slice(11, 16)
                         : d.toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit' })
-                    return {
-                        timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0,
-                        extras: {
-                            windowStart: p.window_start,
-                            windowEnd: p.window_end,
-                            samples: p.samples,
-                            cpuPoints: p.cpu_points,
-                            ramPoints: p.ram_points,
-                            calculatedAt: p.calculated_at,
-                        },
-                    }
+                    return { timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0 }
                 })
-                setMetricsMap(new Map([[doc.id, { id: doc.id, label, history }]]))
+                const metric = history.length > 0
+                    ? { id: doc.id, label, history }
+                    : buildFallbackMetric(doc.id, label)
+                setMetricsMap(new Map([[doc.id, metric]]))
             } else {
                 const docs: StatisticHoursResponse[] = await fetchAllStatisticHours()
                 const validIds = new Set(options.map((m) => m.id))
@@ -296,19 +306,18 @@ export default function Dashboard() {
                             const timeLabel = Number.isNaN(d.getTime())
                                 ? String(p.window_start || '').slice(11, 16)
                                 : d.toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit' })
-                            return {
-                                timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0,
-                                extras: {
-                                    windowStart: p.window_start,
-                                    windowEnd: p.window_end,
-                                    samples: p.samples,
-                                    cpuPoints: p.cpu_points,
-                                    ramPoints: p.ram_points,
-                                    calculatedAt: p.calculated_at,
-                                },
-                            }
+                            return { timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0 }
                         })
-                        next.set(doc.id, { id: doc.id, label, history })
+                        const metric = history.length > 0
+                            ? { id: doc.id, label, history }
+                            : buildFallbackMetric(doc.id, label)
+                        next.set(doc.id, metric)
+                    }
+
+                    for (const opt of options) {
+                        if (!next.has(opt.id)) {
+                            next.set(opt.id, buildFallbackMetric(opt.id, opt.label))
+                        }
                     }
 
                     return next
@@ -320,7 +329,7 @@ export default function Dashboard() {
             setChartLoading(false)
             dailyInFlightRef.current = false
         }
-    }, [deviceFilter])
+    }, [buildFallbackMetric, deviceFilter])
 
     /* ═══════════════════════════════════════════════════════════
      * Effect: load dữ liệu khi filter thay đổi

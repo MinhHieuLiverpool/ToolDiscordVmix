@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
 from datetime import datetime, timedelta
+from collections import deque
 import pytz
 from pymongo import MongoClient, DESCENDING
 import os
@@ -93,6 +94,12 @@ _redis_stats_max_points = 1000
 # ── In-memory cache ─────────────────────────────────────────────────────────────────
 # Key: machine_name, Value: document dict
 _data_cache: dict = {}
+
+# Realtime statistics fallback cache.
+# Key: statistics_id, Value: deque of samples [{cpu, ram, time}, ...]
+_realtime_stats_cache: dict = {}
+_realtime_stats_updated: dict = {}
+_realtime_stats_max_points = 500
 
 def send_discord_notification(machine_name: str, ipwan: str, port: str, status: str):
     """Gửi notification lên Discord (nếu có webhook)"""
@@ -193,12 +200,23 @@ async def receive_data(data: dict):
         ip_val = data.get('ip', '')
         port_val = data.get('port', '')
         statistics_id = f"{ip_val}:{port_val}" if ip_val or port_val else machine_name
-        asyncio.create_task(_mongo_append_statistics(statistics_id, cpu_value, ram_value, timestamp))
-        asyncio.create_task(_redis_append_statistics_sample(statistics_id, {
+        sample = {
             "cpu": cpu_value,
             "ram": ram_value,
             "time": timestamp,
-        }, timestamp))
+        }
+
+        # Keep a realtime in-memory history so /statistics can still serve charts
+        # when Redis/Mongo raw samples are temporarily empty.
+        bucket = _realtime_stats_cache.get(statistics_id)
+        if bucket is None:
+            bucket = deque(maxlen=_realtime_stats_max_points)
+            _realtime_stats_cache[statistics_id] = bucket
+        bucket.append(sample)
+        _realtime_stats_updated[statistics_id] = timestamp
+
+        asyncio.create_task(_mongo_append_statistics(statistics_id, cpu_value, ram_value, timestamp))
+        asyncio.create_task(_redis_append_statistics_sample(statistics_id, sample, timestamp))
 
         # So sánh thay đổi với cache cũ (không cần query MongoDB)
         fields_to_check = ['ip', 'ipwan', 'status', 'port']
@@ -916,6 +934,15 @@ async def get_statistics(statistics_id: str, limit: int = 200):
             )
             if doc:
                 await _redis_set_statistics_doc(statistics_id, doc.get("data", []), doc.get("updated_at", ""))
+
+        if not doc or not doc.get("data"):
+            cached = list(_realtime_stats_cache.get(statistics_id, []))
+            if cached:
+                return JSONResponse(content={
+                    "id": statistics_id,
+                    "data": cached[-safe_limit:],
+                    "updated_at": _realtime_stats_updated.get(statistics_id, cached[-1].get("time", "")),
+                })
 
         if not doc:
             return JSONResponse(content={"id": statistics_id, "data": [], "updated_at": ""})
