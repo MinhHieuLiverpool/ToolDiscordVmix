@@ -26,6 +26,7 @@ import html
 import os
 import re
 import sys
+from datetime import datetime
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -158,6 +159,47 @@ class StreamInfo:
     quality_label: str
     latency: str
     passphrase: str
+
+
+@dataclass
+class LatestStreamingLog:
+    file_path: str
+    file_name: str
+    last_write: datetime
+    quality_line: str
+    raw_content: str
+
+
+@dataclass
+class StreamingQualitySnapshot:
+    video_bitrate: str
+    encode_size: str
+    audio_bitrate: str
+    source: str
+    profile: str
+    level: str
+    preset: str
+    aspect_ratio_crop: str
+    audio_format: str
+    channels: str
+    keyframe_frequency: str
+    stream_delay: str
+    threads: str
+    network_buffer: str
+    strict_cbr: str
+    nal_cbr: str
+    keyframe_aligned: str
+
+
+@dataclass
+class StreamHealth:
+    status: str
+    reason: str
+    actual_bitrate_kbps: float
+    target_bitrate_kbps: float
+    bitrate_ratio: float
+    speed: float
+    dropped_warnings: int
 
 
 # ─── Helpers tìm & parse block Streaming* ────────────────────────────────────
@@ -310,13 +352,252 @@ def print_stream4(info: Optional[StreamInfo], source: str, error: Optional[str])
         _ok("Passphrase", "(đã đặt)" if info.passphrase else "(không)")
 
 
-def main() -> None:
-    info, src_or_err = _parse_stream4_from_config()
-    if info is None:
-        # src_or_err đang là thông báo lỗi
-        print_stream4(None, "current.config", src_or_err)
+def _find_latest_streaming_log_today() -> Tuple[Optional[LatestStreamingLog], Optional[str]]:
+    streaming_dir = os.path.join(_vmix_data_dir(), "streaming")
+    if not os.path.isdir(streaming_dir):
+        return None, f"Không tìm thấy thư mục: {streaming_dir}"
+
+    now = datetime.now()
+    today = now.date()
+    today_logs = []
+
+    for name in os.listdir(streaming_dir):
+        path = os.path.join(streaming_dir, name)
+        if not os.path.isfile(path) or not name.lower().endswith(".log"):
+            continue
+
+        last_write = datetime.fromtimestamp(os.path.getmtime(path))
+        if last_write.date() == today:
+            today_logs.append((path, last_write))
+
+    if not today_logs:
+        return None, f"Không có file streaming .log trong ngày {today.isoformat()}"
+
+    latest_path, latest_write = max(today_logs, key=lambda x: x[1])
+
+    try:
+        content = _read_file_shared(latest_path)
+    except Exception:
+        with open(latest_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+
+    quality_matches = re.findall(
+        r"frame=.*?fps=.*?q=.*?(?:L?size=.*?)?bitrate=.*?kbits/s.*",
+        content,
+    )
+    quality_line = quality_matches[-1].strip() if quality_matches else ""
+
+    return (
+        LatestStreamingLog(
+            file_path=latest_path,
+            file_name=os.path.basename(latest_path),
+            last_write=latest_write,
+            quality_line=quality_line,
+            raw_content=content,
+        ),
+        None,
+    )
+
+
+def _extract_command_line(raw_content: str) -> str:
+    m = re.search(r"Command line:\s*(.*?)ffmpeg version", raw_content, re.DOTALL)
+    if not m:
+        return ""
+    return re.sub(r"\s+", " ", m.group(1)).strip()
+
+
+def _first_group(pattern: str, text: str) -> str:
+    m = re.search(pattern, text)
+    return m.group(1).strip() if m else ""
+
+
+def _build_ui_snapshot(raw_content: str) -> StreamingQualitySnapshot:
+    cmd = _extract_command_line(raw_content)
+
+    video_bitrate = _first_group(r"-b:v\s+(\S+)", cmd) or "(khong xac dinh)"
+    width = _first_group(r"-s:v\s+(\d+)x\d+", cmd)
+    height = _first_group(r"-s:v\s+\d+x(\d+)", cmd)
+    encode_size = f"{width} x {height}" if width and height else "(khong xac dinh)"
+    audio_bitrate = _first_group(r"-b:a\s+(\S+)", cmd) or "(khong xac dinh)"
+
+    profile = _first_group(r"-profile:v\s+(\S+)", cmd) or "(khong xac dinh)"
+    level = _first_group(r"-level:v\s+(\S+)", cmd) or "(khong xac dinh)"
+    preset = _first_group(r"-preset:v\s+(\S+)", cmd) or "(khong xac dinh)"
+    threads = _first_group(r"-threads\s+(\S+)", cmd) or "(khong xac dinh)"
+
+    audio_codec = _first_group(r"-codec:a\s+(\S+)", cmd)
+    audio_format = audio_codec.upper() if audio_codec else "(khong xac dinh)"
+
+    # vMix log khong luu truc tiep cac field nay theo ten UI.
+    source = "(khong xac dinh tu ffmpeg log)"
+    aspect_ratio_crop = "(khong xac dinh tu ffmpeg log)"
+    stream_delay = "(khong xac dinh tu ffmpeg log)"
+    network_buffer = "(khong xac dinh tu ffmpeg log)"
+    keyframe_aligned = "(khong xac dinh tu ffmpeg log)"
+
+    channels = "stereo" if re.search(r"\bstereo\b", raw_content, re.IGNORECASE) else "(khong xac dinh)"
+
+    gop = _first_group(r"-g:v\s+(\d+)", cmd)
+    fps_raw = _first_group(r"(\d+(?:\.\d+)?)\s*fps", raw_content)
+    if gop and fps_raw:
+        try:
+            key_sec = float(gop) / float(fps_raw)
+            keyframe_frequency = f"{gop} frames (~{key_sec:.2f}s @ {fps_raw}fps)"
+        except Exception:
+            keyframe_frequency = f"{gop} frames"
+    elif gop:
+        keyframe_frequency = f"{gop} frames"
     else:
-        print_stream4(info, src_or_err, None)
+        keyframe_frequency = "(khong xac dinh)"
+
+    has_nal = bool(re.search(r"nal[_-]hrd", cmd, re.IGNORECASE))
+    has_strict = bool(re.search(r"strict[-_]cbr|nal[_-]hrd=cbr", cmd, re.IGNORECASE))
+    strict_cbr = "ON" if has_strict else "OFF/Unknown"
+    nal_cbr = "ON" if has_nal else "OFF/Unknown"
+
+    return StreamingQualitySnapshot(
+        video_bitrate=video_bitrate,
+        encode_size=encode_size,
+        audio_bitrate=audio_bitrate,
+        source=source,
+        profile=profile,
+        level=level,
+        preset=preset,
+        aspect_ratio_crop=aspect_ratio_crop,
+        audio_format=audio_format,
+        channels=channels,
+        keyframe_frequency=keyframe_frequency,
+        stream_delay=stream_delay,
+        threads=threads,
+        network_buffer=network_buffer,
+        strict_cbr=strict_cbr,
+        nal_cbr=nal_cbr,
+        keyframe_aligned=keyframe_aligned,
+    )
+
+
+def _parse_k_to_kbps(raw: str) -> float:
+    m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*k", raw.lower())
+    return float(m.group(1)) if m else 0.0
+
+
+def _parse_quality_metric(line: str, field: str) -> float:
+    if not line:
+        return 0.0
+    if field == "bitrate":
+        m = re.search(r"bitrate=\s*([0-9]+(?:\.[0-9]+)?)kbits/s", line)
+    elif field == "speed":
+        m = re.search(r"speed=\s*([0-9]+(?:\.[0-9]+)?)x", line)
+    else:
+        m = None
+    return float(m.group(1)) if m else 0.0
+
+
+def _assess_stream_health(latest: LatestStreamingLog, ui: StreamingQualitySnapshot) -> StreamHealth:
+    actual_bitrate = _parse_quality_metric(latest.quality_line, "bitrate")
+    target_bitrate = _parse_k_to_kbps(ui.video_bitrate)
+    speed = _parse_quality_metric(latest.quality_line, "speed")
+    dropped_warnings = len(re.findall(r"frame dropped", latest.raw_content, re.IGNORECASE))
+
+    ratio = (actual_bitrate / target_bitrate) if target_bitrate > 0 else 0.0
+
+    # Quy tắc thực dụng:
+    # - DO: ratio < 0.5 hoặc có frame dropped nhiều.
+    # - VANG: ratio thấp vừa, speed không đạt realtime, hoặc stream quá ngắn.
+    # - XANH: bitrate bám cấu hình và không có cảnh báo drop.
+    duration_sec = 0.0
+    m_time = re.search(r"time=([0-9]{2}):([0-9]{2}):([0-9]{2}(?:\.[0-9]+)?)", latest.quality_line)
+    if m_time:
+        duration_sec = int(m_time.group(1)) * 3600 + int(m_time.group(2)) * 60 + float(m_time.group(3))
+
+    if dropped_warnings >= 20 or (target_bitrate > 0 and ratio < 0.5):
+        status = "DO"
+    elif (
+        dropped_warnings > 0
+        or (target_bitrate > 0 and ratio < 0.85)
+        or (speed > 0 and speed < 0.95)
+        or (duration_sec > 0 and duration_sec < 20)
+    ):
+        status = "VANG"
+    else:
+        status = "XANH"
+
+    reason = (
+        f"ratio={ratio:.2f}, speed={speed:.2f}x, dropped={dropped_warnings}, duration={duration_sec:.1f}s"
+    )
+
+    return StreamHealth(
+        status=status,
+        reason=reason,
+        actual_bitrate_kbps=actual_bitrate,
+        target_bitrate_kbps=target_bitrate,
+        bitrate_ratio=ratio,
+        speed=speed,
+        dropped_warnings=dropped_warnings,
+    )
+
+
+def print_latest_streaming_log_today(
+    latest: Optional[LatestStreamingLog],
+    error: Optional[str],
+) -> None:
+    _sep("STREAMING LOG HOM NAY - FILE MOI NHAT")
+    if error:
+        _err("Trang thai", error)
+        return
+
+    if latest is None:
+        _err("Trang thai", "Khong co du lieu")
+        return
+
+    _ok("File moi nhat", latest.file_name)
+    _ok("LastWrite", latest.last_write.strftime("%Y-%m-%d %H:%M:%S"))
+    _ok("Duong dan", latest.file_path)
+    if latest.quality_line:
+        _ok("Quality line", latest.quality_line)
+    else:
+        _warn("Quality line", "Khong tim thay dong quality trong log")
+
+    ui = _build_ui_snapshot(latest.raw_content)
+    _sep("DOI CHIEU STREAMING QUALITY (TU LOG)")
+    _ok("Video Bit Rates", ui.video_bitrate)
+    _ok("Encode Size", ui.encode_size)
+    _ok("Audio Bit Rate", ui.audio_bitrate)
+    _ok("Source", ui.source)
+    _ok("Profile", ui.profile)
+    _ok("Level", ui.level)
+    _ok("Preset", ui.preset)
+    _ok("Aspect Ratio / Crop", ui.aspect_ratio_crop)
+    _ok("Audio Format", ui.audio_format)
+    _ok("Channels", ui.channels)
+    _ok("Keyframe Frequency", ui.keyframe_frequency)
+    _ok("Stream Delay", ui.stream_delay)
+    _ok("Threads", ui.threads)
+    _ok("Network Buffer", ui.network_buffer)
+    _ok("Strict CBR", ui.strict_cbr)
+    _ok("NAL CBR", ui.nal_cbr)
+    _ok("Keyframe Aligned", ui.keyframe_aligned)
+
+    health = _assess_stream_health(latest, ui)
+    _sep("DANH GIA MAU STREAM")
+    if health.status == "DO":
+        _err("Trang thai", "DO")
+    elif health.status == "VANG":
+        _warn("Trang thai", "VANG")
+    else:
+        _ok("Trang thai", "XANH")
+
+    _ok("Bitrate thuc te (kbps)", f"{health.actual_bitrate_kbps:.1f}")
+    _ok("Bitrate muc tieu (kbps)", f"{health.target_bitrate_kbps:.1f}")
+    _ok("Ti le bitrate", f"{health.bitrate_ratio:.2f}")
+    _ok("Toc do encode", f"{health.speed:.2f}x")
+    _ok("Canh bao frame dropped", str(health.dropped_warnings))
+    _ok("Ly do", health.reason)
+
+
+def main() -> None:
+    latest, error = _find_latest_streaming_log_today()
+    print_latest_streaming_log_today(latest, error)
 
 
 if __name__ == "__main__":
