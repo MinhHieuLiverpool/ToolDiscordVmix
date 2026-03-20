@@ -73,7 +73,7 @@ export async function loginAccount(username: string, password: string): Promise<
   return response.data
 }
 
-export async function fetchStatistics(statisticsId: string, limit = 200): Promise<StatisticsResponse> {
+export async function fetchStatistics(statisticsId: string, limit = 60): Promise<StatisticsResponse> {
   const response = await apiClient.get<StatisticsResponse>(
     `${API_ENDPOINTS.statistics}/${encodeURIComponent(statisticsId)}`,
     { params: { limit } },

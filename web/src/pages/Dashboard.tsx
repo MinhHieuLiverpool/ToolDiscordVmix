@@ -21,6 +21,9 @@ import StatusSection from '../components/StatusSection'
 import { logout } from '../services/auth'
 
 const REQUEST_INTERVAL_MS = 5000
+const REQUEST_INTERVAL_ALL_MS = 10000
+const REALTIME_LIMIT_SINGLE = 120
+const REALTIME_LIMIT_ALL = 60
 
 export default function Dashboard() {
     const navigate = useNavigate()
@@ -169,7 +172,7 @@ export default function Dashboard() {
                 if (!opt) return
                 try {
                     setChartLoading(true)
-                    const payload = await fetchStatistics(opt.id, 200)
+                    const payload = await fetchStatistics(opt.id, REALTIME_LIMIT_SINGLE)
                     const history: MetricPoint[] = (payload.data || [])
                         .map((p) => {
                             const cpu = toNumber(p.cpu) ?? 0
@@ -180,7 +183,7 @@ export default function Dashboard() {
                                 : d.toLocaleTimeString('vi-VN', { hour12: false })
                             return { timeLabel, cpu, ram }
                         })
-                        .slice(-200)
+                        .slice(-REALTIME_LIMIT_SINGLE)
                     const metric = history.length > 0
                         ? { id: opt.id, label: opt.label, history }
                         : buildFallbackMetric(opt.id, opt.label)
@@ -201,7 +204,7 @@ export default function Dashboard() {
 
             const settled = await Promise.allSettled(
                 options.map(async (opt) => {
-                    const payload = await fetchStatistics(opt.id, 200)
+                    const payload = await fetchStatistics(opt.id, REALTIME_LIMIT_ALL)
                     const history: MetricPoint[] = (payload.data || [])
                         .map((p) => {
                             const cpu = toNumber(p.cpu) ?? 0
@@ -212,7 +215,7 @@ export default function Dashboard() {
                                 : d.toLocaleTimeString('vi-VN', { hour12: false })
                             return { timeLabel, cpu, ram }
                         })
-                        .slice(-200)
+                        .slice(-REALTIME_LIMIT_ALL)
                     return { id: opt.id, label: opt.label, history }
                 }),
             )
@@ -340,7 +343,8 @@ export default function Dashboard() {
 
         if (timeFilter === 'realtime') {
             void loadRealtimeStats()
-            const id = window.setInterval(() => void loadRealtimeStats(), REQUEST_INTERVAL_MS)
+            const pollMs = deviceFilter === '__all__' ? REQUEST_INTERVAL_ALL_MS : REQUEST_INTERVAL_MS
+            const id = window.setInterval(() => void loadRealtimeStats(), pollMs)
             return () => {
                 abortRef.current = true
                 window.clearInterval(id)

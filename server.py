@@ -89,7 +89,7 @@ _redis_stats_updated_key_prefix = "stats:updated:"
 _redis_stats_ids_key = "stats:ids"
 _redis_stat_hours_key_prefix = "stats:hours:"
 _redis_stat_hours_ids_key = "stats:hours:ids"
-_redis_stats_max_points = 1000
+_redis_stats_max_points = int(os.getenv("STATS_MAX_POINTS", "300"))
 
 # ── In-memory cache ─────────────────────────────────────────────────────────────────
 # Key: machine_name, Value: document dict
@@ -99,7 +99,35 @@ _data_cache: dict = {}
 # Key: statistics_id, Value: deque of samples [{cpu, ram, time}, ...]
 _realtime_stats_cache: dict = {}
 _realtime_stats_updated: dict = {}
-_realtime_stats_max_points = 500
+_realtime_stats_max_points = int(os.getenv("REALTIME_STATS_MAX_POINTS", "300"))
+_mongo_stats_max_points = int(os.getenv("MONGO_STATS_MAX_POINTS", "300"))
+_stats_default_limit = int(os.getenv("STATS_DEFAULT_LIMIT", "60"))
+_stats_response_max_limit = int(os.getenv("STATS_RESPONSE_MAX_LIMIT", "200"))
+_stats_flush_interval_sec = max(1, int(os.getenv("STATS_FLUSH_INTERVAL_SEC", "5")))
+_stats_flush_max_age_sec = max(_stats_flush_interval_sec, int(os.getenv("STATS_FLUSH_MAX_AGE_SEC", "20")))
+
+
+def _parse_statistics_id(statistics_id: str):
+    """Parse statistics id in format ip:port and return (ip, port_text, port_int_or_none)."""
+    raw = str(statistics_id or "").strip()
+    if not raw or ":" not in raw:
+        return "", "", None
+    ip_text, port_text = raw.rsplit(":", 1)
+    ip_text = ip_text.strip()
+    port_text = port_text.strip()
+    try:
+        port_int = int(port_text)
+    except (TypeError, ValueError):
+        port_int = None
+    return ip_text, port_text, port_int
+
+
+def _build_statistics_id(ip_value, port_value, fallback_name: str) -> str:
+    ip_text = str(ip_value or "").strip()
+    port_text = str(port_value or "").strip()
+    if ip_text or port_text:
+        return f"{ip_text}:{port_text}"
+    return fallback_name
 
 def send_discord_notification(machine_name: str, ipwan: str, port: str, status: str):
     """Gửi notification lên Discord (nếu có webhook)"""
@@ -194,29 +222,9 @@ async def receive_data(data: dict):
         }
         _data_cache[machine_name] = document
 
-        # Lưu lịch sử CPU/RAM theo dạng: {id, data:[{cpu,ram,time}, ...]}
-        cpu_value = data.get('cpu', data.get('temperature'))
-        ram_value = data.get('ram', data.get('memory'))
         ip_val = data.get('ip', '')
         port_val = data.get('port', '')
-        statistics_id = f"{ip_val}:{port_val}" if ip_val or port_val else machine_name
-        sample = {
-            "cpu": cpu_value,
-            "ram": ram_value,
-            "time": timestamp,
-        }
-
-        # Keep a realtime in-memory history so /statistics can still serve charts
-        # when Redis/Mongo raw samples are temporarily empty.
-        bucket = _realtime_stats_cache.get(statistics_id)
-        if bucket is None:
-            bucket = deque(maxlen=_realtime_stats_max_points)
-            _realtime_stats_cache[statistics_id] = bucket
-        bucket.append(sample)
-        _realtime_stats_updated[statistics_id] = timestamp
-
-        asyncio.create_task(_mongo_append_statistics(statistics_id, cpu_value, ram_value, timestamp))
-        asyncio.create_task(_redis_append_statistics_sample(statistics_id, sample, timestamp))
+        statistics_id = _build_statistics_id(ip_val, port_val, machine_name)
 
         # So sánh thay đổi với cache cũ (không cần query MongoDB)
         fields_to_check = ['ip', 'ipwan', 'status', 'port']
@@ -262,7 +270,7 @@ async def _mongo_upsert(name: str, document: dict):
         print(f"✗ MongoDB upsert error ({name}): {e}")
 
 async def _mongo_append_statistics(statistics_id: str, cpu_value, ram_value, timestamp: str):
-    """Append CPU/RAM sample to statistics collection and keep last 500 points."""
+    """Append CPU/RAM sample to statistics collection and keep a bounded history."""
     sample = {
         "cpu": cpu_value,
         "ram": ram_value,
@@ -277,7 +285,7 @@ async def _mongo_append_statistics(statistics_id: str, cpu_value, ram_value, tim
                 {"id": statistics_id},
                 {
                     "$set": {"updated_at": timestamp},
-                    "$push": {"data": {"$each": [sample], "$slice": -500}},
+                    "$push": {"data": {"$each": [sample], "$slice": -_mongo_stats_max_points}},
                 },
                 upsert=True,
             )
@@ -918,10 +926,10 @@ async def delete_account(payload: dict):
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 @app.get("/statistics/{statistics_id}")
-async def get_statistics(statistics_id: str, limit: int = 200):
+async def get_statistics(statistics_id: str, limit: int = _stats_default_limit):
     """Get CPU/RAM history by statistics id."""
     try:
-        safe_limit = max(1, min(limit, 1000))
+        safe_limit = max(1, min(limit, _stats_response_max_limit))
         doc = await _redis_get_statistics_doc(statistics_id)
         if not doc:
             loop = asyncio.get_event_loop()
@@ -948,7 +956,55 @@ async def get_statistics(statistics_id: str, limit: int = 200):
             return JSONResponse(content={"id": statistics_id, "data": [], "updated_at": ""})
 
         samples = doc.get("data", [])
+        updated_at = str(doc.get("updated_at", "") or "")
+
+        # Production-safe fallback:
+        # If statistics data is stale/empty while /logs is still updating,
+        # synthesize latest point from logs so charts keep moving.
+        last_sample_time = samples[-1].get("time", "") if samples else ""
+        last_sample_dt = _parse_sample_time(last_sample_time) if last_sample_time else None
+        now_vn = datetime.now(VIETNAM_TZ)
+        stale_threshold = timedelta(seconds=30)
+        is_stale = (last_sample_dt is None) or ((now_vn - last_sample_dt) > stale_threshold)
+
+        if not samples or is_stale:
+            ip_text, port_text, port_int = _parse_statistics_id(statistics_id)
+            latest_doc = None
+            if ip_text and port_text:
+                loop = asyncio.get_event_loop()
+
+                def _load_latest_from_logs():
+                    port_candidates = [port_text]
+                    if port_int is not None:
+                        port_candidates.append(port_int)
+                    return collection.find_one(
+                        {"ip": ip_text, "port": {"$in": port_candidates}},
+                        {
+                            "_id": 0,
+                            "temperature": 1,
+                            "memory": 1,
+                            "last_updated": 1,
+                        },
+                    )
+
+                latest_doc = await loop.run_in_executor(None, _load_latest_from_logs)
+
+            if latest_doc:
+                latest_time = str(latest_doc.get("last_updated", "") or "")
+                latest_cpu = latest_doc.get("temperature")
+                latest_ram = latest_doc.get("memory")
+                latest_sample = {
+                    "cpu": latest_cpu,
+                    "ram": latest_ram,
+                    "time": latest_time,
+                }
+
+                if latest_time and last_sample_time != latest_time:
+                    samples = (samples + [latest_sample])[-safe_limit:]
+                    updated_at = latest_time
+
         doc["data"] = samples[-safe_limit:]
+        doc["updated_at"] = updated_at
         return JSONResponse(content=doc)
     except Exception as e:
         print(f"✗ Get statistics error: {e}")
@@ -1100,6 +1156,58 @@ async def check_inactive_machines():
         except Exception as e:
             print(f"✗ Error in check_inactive_machines: {e}")
 
+
+async def flush_statistics_from_cache():
+    """Persist one statistics sample per machine every N seconds from in-memory cache."""
+    while True:
+        try:
+            await asyncio.sleep(_stats_flush_interval_sec)
+            now_vn = datetime.now(VIETNAM_TZ)
+            timestamp = now_vn.isoformat()
+            cutoff = now_vn - timedelta(seconds=_stats_flush_max_age_sec)
+
+            for machine_name, doc in list(_data_cache.items()):
+                if not isinstance(doc, dict):
+                    continue
+
+                last_updated_str = str(doc.get("last_updated", "") or "")
+                if not last_updated_str:
+                    continue
+
+                try:
+                    last_updated = datetime.fromisoformat(last_updated_str)
+                    if last_updated.tzinfo is None:
+                        last_updated = VIETNAM_TZ.localize(last_updated)
+                    last_updated = last_updated.astimezone(VIETNAM_TZ)
+                except Exception:
+                    continue
+
+                # Skip stale machines to avoid writing old values forever.
+                if last_updated < cutoff:
+                    continue
+
+                statistics_id = _build_statistics_id(doc.get("ip"), doc.get("port"), machine_name)
+                cpu_value = doc.get("temperature")
+                ram_value = doc.get("memory")
+
+                sample = {
+                    "cpu": cpu_value,
+                    "ram": ram_value,
+                    "time": timestamp,
+                }
+
+                bucket = _realtime_stats_cache.get(statistics_id)
+                if bucket is None:
+                    bucket = deque(maxlen=_realtime_stats_max_points)
+                    _realtime_stats_cache[statistics_id] = bucket
+                bucket.append(sample)
+                _realtime_stats_updated[statistics_id] = timestamp
+
+                asyncio.create_task(_mongo_append_statistics(statistics_id, cpu_value, ram_value, timestamp))
+                asyncio.create_task(_redis_append_statistics_sample(statistics_id, sample, timestamp))
+        except Exception as e:
+            print(f"✗ Error in flush_statistics_from_cache: {e}")
+
 @app.on_event("startup")
 async def startup_event():
     """Preload cache từ MongoDB, khởi động background tasks"""
@@ -1118,8 +1226,10 @@ async def startup_event():
     except Exception as e:
         print(f"✗ Cache preload error: {e}")
     asyncio.create_task(check_inactive_machines())
+    asyncio.create_task(flush_statistics_from_cache())
     asyncio.create_task(rollup_statistics_scheduler())
     print("✓ Background task started: Auto-OFF inactive machines (1 min timeout)")
+    print(f"✓ Background task started: Statistics cache flush every {_stats_flush_interval_sec}s")
     print("✓ Background task started: 10-minute statistics rollup")
 
 if __name__ == "__main__":
