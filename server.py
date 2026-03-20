@@ -18,23 +18,34 @@ try:
 except ImportError:
     redis = None
 
-# Try to import from config.py
+# Configuration priority:
+# 1) Environment variables (production-safe)
+# 2) config.py values as fallback for local development
+MONGODB_URI = os.getenv('MONGODB_URI', '').strip()
+DATABASE_NAME = os.getenv('DATABASE_NAME', '').strip()
+COLLECTION_NAME = os.getenv('COLLECTION_NAME', '').strip()
+DISCORD_WEBHOOK = os.getenv('DISCORD_WEBHOOK', '').strip()
+
 try:
-    from config import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME
-    # Try to import DISCORD_WEBHOOK separately (optional)
-    try:
-        from config import DISCORD_WEBHOOK
-    except ImportError:
-        DISCORD_WEBHOOK = ''
+    import config as _config
 except ImportError:
-    MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017')
-    DATABASE_NAME = os.getenv('DATABASE_NAME', 'vmix_monitor')
-    COLLECTION_NAME = os.getenv('COLLECTION_NAME', 'logs')
-    DISCORD_WEBHOOK = os.getenv('DISCORD_WEBHOOK', '')  # Optional Discord webhook
+    _config = None
+
+if not MONGODB_URI:
+    MONGODB_URI = getattr(_config, 'MONGODB_URI', 'mongodb://localhost:27017') if _config else 'mongodb://localhost:27017'
+if not DATABASE_NAME:
+    DATABASE_NAME = getattr(_config, 'DATABASE_NAME', 'vmix_monitor') if _config else 'vmix_monitor'
+if not COLLECTION_NAME:
+    COLLECTION_NAME = getattr(_config, 'COLLECTION_NAME', 'logs') if _config else 'logs'
+if not DISCORD_WEBHOOK:
+    DISCORD_WEBHOOK = getattr(_config, 'DISCORD_WEBHOOK', '') if _config else ''
 
 # Port configuration
 PORT = int(os.getenv('PORT', 8000))
 REDIS_URL = os.getenv('REDIS_URL', '').strip()
+USE_TIMESERIES_STATS = os.getenv('USE_TIMESERIES_STATS', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+STATISTICS_TS_COLLECTION = os.getenv('STATISTICS_TS_COLLECTION', 'statistics_ts').strip() or 'statistics_ts'
+_timeseries_available = False
 
 # Timezone configuration - Vietnam
 VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
@@ -53,13 +64,37 @@ try:
     selected_collection = db['selected_list']  # Collection mới cho selected list
     accounts_collection = db['web_accounts']
     statistics_collection = db['statistics']
+    statistics_ts_collection = db[STATISTICS_TS_COLLECTION]
     statistics_hours_collection = db['statistic_hours']
     accounts_collection.create_index("username_key", unique=True)
     statistics_collection.create_index("id", unique=True)
+    if USE_TIMESERIES_STATS:
+        existing_collections = set(db.list_collection_names())
+        if STATISTICS_TS_COLLECTION not in existing_collections:
+            try:
+                db.create_collection(
+                    STATISTICS_TS_COLLECTION,
+                    timeseries={
+                        "timeField": "ts",
+                        "metaField": "meta",
+                        "granularity": "seconds",
+                    },
+                )
+                statistics_ts_collection = db[STATISTICS_TS_COLLECTION]
+                print(f"✓ Created time series collection: {STATISTICS_TS_COLLECTION}")
+            except Exception as ts_create_error:
+                print(f"⚠ Time series create failed ({STATISTICS_TS_COLLECTION}): {ts_create_error}")
+        try:
+            statistics_ts_collection.create_index([("meta.id", 1), ("ts", -1)])
+            _timeseries_available = True
+        except Exception as ts_index_error:
+            print(f"⚠ Time series index failed ({STATISTICS_TS_COLLECTION}): {ts_index_error}")
     # statistic_hours lưu 1 document / id, data là mảng các điểm avg 10 phút
     statistics_hours_collection.create_index("id")
     statistics_hours_collection.create_index("updated_at")
     client.admin.command('ping')
+    if USE_TIMESERIES_STATS and _timeseries_available:
+        print(f"✓ Time series statistics enabled: {STATISTICS_TS_COLLECTION}")
     print("✓ Connected to MongoDB successfully!")
 except Exception as e:
     print(f"✗ MongoDB connection error: {e}")
@@ -166,8 +201,8 @@ def get_all_logs():
                     "statusapp": doc.get("statusapp", 0),
                     "ping":      doc.get("ping"),
                     "ping_timeouts": doc.get("ping_timeouts", 0),
-                    "cpu":       doc.get("temperature"),
-                    "memory":    doc.get("memory"),
+                    "cpu":       doc.get("temperature", doc.get("cpu")),
+                    "memory":    doc.get("memory", doc.get("ram")),
                     "vmix_recording": doc.get("vmix_recording", False),
                     "vmix_streaming": doc.get("vmix_streaming", False),
                     "vmix_external":  doc.get("vmix_external", False),
@@ -210,8 +245,8 @@ async def receive_data(data: dict):
             "statusapp":   data.get('statusapp', 0),
             "ping":        data.get('ping'),
             "ping_timeouts": data.get('ping_timeouts', 0),
-            "temperature": data.get('temperature'),
-            "memory":      data.get('memory'),
+            "temperature": data.get('temperature', data.get('cpu')),
+            "memory":      data.get('memory', data.get('ram')),
             "vmix_recording": data.get('vmix_recording', False),
             "vmix_streaming": data.get('vmix_streaming', False),
             "vmix_external":  data.get('vmix_external', False),
@@ -292,6 +327,82 @@ async def _mongo_append_statistics(statistics_id: str, cpu_value, ram_value, tim
         )
     except Exception as e:
         print(f"✗ MongoDB statistics append error ({statistics_id}): {e}")
+
+
+async def _mongo_insert_statistics_ts(statistics_id: str, cpu_value, ram_value, timestamp: str):
+    """Insert one CPU/RAM sample into MongoDB time series collection."""
+    if not USE_TIMESERIES_STATS or not _timeseries_available:
+        return
+
+    sample_dt = _parse_sample_time(timestamp)
+    if sample_dt is None:
+        sample_dt = datetime.now(VIETNAM_TZ)
+
+    # Keep a stable text timestamp for existing frontend parsing while using a Date for time series indexing.
+    sample_doc = {
+        "meta": {"id": statistics_id},
+        "ts": sample_dt.astimezone(pytz.UTC),
+        "time": timestamp,
+        "cpu": cpu_value,
+        "ram": ram_value,
+    }
+
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(
+            None,
+            lambda: statistics_ts_collection.insert_one(sample_doc)
+        )
+    except Exception as e:
+        print(f"⚠ MongoDB time series insert error ({statistics_id}): {e}")
+
+
+async def _mongo_get_statistics_ts(statistics_id: str, limit: int):
+    """Read latest CPU/RAM samples from MongoDB time series collection."""
+    if not USE_TIMESERIES_STATS or not _timeseries_available:
+        return None
+
+    loop = asyncio.get_event_loop()
+
+    def _worker():
+        rows = list(
+            statistics_ts_collection
+            .find(
+                {"meta.id": statistics_id},
+                {"_id": 0, "cpu": 1, "ram": 1, "time": 1, "ts": 1},
+            )
+            .sort("ts", DESCENDING)
+            .limit(limit)
+        )
+
+        if not rows:
+            return None
+
+        rows.reverse()
+        data = []
+        for row in rows:
+            time_text = str(row.get("time", "") or "")
+            if not time_text:
+                ts_val = row.get("ts")
+                if isinstance(ts_val, datetime):
+                    if ts_val.tzinfo is None:
+                        ts_val = pytz.UTC.localize(ts_val)
+                    time_text = ts_val.astimezone(VIETNAM_TZ).isoformat()
+
+            data.append({
+                "cpu": row.get("cpu"),
+                "ram": row.get("ram"),
+                "time": time_text,
+            })
+
+        updated_at = data[-1].get("time", "") if data else ""
+        return {"id": statistics_id, "data": data, "updated_at": updated_at}
+
+    try:
+        return await loop.run_in_executor(None, _worker)
+    except Exception as e:
+        print(f"⚠ MongoDB time series read error ({statistics_id}): {e}")
+        return None
 
 
 def _redis_key_stats_raw(statistics_id: str) -> str:
@@ -930,6 +1041,11 @@ async def get_statistics(statistics_id: str, limit: int = _stats_default_limit):
     """Get CPU/RAM history by statistics id."""
     try:
         safe_limit = max(1, min(limit, _stats_response_max_limit))
+
+        ts_doc = await _mongo_get_statistics_ts(statistics_id, safe_limit)
+        if ts_doc and ts_doc.get("data"):
+            return JSONResponse(content=ts_doc)
+
         doc = await _redis_get_statistics_doc(statistics_id)
         if not doc:
             loop = asyncio.get_event_loop()
@@ -983,6 +1099,8 @@ async def get_statistics(statistics_id: str, limit: int = _stats_default_limit):
                             "_id": 0,
                             "temperature": 1,
                             "memory": 1,
+                            "cpu": 1,
+                            "ram": 1,
                             "last_updated": 1,
                         },
                     )
@@ -991,8 +1109,8 @@ async def get_statistics(statistics_id: str, limit: int = _stats_default_limit):
 
             if latest_doc:
                 latest_time = str(latest_doc.get("last_updated", "") or "")
-                latest_cpu = latest_doc.get("temperature")
-                latest_ram = latest_doc.get("memory")
+                latest_cpu = latest_doc.get("temperature", latest_doc.get("cpu"))
+                latest_ram = latest_doc.get("memory", latest_doc.get("ram"))
                 latest_sample = {
                     "cpu": latest_cpu,
                     "ram": latest_ram,
@@ -1187,8 +1305,8 @@ async def flush_statistics_from_cache():
                     continue
 
                 statistics_id = _build_statistics_id(doc.get("ip"), doc.get("port"), machine_name)
-                cpu_value = doc.get("temperature")
-                ram_value = doc.get("memory")
+                cpu_value = doc.get("temperature", doc.get("cpu"))
+                ram_value = doc.get("memory", doc.get("ram"))
 
                 sample = {
                     "cpu": cpu_value,
@@ -1204,6 +1322,7 @@ async def flush_statistics_from_cache():
                 _realtime_stats_updated[statistics_id] = timestamp
 
                 asyncio.create_task(_mongo_append_statistics(statistics_id, cpu_value, ram_value, timestamp))
+                asyncio.create_task(_mongo_insert_statistics_ts(statistics_id, cpu_value, ram_value, timestamp))
                 asyncio.create_task(_redis_append_statistics_sample(statistics_id, sample, timestamp))
         except Exception as e:
             print(f"✗ Error in flush_statistics_from_cache: {e}")
