@@ -3,10 +3,8 @@ services:
     name: vmix-monitor-server
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python server.py
+    startCommand: uvicorn server:app --host 0.0.0.0 --port ${PORT}
     envVars:
-      - key: PORT
-        value: 8088
       - key: MONGODB_URI
         sync: false
       - key: DATABASE_NAME

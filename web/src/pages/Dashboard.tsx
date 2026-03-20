@@ -73,6 +73,13 @@ export default function Dashboard() {
         return map
     }, [rows])
 
+    const onlineMachineOptions = useMemo(() => {
+        return machineOptions.filter((opt) => {
+            const row = latestRowByMachineId.get(opt.id)
+            return Number(row?.data.statusapp ?? 0) === 1
+        })
+    }, [machineOptions, latestRowByMachineId])
+
     const buildFallbackMetric = useCallback((id: string, label: string): MachineMetrics => {
         const row = latestRowByMachineId.get(id)
         const cpu = toNumber(row?.data.cpu) ?? 0
@@ -86,8 +93,8 @@ export default function Dashboard() {
     }, [latestRowByMachineId])
 
     useEffect(() => {
-        machineOptionsRef.current = machineOptions
-    }, [machineOptions])
+        machineOptionsRef.current = onlineMachineOptions
+    }, [onlineMachineOptions])
 
     const totalOnline = useMemo(
         () => rows.filter((item) => ['ONLINE', 'ON'].includes(item.data.status?.toUpperCase())).length,
@@ -95,8 +102,11 @@ export default function Dashboard() {
     )
 
     const filteredMachines = useMemo(
-        () => Array.from(metricsMap.values()),
-        [metricsMap],
+        () => {
+            const validIds = new Set(onlineMachineOptions.map((item) => item.id))
+            return Array.from(metricsMap.values()).filter((machine) => validIds.has(machine.id))
+        },
+        [metricsMap, onlineMachineOptions],
     )
 
     const handleLogout = useCallback(() => {
@@ -169,7 +179,10 @@ export default function Dashboard() {
             /* --- 1 máy cụ thể --- */
             if (deviceFilter !== '__all__') {
                 const opt = options.find((o) => o.id === deviceFilter)
-                if (!opt) return
+                if (!opt) {
+                    setMetricsMap(new Map())
+                    return
+                }
                 try {
                     setChartLoading(true)
                     const payload = await fetchStatistics(opt.id, REALTIME_LIMIT_SINGLE)
@@ -200,6 +213,10 @@ export default function Dashboard() {
             /* --- Tất cả: gọi đồng loạt mỗi chu kỳ --- */
             abortRef.current = false
             setChartLoading(true)
+            if (options.length === 0) {
+                setMetricsMap(new Map())
+                return
+            }
             const validIds = new Set(options.map((m) => m.id))
 
             const settled = await Promise.allSettled(
@@ -274,6 +291,10 @@ export default function Dashboard() {
         try {
             const options = machineOptionsRef.current
             if (deviceFilter !== '__all__') {
+                if (!options.some((o) => o.id === deviceFilter)) {
+                    setMetricsMap(new Map())
+                    return
+                }
                 const doc: StatisticHoursResponse = await fetchStatisticHours(deviceFilter)
                 const opt = options.find((o) => o.id === deviceFilter)
                 const label = opt?.label ?? doc.id
@@ -291,6 +312,10 @@ export default function Dashboard() {
             } else {
                 const docs: StatisticHoursResponse[] = await fetchAllStatisticHours()
                 const validIds = new Set(options.map((m) => m.id))
+                if (validIds.size === 0) {
+                    setMetricsMap(new Map())
+                    return
+                }
                 setMetricsMap((prev) => {
                     const next = new Map<string, MachineMetrics>()
 
@@ -368,7 +393,7 @@ export default function Dashboard() {
                     setDeviceFilter={setDeviceFilter}
                     timeFilter={timeFilter}
                     setTimeFilter={setTimeFilter}
-                    machineOptions={machineOptions}
+                    machineOptions={onlineMachineOptions}
                     onRefresh={() => void loadData()}
                 />
             </header>
@@ -376,7 +401,7 @@ export default function Dashboard() {
             <ChartSection
                 machines={filteredMachines}
                 chartLoading={chartLoading}
-                totalMachines={machineOptions.length}
+                totalMachines={onlineMachineOptions.length}
                 timeFilter={timeFilter}
             />
 
