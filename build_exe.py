@@ -7,11 +7,17 @@ import subprocess
 import sys
 from pathlib import Path
 
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 
 def kill_running_exe(exe_name: str):
     """Kill tiến trình EXE đang chạy trước khi build (tránh PermissionError)"""
+    if psutil is None:
+        return
+
     killed = []
     for proc in psutil.process_iter(['pid', 'name']):
         try:
@@ -117,6 +123,7 @@ def build_vmix_monitor_exe():
             "PIL.ImageDraw",
             "pytz",
         ],
+        collect_submodules=["vmix_monitor_gui"],
     )
 
 def build_server_gui_exe():
