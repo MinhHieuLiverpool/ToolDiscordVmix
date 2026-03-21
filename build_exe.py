@@ -1,10 +1,12 @@
 """
-Script tự động build file EXE cho ứng dụng Vmix Monitor
-Sử dụng PyInstaller để đóng gói Python + tất cả dependencies
+Script tự động build file EXE cho ứng dụng Vmix Monitor.
+Hỗ trợ build từ 1 file .py hoặc từ cả folder package.
 """
+import os
 import subprocess
 import sys
-import os
+from pathlib import Path
+
 import psutil
 
 
@@ -32,62 +34,117 @@ def install_pyinstaller():
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
         print("PyInstaller đã được cài đặt thành công!")
 
+
+def resolve_entry_script(entry: str) -> str:
+    """Resolve entry point. Nếu entry là folder thì tìm main.py hoặc __main__.py."""
+    p = Path(entry)
+    if p.is_file():
+        return str(p)
+
+    if p.is_dir():
+        main_py = p / "main.py"
+        dunder_main = p / "__main__.py"
+        if main_py.exists():
+            return str(main_py)
+        if dunder_main.exists():
+            return str(dunder_main)
+        raise FileNotFoundError(
+            f"Không tìm thấy main.py hoặc __main__.py trong folder: {entry}"
+        )
+
+    raise FileNotFoundError(f"Không tìm thấy entry: {entry}")
+
+
+def build_executable(
+    *,
+    exe_name: str,
+    entry: str,
+    windowed: bool = False,
+    icon: str | None = None,
+    add_data: list[str] | None = None,
+    hidden_imports: list[str] | None = None,
+    collect_submodules: list[str] | None = None,
+):
+    """Build exe với PyInstaller từ file hoặc folder."""
+    entry_script = resolve_entry_script(entry)
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--onefile",
+        f"--name={exe_name}",
+    ]
+
+    if windowed:
+        cmd.append("--windowed")
+    if icon:
+        cmd.append(f"--icon={icon}")
+
+    for item in add_data or []:
+        cmd.append(f"--add-data={item}")
+    for item in hidden_imports or []:
+        cmd.append(f"--hidden-import={item}")
+    for item in collect_submodules or []:
+        cmd.append(f"--collect-submodules={item}")
+
+    cmd.append(entry_script)
+
+    kill_running_exe(f"{exe_name}.exe")
+    subprocess.run(cmd, check=True)
+    print(f"\n✅ {exe_name}.exe đã được tạo thành công trong thư mục 'dist'!")
+
 def build_vmix_monitor_exe():
     """Build file EXE cho Vmix Monitor GUI"""
     print("\n" + "="*50)
     print("Building Vmix Monitor Tool...")
     print("="*50 + "\n")
     
-    cmd = [
-        "pyinstaller",
-        "--onefile",  # Gom thành 1 file EXE duy nhất
-        "--windowed",  # Không hiện console window
-        "--name=VmixMonitor",
-        "--icon=assets/Discord-Logo.ico",
-        "--add-data=assets/Discord-Logo.ico;assets",
-        "--add-data=assets/Discord-Logo.png;assets",
-        "--add-data=config.py;.",
-        "--hidden-import=PIL._tkinter_finder",
-        "--hidden-import=pystray",
-        "--hidden-import=PIL.Image",
-        "--hidden-import=PIL.ImageDraw",
-        "--hidden-import=pytz",
-        "vmix_monitor_gui.py"
-    ]
-
-    kill_running_exe("VmixMonitor.exe")
-    subprocess.run(cmd, check=True)
-    print("\n✅ VmixMonitor.exe đã được tạo thành công trong thư mục 'dist'!")
+    build_executable(
+        exe_name="VmixMonitor",
+        entry="vmix_monitor_gui.py",
+        windowed=True,
+        icon="assets/Discord-Logo.ico",
+        add_data=[
+            "assets/Discord-Logo.ico;assets",
+            "assets/Discord-Logo.png;assets",
+            "config.py;.",
+        ],
+        hidden_imports=[
+            "PIL._tkinter_finder",
+            "pystray",
+            "PIL.Image",
+            "PIL.ImageDraw",
+            "pytz",
+        ],
+    )
 
 def build_server_gui_exe():
-    """Build file EXE cho Server GUI Advanced"""
+    """Build file EXE cho Server GUI Advanced (hỗ trợ package folder)."""
     print("\n" + "="*50)
     print("Building Server Log Viewer...")
     print("="*50 + "\n")
     
-    cmd = [
-        "pyinstaller",
-        "--onefile",
-        "--windowed",
-        "--name=ServerLogViewer",
-        "--icon=assets/Discord-Logo.ico",
-        "--add-data=config.py;.",
-        "--add-data=assets/Discord-Logo.ico;assets",
-        "--hidden-import=tkinter",
-        "--hidden-import=customtkinter",
-        "--hidden-import=requests",
-        "--hidden-import=pytz",
-        "--hidden-import=websocket",
-        "--hidden-import=websocket._app",
-        "--hidden-import=threading",
-        "--hidden-import=json",
-        "--hidden-import=datetime",
-        "server_gui_advanced.py"
-    ]
-
-    kill_running_exe("ServerLogViewer.exe")
-    subprocess.run(cmd, check=True)
-    print("\n✅ ServerLogViewer.exe đã được tạo thành công trong thư mục 'dist'!")
+    build_executable(
+        exe_name="ServerLogViewer",
+        # Dùng launcher ổn định ở root, đồng thời gom toàn bộ module trong folder package
+        entry="server_gui_advanced.py",
+        windowed=True,
+        icon="assets/Discord-Logo.ico",
+        add_data=[
+            "config.py;.",
+            "assets/Discord-Logo.ico;assets",
+        ],
+        hidden_imports=[
+            "tkinter",
+            "customtkinter",
+            "requests",
+            "pytz",
+            "websocket",
+            "websocket._app",
+        ],
+        collect_submodules=["server_gui_advanced"],
+    )
 
 def build_server_exe():
     """Build file EXE cho Server (console)"""
@@ -95,21 +152,13 @@ def build_server_exe():
     print("Building Server Console...")
     print("="*50 + "\n")
     
-    cmd = [
-        "pyinstaller",
-        "--onefile",
-        "--name=ServerConsole",
-        "--icon=assets/Discord-Logo.ico",
-        "--add-data=config.py;.",
-        "--hidden-import=pymongo",
-        "--hidden-import=requests",
-        "--hidden-import=pytz",
-        "server.py"
-    ]
-
-    kill_running_exe("ServerConsole.exe")
-    subprocess.run(cmd, check=True)
-    print("\n✅ ServerConsole.exe đã được tạo thành công trong thư mục 'dist'!")
+    build_executable(
+        exe_name="ServerConsole",
+        entry="server.py",
+        icon="assets/Discord-Logo.ico",
+        add_data=["config.py;."],
+        hidden_imports=["pymongo", "requests", "pytz"],
+    )
 
 def main():
     """Main function"""

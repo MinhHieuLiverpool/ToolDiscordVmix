@@ -1,4 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_submodules
+
+hiddenimports = ['tkinter', 'customtkinter', 'requests', 'pytz', 'websocket', 'websocket._app']
+hiddenimports += collect_submodules('server_gui_advanced')
 
 
 a = Analysis(
@@ -6,7 +10,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[('config.py', '.'), ('assets/Discord-Logo.ico', 'assets')],
-    hiddenimports=['tkinter', 'customtkinter', 'requests', 'pytz', 'websocket', 'websocket._app', 'threading', 'json', 'datetime'],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
