@@ -110,8 +110,11 @@ class ServerDataGUIUIMixin:
         vmping_header.pack_propagate(False)
 
         ctk.CTkLabel(vmping_header, text="📡 vmPING", font=("Arial", 10, "bold"), text_color="#4CAF50").pack(side="left", padx=10)
+        self.ping_name_entry = ctk.CTkEntry(vmping_header, placeholder_text="Tên máy (tuỳ chọn)...", width=170, font=("Arial", 10))
+        self.ping_name_entry.pack(side="left", padx=(0, 4))
         self.ping_ip_entry = ctk.CTkEntry(vmping_header, placeholder_text="Nhập IP hoặc hostname...", width=200, font=("Arial", 10))
         self.ping_ip_entry.pack(side="left", padx=5)
+        self.ping_name_entry.bind("<Return>", lambda e: self.add_ping_host())
         self.ping_ip_entry.bind("<Return>", lambda e: self.add_ping_host())
         ctk.CTkButton(vmping_header, text="+ Add", command=self.add_ping_host, fg_color="#4CAF50", hover_color="#45a049", width=60, font=("Arial", 10, "bold")).pack(side="left", padx=3)
         ctk.CTkButton(vmping_header, text="▶ Start All", command=self.start_all_pings, fg_color="#2196F3", hover_color="#1976D2", width=85, font=("Arial", 10)).pack(side="left", padx=3)
@@ -632,7 +635,7 @@ class ServerDataGUIUIMixin:
         ctk.CTkButton(btn_frame, text="❌ Hủy", command=dialog.destroy, fg_color="#f44336", hover_color="#d32f2f", width=120, font=("Arial", 11, "bold")).pack(side="left", padx=10)
         name_entry.focus_set()
 
-    def _create_ping_card(self, host):
+    def _create_ping_card(self, host, display_name=""):
         idx = len(self.ping_hosts)
         col = idx % self.ping_grid_cols
         row = idx // self.ping_grid_cols
@@ -644,7 +647,10 @@ class ServerDataGUIUIMixin:
         title_bar.pack(fill="x")
         title_bar.pack_propagate(False)
 
-        ctk.CTkLabel(title_bar, text=host, font=("Arial", 11, "bold"), text_color="#ffffff").pack(side="left", padx=8)
+        shown_name = (display_name or "").strip()
+        title_text = f"{shown_name} | {host}" if shown_name else host
+        title_label = ctk.CTkLabel(title_bar, text=title_text, font=("Arial", 11, "bold"), text_color="#ffffff")
+        title_label.pack(side="left", padx=8)
 
         toggle_btn = ctk.CTkButton(title_bar, text="⏹", width=26, height=22, fg_color="transparent", hover_color="#666666", command=lambda h=host: self.toggle_ping_host(h), font=("Arial", 11))
         toggle_btn.pack(side="right", padx=2)
@@ -662,8 +668,11 @@ class ServerDataGUIUIMixin:
         stats_label.pack(side="left", padx=5)
 
         self.ping_hosts[host] = {
+            "host": host,
+            "name": shown_name,
             "card": card,
             "title_bar": title_bar,
+            "title_label": title_label,
             "toggle_btn": toggle_btn,
             "output_text": output_text,
             "stats_label": stats_label,

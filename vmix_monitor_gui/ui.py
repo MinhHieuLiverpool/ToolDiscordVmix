@@ -130,6 +130,9 @@ class VmixMonitorUIMixin:
             "timeout",
             "cpu",
             "memory",
+            "gpu",
+            "sender_bw",
+            "receiver_bw",
             "rec",
             "live",
             "ext",
@@ -144,33 +147,39 @@ class VmixMonitorUIMixin:
             bootstyle="info",
         )
 
-        self.tree.heading("name", text="📌 Tên máy", anchor=CENTER)
-        self.tree.heading("ip", text="🖥️ IP Local", anchor=CENTER)
-        self.tree.heading("ipwan", text="🌐 IP WAN", anchor=CENTER)
-        self.tree.heading("port", text="🔌 Port", anchor=CENTER)
-        self.tree.heading("ping", text="📡 Ping", anchor=CENTER)
-        self.tree.heading("timeout", text="❌ Timeout", anchor=CENTER)
-        self.tree.heading("cpu", text="⚡ CPU%", anchor=CENTER)
-        self.tree.heading("memory", text="💾 RAM%", anchor=CENTER)
-        self.tree.heading("rec", text="🔴 REC", anchor=CENTER)
-        self.tree.heading("live", text="📡 LIVE", anchor=CENTER)
-        self.tree.heading("ext", text="📤 EXT", anchor=CENTER)
-        self.tree.heading("resolution", text="📺 Res", anchor=CENTER)
-        self.tree.heading("srt", text="📶 SRT Quality", anchor=CENTER)
+        self.tree.heading("name", text="Ten may", anchor=CENTER)
+        self.tree.heading("ip", text="IP Local", anchor=CENTER)
+        self.tree.heading("ipwan", text="IP WAN", anchor=CENTER)
+        self.tree.heading("port", text="Port", anchor=CENTER)
+        self.tree.heading("ping", text="Ping", anchor=CENTER)
+        self.tree.heading("timeout", text="Timeout", anchor=CENTER)
+        self.tree.heading("cpu", text="CPU%", anchor=CENTER)
+        self.tree.heading("memory", text="RAM%", anchor=CENTER)
+        self.tree.heading("gpu", text="GPU%", anchor=CENTER)
+        self.tree.heading("sender_bw", text="Sender", anchor=CENTER)
+        self.tree.heading("receiver_bw", text="Receiver", anchor=CENTER)
+        self.tree.heading("rec", text="REC", anchor=CENTER)
+        self.tree.heading("live", text="LIVE", anchor=CENTER)
+        self.tree.heading("ext", text="EXT", anchor=CENTER)
+        self.tree.heading("resolution", text="Resolution", anchor=CENTER)
+        self.tree.heading("srt", text="SRT Quality", anchor=CENTER)
 
         self.tree.column("name", width=150, anchor=CENTER)
         self.tree.column("ip", width=110, anchor=CENTER)
         self.tree.column("ipwan", width=110, anchor=CENTER)
-        self.tree.column("port", width=55, anchor=CENTER)
-        self.tree.column("ping", width=60, anchor=CENTER)
-        self.tree.column("timeout", width=65, anchor=CENTER)
-        self.tree.column("cpu", width=55, anchor=CENTER)
-        self.tree.column("memory", width=55, anchor=CENTER)
-        self.tree.column("rec", width=45, anchor=CENTER)
-        self.tree.column("live", width=45, anchor=CENTER)
-        self.tree.column("ext", width=45, anchor=CENTER)
-        self.tree.column("resolution", width=80, anchor=CENTER)
-        self.tree.column("srt", width=180, anchor=CENTER)
+        self.tree.column("port", width=70, anchor=CENTER)
+        self.tree.column("ping", width=75, anchor=CENTER)
+        self.tree.column("timeout", width=85, anchor=CENTER)
+        self.tree.column("cpu", width=70, anchor=CENTER)
+        self.tree.column("memory", width=70, anchor=CENTER)
+        self.tree.column("gpu", width=70, anchor=CENTER)
+        self.tree.column("sender_bw", width=110, anchor=CENTER)
+        self.tree.column("receiver_bw", width=110, anchor=CENTER)
+        self.tree.column("rec", width=55, anchor=CENTER)
+        self.tree.column("live", width=55, anchor=CENTER)
+        self.tree.column("ext", width=55, anchor=CENTER)
+        self.tree.column("resolution", width=100, anchor=CENTER)
+        self.tree.column("srt", width=220, anchor=CENTER)
 
         scrollbar = ttk.Scrollbar(
             table_container,
@@ -178,8 +187,15 @@ class VmixMonitorUIMixin:
             command=self.tree.yview,
             bootstyle="info-round",
         )
-        self.tree.configure(yscrollcommand=scrollbar.set)
+        x_scrollbar = ttk.Scrollbar(
+            table_container,
+            orient="horizontal",
+            command=self.tree.xview,
+            bootstyle="info-round",
+        )
+        self.tree.configure(yscrollcommand=scrollbar.set, xscrollcommand=x_scrollbar.set)
         scrollbar.pack(side=RIGHT, fill=Y)
+        x_scrollbar.pack(side="bottom", fill="x")
         self.tree.pack(side=LEFT, fill=BOTH, expand=YES)
 
         btn_frame = ttk.Frame(table_frame)
@@ -433,6 +449,9 @@ class VmixMonitorUIMixin:
             timeout = entry.get("timeout", "0")
             cpu = entry.get("cpu", "—")
             memory = entry.get("memory", "—")
+            gpu = entry.get("gpu", "—")
+            sender_bw = entry.get("sender_bw", "—")
+            receiver_bw = entry.get("receiver_bw", "—")
             rec = entry.get("rec", "—")
             live = entry.get("live", "—")
             ext = entry.get("ext", "—")
@@ -450,6 +469,9 @@ class VmixMonitorUIMixin:
                     timeout,
                     cpu,
                     memory,
+                    gpu,
+                    sender_bw,
+                    receiver_bw,
                     rec,
                     live,
                     ext,

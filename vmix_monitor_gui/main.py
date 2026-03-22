@@ -55,6 +55,9 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
 
         self._vmix_file_cache = ("—", {})
         self._vmix_file_ts = 0.0
+        self._net_last_sent = None
+        self._net_last_recv = None
+        self._net_last_ts = None
 
         self.setup_ui()
         self.setup_tray()

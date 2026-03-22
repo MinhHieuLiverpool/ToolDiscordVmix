@@ -22,6 +22,23 @@ except ImportError:
 
 class VmixMonitorLogicMixin:
     @staticmethod
+    def _to_float_or_none(value) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _format_mbps_text(value_mbps: float | None) -> str:
+        if value_mbps is None:
+            return "—"
+        if value_mbps >= 100:
+            return f"{value_mbps:.0f} Mbps"
+        if value_mbps >= 10:
+            return f"{value_mbps:.1f} Mbps"
+        return f"{value_mbps:.2f} Mbps"
+
+    @staticmethod
     def _format_fps_value(fps_val: float) -> str:
         for std in (23.976, 24.0, 25.0, 29.97, 30.0, 50.0, 59.94, 60.0):
             if abs(fps_val - std) < 0.1:
@@ -165,6 +182,9 @@ class VmixMonitorLogicMixin:
                                         "timeout": "0",
                                         "cpu": "—",
                                         "memory": "—",
+                                        "gpu": "—",
+                                        "sender_bw": "—",
+                                        "receiver_bw": "—",
                                         "rec": "—",
                                         "live": "—",
                                         "ext": "—",
@@ -182,6 +202,9 @@ class VmixMonitorLogicMixin:
                                         port,
                                         "—",
                                         "0",
+                                        "—",
+                                        "—",
+                                        "—",
                                         "—",
                                         "—",
                                         "—",
@@ -315,7 +338,10 @@ class VmixMonitorLogicMixin:
                         ipwan = entry_data.get("ipwan", "unknown")
                         ping = entry_data.get("ping", None)
                         memory = entry_data.get("memory", None)
-                        cpu = entry_data.get("temperature", None)
+                        cpu = entry_data.get("temperature", entry_data.get("cpu", None))
+                        gpu = entry_data.get("gpu", None)
+                        sender_mbps = entry_data.get("sender_mbps", None)
+                        receiver_mbps = entry_data.get("receiver_mbps", None)
 
                         if name and port:
                             self.port_list.append(
@@ -327,6 +353,9 @@ class VmixMonitorLogicMixin:
                                     "ping": f"{ping:.0f}" if ping is not None else "—",
                                     "cpu": f"{cpu:.1f}" if cpu is not None else "—",
                                     "memory": f"{memory:.1f}" if memory is not None else "—",
+                                    "gpu": f"{gpu:.1f}" if gpu is not None else "—",
+                                    "sender_bw": self._format_mbps_text(self._to_float_or_none(sender_mbps)),
+                                    "receiver_bw": self._format_mbps_text(self._to_float_or_none(receiver_mbps)),
                                     "rec": "—",
                                     "live": "—",
                                     "ext": "—",
@@ -346,6 +375,9 @@ class VmixMonitorLogicMixin:
                                     "0",
                                     f"{cpu:.1f}" if cpu is not None else "—",
                                     f"{memory:.1f}" if memory is not None else "—",
+                                    f"{gpu:.1f}" if gpu is not None else "—",
+                                    self._format_mbps_text(self._to_float_or_none(sender_mbps)),
+                                    self._format_mbps_text(self._to_float_or_none(receiver_mbps)),
                                     "—",
                                     "—",
                                     "—",
@@ -444,6 +476,9 @@ class VmixMonitorLogicMixin:
                 "timeout": "0",
                 "cpu": "—",
                 "memory": "—",
+                "gpu": "—",
+                "sender_bw": "—",
+                "receiver_bw": "—",
                 "rec": "—",
                 "live": "—",
                 "ext": "—",
@@ -451,7 +486,7 @@ class VmixMonitorLogicMixin:
                 "srt": "—",
             }
         )
-        self.tree.insert("", tk.END, values=(name, ip, "loading...", port, "—", "0", "—", "—", "—", "—", "—", "—", "—"))
+        self.tree.insert("", tk.END, values=(name, ip, "loading...", port, "—", "0", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—"))
 
         self.name_var.set("")
         self.port_var.set("")
@@ -636,6 +671,69 @@ class VmixMonitorLogicMixin:
         except Exception:
             pass
         return None
+
+    def measure_gpu(self) -> float | None:
+        # Ưu tiên nvidia-smi để lấy % GPU, lấy trung bình nếu có nhiều GPU.
+        try:
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=utilization.gpu",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0:
+                return None
+
+            values = []
+            for line in result.stdout.splitlines():
+                text = line.strip().replace("%", "")
+                if not text:
+                    continue
+                try:
+                    values.append(float(text))
+                except ValueError:
+                    continue
+
+            if values:
+                return round(sum(values) / len(values), 1)
+        except Exception:
+            pass
+
+        return None
+
+    def measure_network_sender_receiver_mbps(self) -> tuple[float | None, float | None]:
+        try:
+            import psutil
+
+            counters = psutil.net_io_counters()
+            sent_now = int(counters.bytes_sent)
+            recv_now = int(counters.bytes_recv)
+            ts_now = time.time()
+
+            if self._net_last_ts is None:
+                self._net_last_sent = sent_now
+                self._net_last_recv = recv_now
+                self._net_last_ts = ts_now
+                return None, None
+
+            dt = max(ts_now - self._net_last_ts, 1e-6)
+            sent_diff = max(sent_now - int(self._net_last_sent or 0), 0)
+            recv_diff = max(recv_now - int(self._net_last_recv or 0), 0)
+
+            self._net_last_sent = sent_now
+            self._net_last_recv = recv_now
+            self._net_last_ts = ts_now
+
+            sender_mbps = (sent_diff * 8) / dt / 1_000_000
+            receiver_mbps = (recv_diff * 8) / dt / 1_000_000
+            return round(sender_mbps, 3), round(receiver_mbps, 3)
+        except Exception:
+            return None, None
 
     @staticmethod
     def _vmix_data_dir() -> str:
@@ -955,12 +1053,17 @@ class VmixMonitorLogicMixin:
                 ping_ms = self._ping_ms
             cpu_pct = self.measure_cpu()
             mem_pct = self.measure_memory()
+            gpu_pct = self.measure_gpu()
+            sender_mbps, receiver_mbps = self.measure_network_sender_receiver_mbps()
 
             vmix_stats = self.get_vmix_stats()
             ping_str = f"{ping_ms:.0f}" if ping_ms is not None else "—"
             timeout_str = str(self.ping_timeout_count)
             cpu_str = f"{cpu_pct:.1f}" if cpu_pct is not None else "—"
             mem_str = f"{mem_pct:.1f}" if mem_pct is not None else "—"
+            gpu_str = f"{gpu_pct:.1f}" if gpu_pct is not None else "—"
+            sender_bw_str = self._format_mbps_text(sender_mbps)
+            receiver_bw_str = self._format_mbps_text(receiver_mbps)
 
             rec_str = "🔴 ON" if vmix_stats["recording"] else "OFF"
             live_str = "🔴 ON" if vmix_stats["streaming"] else "OFF"
@@ -980,6 +1083,9 @@ class VmixMonitorLogicMixin:
                 entry["timeout"] = timeout_str
                 entry["cpu"] = cpu_str
                 entry["memory"] = mem_str
+                entry["gpu"] = gpu_str
+                entry["sender_bw"] = sender_bw_str
+                entry["receiver_bw"] = receiver_bw_str
                 entry["rec"] = rec_str
                 entry["live"] = live_str
                 entry["ext"] = ext_str
@@ -1000,6 +1106,9 @@ class VmixMonitorLogicMixin:
                         "ping_timeouts": self.ping_timeout_count,
                         "temperature": cpu_pct,
                         "memory": mem_pct,
+                        "gpu": gpu_pct,
+                        "sender_mbps": sender_mbps,
+                        "receiver_mbps": receiver_mbps,
                         "vmix_recording": vmix_stats.get("recording", False),
                         "vmix_streaming": vmix_stats.get("streaming", False),
                         "vmix_external": vmix_stats.get("external", False),

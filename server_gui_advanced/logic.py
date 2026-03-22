@@ -654,7 +654,10 @@ class ServerDataGUILogicMixin:
             time.sleep(5)
 
     def save_selected_to_file(self):
-        vmping_list = list(self.ping_hosts.keys()) if hasattr(self, "ping_hosts") else []
+        vmping_list = []
+        if hasattr(self, "ping_hosts"):
+            for host, info in self.ping_hosts.items():
+                vmping_list.append({"host": host, "name": info.get("name", "")})
         ptz_list = []
         for entry in self.selected_data:
             d = entry.get("data", {})
@@ -688,9 +691,19 @@ class ServerDataGUILogicMixin:
                     self.prefix_var.set(loaded_data["prefix"])
                 if "vmping" in loaded_data and isinstance(loaded_data["vmping"], list):
                     self.clear_all_pings()
-                    for host in loaded_data["vmping"]:
+                    for ping_item in loaded_data["vmping"]:
+                        host = ""
+                        name = ""
+
+                        if isinstance(ping_item, str):
+                            # Backward compatibility: old files only store host string
+                            host = ping_item.strip()
+                        elif isinstance(ping_item, dict):
+                            host = str(ping_item.get("host", "")).strip()
+                            name = str(ping_item.get("name", "")).strip()
+
                         if host:
-                            self._create_ping_card(host)
+                            self._create_ping_card(host, name)
                     self.start_all_pings()
                     self.ping_count_label.configure(text=f"{len(self.ping_hosts)} monitors")
 
@@ -782,15 +795,39 @@ class ServerDataGUILogicMixin:
 
         threading.Thread(target=load, daemon=True).start()
 
+    def _looks_like_ping_target(self, value):
+        v = str(value or "").strip()
+        if not v or " " in v or "|" in v:
+            return False
+        if v.lower() == "localhost":
+            return True
+        # Common ping target patterns: IPv4, domain-like host, or IPv6-like.
+        if "." in v or ":" in v:
+            return True
+        return False
+
+    def _normalize_ping_input(self, name, host):
+        n = str(name or "").strip()
+        h = str(host or "").strip()
+        # Keep add behavior deterministic: Name stays name, Host stays host.
+        # Only when host is empty and name looks like a ping target, treat it as host.
+        if not h and self._looks_like_ping_target(n):
+            return "", n
+        return n, h
+
     def add_ping_host(self):
-        host = self.ping_ip_entry.get().strip()
+        raw_name = self.ping_name_entry.get().strip() if hasattr(self, "ping_name_entry") else ""
+        raw_host = self.ping_ip_entry.get().strip()
+        name, host = self._normalize_ping_input(raw_name, raw_host)
         if not host:
             return
         if host in self.ping_hosts:
             messagebox.showwarning("vmPing", f"{host} đang được monitor!")
             return
+        if hasattr(self, "ping_name_entry"):
+            self.ping_name_entry.delete(0, "end")
         self.ping_ip_entry.delete(0, "end")
-        self._create_ping_card(host)
+        self._create_ping_card(host, name)
         self.start_ping_host(host)
         self.ping_count_label.configure(text=f"{len(self.ping_hosts)} monitors")
 
@@ -821,11 +858,24 @@ class ServerDataGUILogicMixin:
         else:
             self.start_ping_host(host)
 
+    def _resolve_ping_target(self, host):
+        info = self.ping_hosts.get(host, {})
+        target = str(info.get("host", host)).strip() or str(host).strip()
+        alt_name = str(info.get("name", "")).strip()
+
+        # Handle legacy/swapped input where machine name was accidentally used as host
+        # and the actual IP/hostname ended up in name.
+        if (" " in target or "|" in target) and alt_name and (" " not in alt_name and "|" not in alt_name):
+            target = alt_name
+
+        return target
+
     def _ping_loop(self, host):
         info = self.ping_hosts[host]
         while info["running"]:
             try:
-                result = subprocess.run(["ping", "-n", "1", "-w", "1000", host], capture_output=True, timeout=4, creationflags=subprocess.CREATE_NO_WINDOW)
+                ping_target = self._resolve_ping_target(host)
+                result = subprocess.run(["ping", "-n", "1", "-w", "1000", ping_target], capture_output=True, timeout=4, creationflags=subprocess.CREATE_NO_WINDOW)
                 try:
                     output = result.stdout.decode("cp1252", errors="ignore")
                 except Exception:
@@ -843,9 +893,9 @@ class ServerDataGUILogicMixin:
                     info["recv"] += 1
                     if ms_val is not None:
                         info["total_ms"] += ms_val
-                    line = f"Reply from {host}: time={ms_val}ms" if ms_val is not None else f"Reply from {host}"
+                    line = f"Reply from {ping_target}: time={ms_val}ms" if ms_val is not None else f"Reply from {ping_target}"
                 else:
-                    line = f"Request timeout for {host}"
+                    line = f"Request timeout for {ping_target}"
 
                 lost = info["sent"] - info["recv"]
                 avg_ms = f"{info['total_ms'] // info['recv']}ms" if info["recv"] > 0 else "—"
