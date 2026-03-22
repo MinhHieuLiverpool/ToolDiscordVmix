@@ -21,14 +21,17 @@ import StatusSection from '../components/StatusSection'
 import { showToast } from '../components/ui/Toast'
 import { logout } from '../services/auth'
 
-const REQUEST_INTERVAL_MS = 5000
-const REQUEST_INTERVAL_ALL_MS = 10000
-const REALTIME_LIMIT_SINGLE = 120
-const REALTIME_LIMIT_ALL = 60
+/* ─── Constants ───────────────────────────────────────── */
+const REALTIME_POLL_MS_SINGLE = 5000
+const REALTIME_POLL_MS_ALL = 10000
+const DAILY_POLL_MS = 30000
+const REALTIME_LIMIT_SINGLE = 60  // ~3 min at ~3s interval
+const REALTIME_LIMIT_ALL = 40
 
 export default function Dashboard() {
     const navigate = useNavigate()
-    /* ─── Machine list (từ WebSocket, không cần gọi API riêng) ─── */
+
+    /* ─── Machine list (từ WebSocket) ─── */
     const [rows, setRows] = useState<BackendLogItem[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -36,19 +39,24 @@ export default function Dashboard() {
     const wsRef = useRef<WebSocket | null>(null)
     const reconnectTimerRef = useRef<number | null>(null)
 
-    /* ─── Filters ───────────────────────────────────────── */
+    /* ─── View & Filters ─── */
+    const [activeView, setActiveView] = useState<TimeFilter>('realtime')
     const [deviceFilter, setDeviceFilter] = useState<DeviceFilter>('__all__')
-    const [timeFilter, setTimeFilter] = useState<TimeFilter>('realtime')
 
-    /* ─── Metric data per machine ───────────────────────── */
-    const [metricsMap, setMetricsMap] = useState<Map<string, MachineMetrics>>(new Map())
-    const [chartLoading, setChartLoading] = useState(false)
-    const abortRef = useRef(false)
+    /* ─── Realtime metrics ─── */
+    const [realtimeMap, setRealtimeMap] = useState<Map<string, MachineMetrics>>(new Map())
+    const [realtimeLoading, setRealtimeLoading] = useState(false)
     const realtimeInFlightRef = useRef(false)
+    const realtimeAbortRef = useRef(false)
+
+    /* ─── Daily metrics ─── */
+    const [dailyMap, setDailyMap] = useState<Map<string, MachineMetrics>>(new Map())
+    const [dailyLoading, setDailyLoading] = useState(false)
     const dailyInFlightRef = useRef(false)
+
     const machineOptionsRef = useRef<Array<{ id: string; label: string }>>([])
 
-    /* ─── Derived ───────────────────────────────────────── */
+    /* ─── Derived ─── */
     const machineOptions = useMemo(() => {
         const map = new Map<string, { id: string; label: string }>()
         rows.forEach((item) => {
@@ -86,11 +94,7 @@ export default function Dashboard() {
         const cpu = toNumber(row?.data.cpu) ?? 0
         const ram = toNumber(row?.data.memory) ?? 0
         const nowLabel = new Date().toLocaleTimeString('vi-VN', { hour12: false })
-        return {
-            id,
-            label,
-            history: [{ timeLabel: nowLabel, cpu, ram }],
-        }
+        return { id, label, history: [{ timeLabel: nowLabel, cpu, ram }] }
     }, [latestRowByMachineId])
 
     useEffect(() => {
@@ -102,12 +106,15 @@ export default function Dashboard() {
         [rows],
     )
 
+    const currentMetrics = activeView === 'realtime' ? realtimeMap : dailyMap
+    const currentLoading = activeView === 'realtime' ? realtimeLoading : dailyLoading
+
     const filteredMachines = useMemo(
         () => {
             const validIds = new Set(onlineMachineOptions.map((item) => item.id))
-            return Array.from(metricsMap.values()).filter((machine) => validIds.has(machine.id))
+            return Array.from(currentMetrics.values()).filter((m) => validIds.has(m.id))
         },
-        [metricsMap, onlineMachineOptions],
+        [currentMetrics, onlineMachineOptions],
     )
 
     const handleLogout = useCallback(() => {
@@ -117,7 +124,7 @@ export default function Dashboard() {
     }, [navigate])
 
     /* ═══════════════════════════════════════════════════════════
-     * WebSocket: nhận dữ liệu realtime cho danh sách máy
+     * WebSocket
      * ═══════════════════════════════════════════════════════════ */
     const loadData = useCallback(async () => {
         try {
@@ -167,9 +174,8 @@ export default function Dashboard() {
     }, [connectWebSocket])
 
     /* ═══════════════════════════════════════════════════════════
-     * REALTIME: Gọi API statistics theo bộ lọc
-    *   - 1 máy → 1 API call, poll 3s
-    *   - Tất cả → gọi tuần tự 3s/máy
+     * REALTIME: 3-minute rolling chart (cuốn chiếu)
+     * Only polls when activeView === 'realtime'
      * ═══════════════════════════════════════════════════════════ */
     const loadRealtimeStats = useCallback(async () => {
         if (realtimeInFlightRef.current) return
@@ -178,15 +184,14 @@ export default function Dashboard() {
             const options = machineOptionsRef.current
             if (options.length === 0) return
 
-            /* --- 1 máy cụ thể --- */
             if (deviceFilter !== '__all__') {
                 const opt = options.find((o) => o.id === deviceFilter)
                 if (!opt) {
-                    setMetricsMap(new Map())
+                    setRealtimeMap(new Map())
                     return
                 }
                 try {
-                    setChartLoading(true)
+                    setRealtimeLoading(true)
                     const payload = await fetchStatistics(opt.id, REALTIME_LIMIT_SINGLE)
                     const history: MetricPoint[] = (payload.data || [])
                         .map((p) => {
@@ -202,23 +207,19 @@ export default function Dashboard() {
                     const metric = history.length > 0
                         ? { id: opt.id, label: opt.label, history }
                         : buildFallbackMetric(opt.id, opt.label)
-                    setMetricsMap(new Map([[opt.id, metric]]))
+                    setRealtimeMap(new Map([[opt.id, metric]]))
                 } catch (err) {
                     console.error(`Stats error ${opt.id}`, err)
-                    setMetricsMap(new Map([[opt.id, buildFallbackMetric(opt.id, opt.label)]]))
+                    setRealtimeMap(new Map([[opt.id, buildFallbackMetric(opt.id, opt.label)]]))
                 } finally {
-                    setChartLoading(false)
+                    setRealtimeLoading(false)
                 }
                 return
             }
 
-            /* --- Tất cả: gọi đồng loạt mỗi chu kỳ --- */
-            abortRef.current = false
-            setChartLoading(true)
-            if (options.length === 0) {
-                setMetricsMap(new Map())
-                return
-            }
+            /* Tất cả máy */
+            realtimeAbortRef.current = false
+            setRealtimeLoading(true)
             const validIds = new Set(options.map((m) => m.id))
 
             const settled = await Promise.allSettled(
@@ -239,18 +240,13 @@ export default function Dashboard() {
                 }),
             )
 
-            if (abortRef.current) return
+            if (realtimeAbortRef.current) return
 
-            setMetricsMap((prev) => {
+            setRealtimeMap((prev) => {
                 const next = new Map<string, MachineMetrics>()
-
-                // Giữ dữ liệu cũ cho máy hợp lệ hiện tại
                 prev.forEach((value, key) => {
-                    if (validIds.has(key)) {
-                        next.set(key, value)
-                    }
+                    if (validIds.has(key)) next.set(key, value)
                 })
-
                 for (let i = 0; i < settled.length; i++) {
                     const item = settled[i]
                     const opt = options[i]
@@ -259,11 +255,7 @@ export default function Dashboard() {
                         next.set(
                             item.value.id,
                             hasHistory
-                                ? {
-                                    id: item.value.id,
-                                    label: item.value.label,
-                                    history: item.value.history,
-                                }
+                                ? { id: item.value.id, label: item.value.label, history: item.value.history }
                                 : buildFallbackMetric(item.value.id, item.value.label),
                         )
                     } else {
@@ -271,30 +263,27 @@ export default function Dashboard() {
                         next.set(opt.id, buildFallbackMetric(opt.id, opt.label))
                     }
                 }
-
                 return next
             })
-            setChartLoading(false)
+            setRealtimeLoading(false)
         } finally {
             realtimeInFlightRef.current = false
         }
     }, [buildFallbackMetric, deviceFilter])
 
     /* ═══════════════════════════════════════════════════════════
-     * DAILY: Gọi statistic_hours
-     *   - 1 máy → /statistic_hours/{id}
-     *   - Tất cả → /statistic_hours (1 API call bulk)
+     * DAILY: statistic_hours
+     * Only polls when activeView === 'daily'
      * ═══════════════════════════════════════════════════════════ */
     const loadDailyStats = useCallback(async () => {
         if (dailyInFlightRef.current) return
         dailyInFlightRef.current = true
-
-        setChartLoading(true)
+        setDailyLoading(true)
         try {
             const options = machineOptionsRef.current
             if (deviceFilter !== '__all__') {
                 if (!options.some((o) => o.id === deviceFilter)) {
-                    setMetricsMap(new Map())
+                    setDailyMap(new Map())
                     return
                 }
                 const doc: StatisticHoursResponse = await fetchStatisticHours(deviceFilter)
@@ -310,24 +299,19 @@ export default function Dashboard() {
                 const metric = history.length > 0
                     ? { id: doc.id, label, history }
                     : buildFallbackMetric(doc.id, label)
-                setMetricsMap(new Map([[doc.id, metric]]))
+                setDailyMap(new Map([[doc.id, metric]]))
             } else {
                 const docs: StatisticHoursResponse[] = await fetchAllStatisticHours()
                 const validIds = new Set(options.map((m) => m.id))
                 if (validIds.size === 0) {
-                    setMetricsMap(new Map())
+                    setDailyMap(new Map())
                     return
                 }
-                setMetricsMap((prev) => {
+                setDailyMap((prev) => {
                     const next = new Map<string, MachineMetrics>()
-
-                    // Giữ data cũ cho máy chưa kịp có bản ghi daily mới
                     prev.forEach((value, key) => {
-                        if (validIds.has(key)) {
-                            next.set(key, value)
-                        }
+                        if (validIds.has(key)) next.set(key, value)
                     })
-
                     for (const doc of docs) {
                         const opt = options.find((o) => o.id === doc.id)
                         const label = opt?.label ?? doc.id
@@ -343,45 +327,45 @@ export default function Dashboard() {
                             : buildFallbackMetric(doc.id, label)
                         next.set(doc.id, metric)
                     }
-
                     for (const opt of options) {
                         if (!next.has(opt.id)) {
                             next.set(opt.id, buildFallbackMetric(opt.id, opt.label))
                         }
                     }
-
                     return next
                 })
             }
         } catch (err) {
             console.error('Daily stats error', err)
         } finally {
-            setChartLoading(false)
+            setDailyLoading(false)
             dailyInFlightRef.current = false
         }
     }, [buildFallbackMetric, deviceFilter])
 
     /* ═══════════════════════════════════════════════════════════
-     * Effect: load dữ liệu khi filter thay đổi
+     * Effects: only load data for the ACTIVE view
      * ═══════════════════════════════════════════════════════════ */
     useEffect(() => {
-        // Abort sequential fetch cũ
-        abortRef.current = true
+        if (activeView !== 'realtime') return
 
-        if (timeFilter === 'realtime') {
-            void loadRealtimeStats()
-            const pollMs = deviceFilter === '__all__' ? REQUEST_INTERVAL_ALL_MS : REQUEST_INTERVAL_MS
-            const id = window.setInterval(() => void loadRealtimeStats(), pollMs)
-            return () => {
-                abortRef.current = true
-                window.clearInterval(id)
-            }
-        } else {
-            void loadDailyStats()
-            const id = window.setInterval(() => void loadDailyStats(), REQUEST_INTERVAL_MS)
-            return () => window.clearInterval(id)
+        realtimeAbortRef.current = true
+        void loadRealtimeStats()
+        const pollMs = deviceFilter === '__all__' ? REALTIME_POLL_MS_ALL : REALTIME_POLL_MS_SINGLE
+        const id = window.setInterval(() => void loadRealtimeStats(), pollMs)
+        return () => {
+            realtimeAbortRef.current = true
+            window.clearInterval(id)
         }
-    }, [timeFilter, deviceFilter, loadRealtimeStats, loadDailyStats])
+    }, [activeView, deviceFilter, loadRealtimeStats])
+
+    useEffect(() => {
+        if (activeView !== 'daily') return
+
+        void loadDailyStats()
+        const id = window.setInterval(() => void loadDailyStats(), DAILY_POLL_MS)
+        return () => window.clearInterval(id)
+    }, [activeView, deviceFilter, loadDailyStats])
 
     /* ═══════════════════════════════════════════════════════════
      * Render
@@ -393,19 +377,35 @@ export default function Dashboard() {
                 <FilterBar
                     deviceFilter={deviceFilter}
                     setDeviceFilter={setDeviceFilter}
-                    timeFilter={timeFilter}
-                    setTimeFilter={setTimeFilter}
+                    activeView={activeView}
+                    setActiveView={setActiveView}
                     machineOptions={onlineMachineOptions}
                     onRefresh={() => void loadData()}
                 />
             </header>
 
-            <ChartSection
-                machines={filteredMachines}
-                chartLoading={chartLoading}
-                totalMachines={onlineMachineOptions.length}
-                timeFilter={timeFilter}
-            />
+            {/* View-specific section title */}
+            <section className="charts-section">
+                <h2 className="section-title">
+                    {activeView === 'realtime' ? (
+                        <>
+                            <span className="gradient-text">⏱ Realtime</span>
+                            <span className="section-subtitle"> — 3 phút cuốn chiếu</span>
+                        </>
+                    ) : (
+                        <>
+                            <span className="gradient-text">📅 Cả ngày</span>
+                            <span className="section-subtitle"> — lịch sử trung bình 15 phút</span>
+                        </>
+                    )}
+                </h2>
+                <ChartSection
+                    machines={filteredMachines}
+                    chartLoading={currentLoading}
+                    totalMachines={onlineMachineOptions.length}
+                    timeFilter={activeView}
+                />
+            </section>
 
             <StatusSection rows={rows} loading={loading} error={error} />
 

@@ -141,6 +141,16 @@ _stats_response_max_limit = int(os.getenv("STATS_RESPONSE_MAX_LIMIT", "200"))
 _stats_flush_interval_sec = max(1, int(os.getenv("STATS_FLUSH_INTERVAL_SEC", "5")))
 _stats_flush_max_age_sec = max(_stats_flush_interval_sec, int(os.getenv("STATS_FLUSH_MAX_AGE_SEC", "20")))
 
+# ── Tiered rollup configuration & buffers ──────────────────────────────────────────
+# Tier: Raw(3min) → 1-min avg(5min) → 5-min avg(15min) → 15-min avg → statistic_hours
+_TIER_RAW_WINDOW_SEC = int(os.getenv("TIER_RAW_WINDOW_SEC", "180"))    # 3 minutes
+_TIER_1M_MAX_AGE_SEC = int(os.getenv("TIER_1M_MAX_AGE_SEC", "300"))    # keep 1-min avgs for 5 min
+_TIER_5M_MAX_AGE_SEC = int(os.getenv("TIER_5M_MAX_AGE_SEC", "900"))    # keep 5-min avgs for 15 min
+_TIERED_ROLLUP_INTERVAL_SEC = int(os.getenv("TIERED_ROLLUP_INTERVAL_SEC", "15"))
+# {statistics_id: [{window_start, window_end, avg_cpu, avg_ram, samples, cpu_points, ram_points, calculated_at}, ...]}
+_stats_1m_buffer: dict = {}
+_stats_5m_buffer: dict = {}
+
 
 def _parse_statistics_id(statistics_id: str):
     """Parse statistics id in format ip:port and return (ip, port_text, port_int_or_none)."""
@@ -613,185 +623,335 @@ def _to_float(value):
         return None
 
 
+def _bucket_1m(dt: datetime):
+    """Align datetime to 1-minute boundary."""
+    return dt.replace(second=0, microsecond=0)
+
+
+def _bucket_5m(dt: datetime):
+    """Align datetime to 5-minute boundary."""
+    return dt.replace(minute=(dt.minute // 5) * 5, second=0, microsecond=0)
+
+
+def _bucket_15m(dt: datetime):
+    """Align datetime to 15-minute boundary."""
+    return dt.replace(minute=(dt.minute // 15) * 15, second=0, microsecond=0)
+
+
 def _bucket_10m(dt: datetime):
+    """Legacy: 10-minute boundary (kept for backward compat)."""
     return dt.replace(minute=(dt.minute // 10) * 10, second=0, microsecond=0)
 
 
-async def _rollup_statistics_10m():
+def _merge_into_statistic_hours(statistics_id: str, new_rows: list, run_stamp: str):
+    """Merge new rollup rows into statistic_hours collection (upsert by window_start)."""
+    if not new_rows:
+        return
+
+    existing_doc = statistics_hours_collection.find_one(
+        {"id": statistics_id},
+        {"_id": 0, "data": 1}
+    )
+    existing_data = existing_doc.get("data", []) if existing_doc else []
+    new_window_map = {row["window_start"]: row for row in new_rows}
+
+    merged_data = []
+    for item in existing_data:
+        if not isinstance(item, dict):
+            continue
+        ws = item.get("window_start")
+        if ws in new_window_map:
+            merged_data.append(new_window_map.pop(ws))
+        else:
+            merged_data.append(item)
+
+    if new_window_map:
+        merged_data.extend(new_window_map.values())
+
+    merged_data.sort(key=lambda x: x.get("window_start", ""))
+
+    statistics_hours_collection.update_one(
+        {"id": statistics_id},
+        {
+            "$set": {
+                "id": statistics_id,
+                "data": merged_data,
+                "updated_at": run_stamp,
+            }
+        },
+        upsert=True,
+    )
+
+    # Update Redis cache if available
+    if _redis_enabled and _redis_client is not None:
+        rolled_doc = {
+            "id": statistics_id,
+            "data": merged_data,
+            "updated_at": run_stamp,
+        }
+        _redis_client.set(_redis_key_stat_hours(statistics_id), _redis_serialize(rolled_doc))
+        _redis_client.sadd(_redis_stat_hours_ids_key, statistics_id)
+
+
+async def _tiered_rollup():
     """
-    Aggregate closed 10-minute buckets from statistics -> statistic_hours,
-    then remove processed points from statistics.
+    Tiered rolling aggregation (cuốn chiếu):
+      Raw (3 min) → 1-min averages (5 min) → 5-min averages (15 min) → statistic_hours
+
+    Runs every 15 seconds. Does NOT touch the 3-minute realtime display buffer.
     """
     loop = asyncio.get_event_loop()
     now_vn = datetime.now(VIETNAM_TZ)
-    current_bucket_start = _bucket_10m(now_vn)
     run_stamp = now_vn.isoformat()
 
-    def _worker():
-        docs = list(statistics_collection.find({}, {"_id": 0, "id": 1, "data": 1}))
-        total_rollup_rows = 0
-        total_samples_pruned = 0
+    raw_cutoff = now_vn - timedelta(seconds=_TIER_RAW_WINDOW_SEC)    # 3 min ago
+    m1_cutoff  = now_vn - timedelta(seconds=_TIER_1M_MAX_AGE_SEC)    # 5 min ago
+    m5_cutoff  = now_vn - timedelta(seconds=_TIER_5M_MAX_AGE_SEC)    # 15 min ago
 
-        for doc in docs:
+    def _worker():
+        tier1_total = 0
+        tier2_total = 0
+        tier3_total = 0
+
+        # ══════════════════════════════════════════════════════════════
+        # TIER 1: Raw samples → 1-minute averages
+        # Process samples from MongoDB statistics collection that are
+        # older than the 3-minute display window.
+        # ══════════════════════════════════════════════════════════════
+        mongo_docs = list(statistics_collection.find({}, {"_id": 0, "id": 1, "data": 1}))
+
+        for doc in mongo_docs:
             statistics_id = doc.get("id", "")
             samples = doc.get("data", [])
             if not statistics_id or not isinstance(samples, list) or not samples:
                 continue
 
-            buckets = {}
-            remaining_samples = []
-            processed_samples = 0
+            old_samples = []   # to aggregate into 1-min buckets
+            remaining = []     # keep for realtime display
 
             for sample in samples:
                 if not isinstance(sample, dict):
-                    remaining_samples.append(sample)
+                    remaining.append(sample)
                     continue
-
                 sample_dt = _parse_sample_time(sample.get("time"))
                 if not sample_dt:
-                    remaining_samples.append(sample)
+                    remaining.append(sample)
                     continue
+                if sample_dt < raw_cutoff:
+                    old_samples.append((sample_dt, sample))
+                else:
+                    remaining.append(sample)
 
-                bucket_start = _bucket_10m(sample_dt)
+            if not old_samples:
+                continue
 
-                # Keep the current (open) bucket, process only closed buckets.
-                if bucket_start >= current_bucket_start:
-                    remaining_samples.append(sample)
-                    continue
-
-                bucket = buckets.setdefault(bucket_start, {
-                    "cpu_sum": 0.0,
-                    "cpu_count": 0,
-                    "ram_sum": 0.0,
-                    "ram_count": 0,
+            # Group by 1-minute window
+            minute_buckets = {}
+            for sample_dt, sample in old_samples:
+                bucket_start = _bucket_1m(sample_dt)
+                bucket = minute_buckets.setdefault(bucket_start, {
+                    "cpu_sum": 0.0, "cpu_count": 0,
+                    "ram_sum": 0.0, "ram_count": 0,
                     "sample_count": 0,
                 })
-
                 cpu = _to_float(sample.get("cpu"))
                 if cpu is not None:
                     bucket["cpu_sum"] += cpu
                     bucket["cpu_count"] += 1
-
                 ram = _to_float(sample.get("ram"))
                 if ram is not None:
                     bucket["ram_sum"] += ram
                     bucket["ram_count"] += 1
-
                 bucket["sample_count"] += 1
-                processed_samples += 1
 
-            if not buckets:
-                continue
+            # Append to 1-min buffer
+            if statistics_id not in _stats_1m_buffer:
+                _stats_1m_buffer[statistics_id] = []
 
-            rollup_rows = 0
-            new_rows = []
-            for bucket_start in sorted(buckets.keys()):
-                agg = buckets[bucket_start]
-                window_end = bucket_start + timedelta(minutes=10)
-                avg_cpu = round(agg["cpu_sum"] / agg["cpu_count"], 2) if agg["cpu_count"] else None
-                avg_ram = round(agg["ram_sum"] / agg["ram_count"], 2) if agg["ram_count"] else None
-
-                row = {
+            for bucket_start in sorted(minute_buckets.keys()):
+                agg = minute_buckets[bucket_start]
+                entry = {
                     "window_start": bucket_start.isoformat(),
-                    "window_end": window_end.isoformat(),
-                    "avg_cpu": avg_cpu,
-                    "avg_ram": avg_ram,
+                    "window_end": (bucket_start + timedelta(minutes=1)).isoformat(),
+                    "avg_cpu": round(agg["cpu_sum"] / agg["cpu_count"], 2) if agg["cpu_count"] else None,
+                    "avg_ram": round(agg["ram_sum"] / agg["ram_count"], 2) if agg["ram_count"] else None,
                     "samples": agg["sample_count"],
                     "cpu_points": agg["cpu_count"],
                     "ram_points": agg["ram_count"],
                     "calculated_at": run_stamp,
                 }
-                new_rows.append(row)
-                rollup_rows += 1
+                _stats_1m_buffer[statistics_id].append(entry)
+                tier1_total += 1
 
-            # Merge theo window_start để giữ format: {id, data:[avg objects...]}
-            existing_doc = statistics_hours_collection.find_one(
+            # Update MongoDB: keep only recent samples
+            statistics_collection.update_one(
                 {"id": statistics_id},
-                {"_id": 0, "data": 1}
-            )
-            existing_data = existing_doc.get("data", []) if existing_doc else []
-            new_window_map = {row["window_start"]: row for row in new_rows}
-
-            merged_data = []
-            for item in existing_data:
-                if not isinstance(item, dict):
-                    continue
-                ws = item.get("window_start")
-                if ws in new_window_map:
-                    merged_data.append(new_window_map.pop(ws))
-                else:
-                    merged_data.append(item)
-
-            if new_window_map:
-                merged_data.extend(new_window_map.values())
-
-            merged_data.sort(key=lambda x: x.get("window_start", ""))
-
-            statistics_hours_collection.update_one(
-                {"id": statistics_id},
-                {
-                    "$set": {
-                        "id": statistics_id,
-                        "data": merged_data,
-                        "updated_at": run_stamp,
-                    }
-                },
-                upsert=True,
+                {"$set": {"data": remaining, "updated_at": run_stamp}},
             )
 
+            # Also update Redis raw cache
             if _redis_enabled and _redis_client is not None:
                 _redis_client.delete(_redis_key_stats_raw(statistics_id))
-                if remaining_samples:
-                    encoded_remaining = [_redis_serialize(s) for s in remaining_samples if isinstance(s, dict)]
-                    if encoded_remaining:
-                        _redis_client.rpush(_redis_key_stats_raw(statistics_id), *encoded_remaining)
+                if remaining:
+                    encoded = [_redis_serialize(s) for s in remaining if isinstance(s, dict)]
+                    if encoded:
+                        _redis_client.rpush(_redis_key_stats_raw(statistics_id), *encoded)
                 _redis_client.set(_redis_key_stats_updated(statistics_id), run_stamp)
                 _redis_client.sadd(_redis_stats_ids_key, statistics_id)
 
-                rolled_doc = {
-                    "id": statistics_id,
-                    "data": merged_data,
-                    "updated_at": run_stamp,
+        # ══════════════════════════════════════════════════════════════
+        # TIER 2: 1-min averages → 5-min averages
+        # Move 1-min entries whose window_end is older than 5 minutes
+        # ══════════════════════════════════════════════════════════════
+        for statistics_id in list(_stats_1m_buffer.keys()):
+            entries = _stats_1m_buffer.get(statistics_id, [])
+            old_entries = []
+            new_entries = []
+
+            for entry in entries:
+                we_dt = _parse_sample_time(entry.get("window_end"))
+                if we_dt and we_dt < m1_cutoff:
+                    old_entries.append(entry)
+                else:
+                    new_entries.append(entry)
+
+            _stats_1m_buffer[statistics_id] = new_entries
+
+            if not old_entries:
+                continue
+
+            # Group by 5-minute window
+            five_min_buckets = {}
+            for entry in old_entries:
+                ws_dt = _parse_sample_time(entry.get("window_start"))
+                if not ws_dt:
+                    continue
+                bucket_start = _bucket_5m(ws_dt)
+                bucket = five_min_buckets.setdefault(bucket_start, {
+                    "cpu_sum": 0.0, "cpu_count": 0,
+                    "ram_sum": 0.0, "ram_count": 0,
+                    "total_samples": 0,
+                })
+                if entry.get("avg_cpu") is not None:
+                    cp = entry.get("cpu_points", 1) or 1
+                    bucket["cpu_sum"] += entry["avg_cpu"] * cp
+                    bucket["cpu_count"] += cp
+                if entry.get("avg_ram") is not None:
+                    rp = entry.get("ram_points", 1) or 1
+                    bucket["ram_sum"] += entry["avg_ram"] * rp
+                    bucket["ram_count"] += rp
+                bucket["total_samples"] += entry.get("samples", 0)
+
+            if statistics_id not in _stats_5m_buffer:
+                _stats_5m_buffer[statistics_id] = []
+
+            for bucket_start in sorted(five_min_buckets.keys()):
+                agg = five_min_buckets[bucket_start]
+                fentry = {
+                    "window_start": bucket_start.isoformat(),
+                    "window_end": (bucket_start + timedelta(minutes=5)).isoformat(),
+                    "avg_cpu": round(agg["cpu_sum"] / agg["cpu_count"], 2) if agg["cpu_count"] else None,
+                    "avg_ram": round(agg["ram_sum"] / agg["ram_count"], 2) if agg["ram_count"] else None,
+                    "samples": agg["total_samples"],
+                    "cpu_points": agg["cpu_count"],
+                    "ram_points": agg["ram_count"],
+                    "calculated_at": run_stamp,
                 }
-                _redis_client.set(_redis_key_stat_hours(statistics_id), _redis_serialize(rolled_doc))
-                _redis_client.sadd(_redis_stat_hours_ids_key, statistics_id)
+                _stats_5m_buffer[statistics_id].append(fentry)
+                tier2_total += 1
 
-            statistics_collection.update_one(
-                {"id": statistics_id},
-                {"$set": {"data": remaining_samples, "updated_at": run_stamp}},
-            )
+        # ══════════════════════════════════════════════════════════════
+        # TIER 3: 5-min averages → 15-min averages → statistic_hours
+        # Move 5-min entries whose window_end is older than 15 minutes
+        # ══════════════════════════════════════════════════════════════
+        for statistics_id in list(_stats_5m_buffer.keys()):
+            entries = _stats_5m_buffer.get(statistics_id, [])
+            old_entries = []
+            new_entries = []
 
-            total_rollup_rows += rollup_rows
-            total_samples_pruned += processed_samples
+            for entry in entries:
+                we_dt = _parse_sample_time(entry.get("window_end"))
+                if we_dt and we_dt < m5_cutoff:
+                    old_entries.append(entry)
+                else:
+                    new_entries.append(entry)
+
+            _stats_5m_buffer[statistics_id] = new_entries
+
+            if not old_entries:
+                continue
+
+            # Group by 15-minute window
+            fifteen_min_buckets = {}
+            for entry in old_entries:
+                ws_dt = _parse_sample_time(entry.get("window_start"))
+                if not ws_dt:
+                    continue
+                bucket_start = _bucket_15m(ws_dt)
+                bucket = fifteen_min_buckets.setdefault(bucket_start, {
+                    "cpu_sum": 0.0, "cpu_count": 0,
+                    "ram_sum": 0.0, "ram_count": 0,
+                    "total_samples": 0,
+                })
+                if entry.get("avg_cpu") is not None:
+                    cp = entry.get("cpu_points", 1) or 1
+                    bucket["cpu_sum"] += entry["avg_cpu"] * cp
+                    bucket["cpu_count"] += cp
+                if entry.get("avg_ram") is not None:
+                    rp = entry.get("ram_points", 1) or 1
+                    bucket["ram_sum"] += entry["avg_ram"] * rp
+                    bucket["ram_count"] += rp
+                bucket["total_samples"] += entry.get("samples", 0)
+
+            new_hours_rows = []
+            for bucket_start in sorted(fifteen_min_buckets.keys()):
+                agg = fifteen_min_buckets[bucket_start]
+                row = {
+                    "window_start": bucket_start.isoformat(),
+                    "window_end": (bucket_start + timedelta(minutes=15)).isoformat(),
+                    "avg_cpu": round(agg["cpu_sum"] / agg["cpu_count"], 2) if agg["cpu_count"] else None,
+                    "avg_ram": round(agg["ram_sum"] / agg["ram_count"], 2) if agg["ram_count"] else None,
+                    "samples": agg["total_samples"],
+                    "cpu_points": agg["cpu_count"],
+                    "ram_points": agg["ram_count"],
+                    "calculated_at": run_stamp,
+                }
+                new_hours_rows.append(row)
+                tier3_total += 1
+
+            # Merge into statistic_hours MongoDB collection
+            _merge_into_statistic_hours(statistics_id, new_hours_rows, run_stamp)
+
             print(
-                f"📊 Rollup 10m [{statistics_id}] windows={rollup_rows} samples={processed_samples} "
-                f"remaining={len(remaining_samples)}"
+                f"📊 Tiered rollup [{statistics_id}] "
+                f"15m-windows={len(new_hours_rows)} "
+                f"samples={sum(r.get('samples', 0) for r in new_hours_rows)}"
             )
 
-        return total_rollup_rows, total_samples_pruned
+        return tier1_total, tier2_total, tier3_total
 
     try:
-        rows, samples = await loop.run_in_executor(None, _worker)
-        if rows > 0 or samples > 0:
-            print(f"✓ Rollup 10m done: windows={rows}, samples_pruned={samples}")
+        t1, t2, t3 = await loop.run_in_executor(None, _worker)
+        if t1 > 0 or t2 > 0 or t3 > 0:
+            print(
+                f"✓ Tiered rollup done: "
+                f"raw→1m={t1}, 1m→5m={t2}, 5m→15m→hours={t3}"
+            )
     except Exception as e:
-        print(f"✗ Rollup 10m error: {e}")
+        print(f"✗ Tiered rollup error: {e}")
 
 
 async def rollup_statistics_scheduler():
-    """Run 10-minute rollup aligned to wall-clock buckets."""
+    """Run tiered rollup every N seconds (replaces old 10-min flat rollup)."""
     # Run once on startup to flush any already-closed windows.
-    await _rollup_statistics_10m()
+    await _tiered_rollup()
 
     while True:
         try:
-            now_vn = datetime.now(VIETNAM_TZ)
-            next_tick = _bucket_10m(now_vn) + timedelta(minutes=10)
-            sleep_seconds = max(1.0, (next_tick - now_vn).total_seconds())
-            await asyncio.sleep(sleep_seconds)
-            await _rollup_statistics_10m()
+            await asyncio.sleep(_TIERED_ROLLUP_INTERVAL_SEC)
+            await _tiered_rollup()
         except Exception as e:
-            print(f"✗ Rollup scheduler error: {e}")
+            print(f"✗ Tiered rollup scheduler error: {e}")
             await asyncio.sleep(10)
 
 @app.post("/delete")
@@ -1345,6 +1505,47 @@ async def flush_statistics_from_cache():
         except Exception as e:
             print(f"✗ Error in flush_statistics_from_cache: {e}")
 
+async def _daily_cleanup_task():
+    """Xóa sạch dữ liệu thống kê vào 3:00 sáng mỗi ngày"""
+    global _realtime_stats_cache, _stats_1m_buffer, _stats_5m_buffer, _realtime_stats_updated
+    last_cleaned_date = None
+    
+    while True:
+        try:
+            now = datetime.now()
+            # Kiểm tra xem có đúng 3:00 sáng không
+            if now.hour == 3 and now.minute == 0 and last_cleaned_date != now.date():
+                print(f"🧹 [CLEANUP] Bắt đầu dọn dẹp dữ liệu định kỳ (3:00 AM {now.date()})...")
+                
+                # 1. Xóa trong MongoDB
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, lambda: statistics_collection.delete_many({}))
+                await loop.run_in_executor(None, lambda: statistics_hours_collection.delete_many({}))
+                await loop.run_in_executor(None, lambda: statistics_ts_collection.delete_many({}))
+                
+                # 2. Xóa trong Redis (nếu có)
+                if r:
+                    try:
+                        keys_to_del = r.keys("v_stat_hours:*") + r.keys("v_stats:*")
+                        if keys_to_del:
+                            r.delete(*keys_to_del)
+                    except:
+                        pass
+                
+                # 3. Reset buffers trong Python
+                _realtime_stats_cache.clear()
+                _stats_1m_buffer.clear()
+                _stats_5m_buffer.clear()
+                _realtime_stats_updated.clear()
+                
+                last_cleaned_date = now.date()
+                print("✓ [CLEANUP] Đã xóa sạch statistic, statistic_hours và statistics_ts.")
+            
+            await asyncio.sleep(30) # Check mỗi 30 giây
+        except Exception as e:
+            print(f"✗ Daily cleanup error: {e}")
+            await asyncio.sleep(60)
+
 @app.on_event("startup")
 async def startup_event():
     """Preload cache từ MongoDB, khởi động background tasks"""
@@ -1365,9 +1566,11 @@ async def startup_event():
     asyncio.create_task(check_inactive_machines())
     asyncio.create_task(flush_statistics_from_cache())
     asyncio.create_task(rollup_statistics_scheduler())
+    asyncio.create_task(_daily_cleanup_task()) # Chạy task dọn dẹp 3h sáng
     print("✓ Background task started: Auto-OFF inactive machines (1 min timeout)")
     print(f"✓ Background task started: Statistics cache flush every {_stats_flush_interval_sec}s")
-    print("✓ Background task started: 10-minute statistics rollup")
+    print(f"✓ Background task started: Tiered rollup every {_TIERED_ROLLUP_INTERVAL_SEC}s (raw→1m→5m→15m→hours)")
+    print("✓ Background task started: Daily cleanup scheduled at 03:00 AM")
 
 if __name__ == "__main__":
     import uvicorn

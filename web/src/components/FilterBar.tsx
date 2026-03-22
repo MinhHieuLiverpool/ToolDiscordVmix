@@ -4,15 +4,15 @@ import type { DeviceFilter, TimeFilter } from '../types'
 export default function FilterBar({
     deviceFilter,
     setDeviceFilter,
-    timeFilter,
-    setTimeFilter,
+    activeView,
+    setActiveView,
     machineOptions,
     onRefresh,
 }: {
     deviceFilter: DeviceFilter
     setDeviceFilter: (v: DeviceFilter) => void
-    timeFilter: TimeFilter
-    setTimeFilter: (v: TimeFilter) => void
+    activeView: TimeFilter
+    setActiveView: (v: TimeFilter) => void
     machineOptions: { id: string; label: string }[]
     onRefresh: () => void
 }) {
@@ -117,7 +117,7 @@ export default function FilterBar({
                 </div>
             </div>
 
-            {/* Time Filter Toggle */}
+            {/* View Navigation Buttons */}
             <div className="filter-group">
                 <label className="filter-label">
                     <svg className="filter-label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -125,22 +125,26 @@ export default function FilterBar({
                         <line x1="12" y1="20" x2="12" y2="4" />
                         <line x1="6" y1="20" x2="6" y2="14" />
                     </svg>
-                    Dữ liệu
+                    Chế độ xem
                 </label>
-                <div className="toggle-buttons">
+                <div className="view-nav-buttons">
                     <button
                         type="button"
-                        className={`toggle-btn ${timeFilter === 'realtime' ? 'toggle-active' : ''}`}
-                        onClick={() => setTimeFilter('realtime')}
+                        className={`view-nav-btn ${activeView === 'realtime' ? 'view-nav-active' : ''}`}
+                        onClick={() => setActiveView('realtime')}
                     >
-                        <span className="toggle-icon">⏱</span> Hiện tại
+                        <span className="view-nav-icon">⏱</span>
+                        <span className="view-nav-label">Realtime</span>
+                        <span className="view-nav-desc">3 phút</span>
                     </button>
                     <button
                         type="button"
-                        className={`toggle-btn ${timeFilter === 'daily' ? 'toggle-active' : ''}`}
-                        onClick={() => setTimeFilter('daily')}
+                        className={`view-nav-btn ${activeView === 'daily' ? 'view-nav-active' : ''}`}
+                        onClick={() => setActiveView('daily')}
                     >
-                        <span className="toggle-icon">📅</span> Cả ngày
+                        <span className="view-nav-icon">📅</span>
+                        <span className="view-nav-label">Cả ngày</span>
+                        <span className="view-nav-desc">15 phút avg</span>
                     </button>
                 </div>
             </div>

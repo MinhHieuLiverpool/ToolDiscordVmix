@@ -681,43 +681,69 @@
     font-size: 0.78rem;
   }
 
-  /* ── Toggle Buttons ── */
-  .toggle-buttons {
+  /* ── View Navigation Buttons ── */
+  .view-nav-buttons {
     display: flex;
-    background: rgba(15, 23, 42, 0.6);
-    border: 1px solid rgba(99, 102, 241, 0.12);
-    border-radius: 0.75rem;
-    overflow: hidden;
+    gap: 0.5rem;
   }
 
-  .toggle-btn {
-    display: inline-flex;
+  .view-nav-btn {
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 0.35rem;
-    padding: 0.55rem 1rem;
-    font-size: 0.75rem;
-    font-weight: 600;
+    gap: 0.15rem;
+    padding: 0.5rem 1.1rem;
+    border: 1px solid rgba(99, 102, 241, 0.12);
+    border-radius: 0.85rem;
+    background: rgba(15, 23, 42, 0.6);
     color: #64748b;
-    border: none;
-    background: transparent;
     cursor: pointer;
     transition: all 0.25s ease;
-    white-space: nowrap;
+    min-width: 90px;
+    position: relative;
   }
 
-  .toggle-btn:hover {
+  .view-nav-btn:hover {
+    border-color: rgba(99, 102, 241, 0.25);
     color: #94a3b8;
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(15, 23, 42, 0.8);
+    transform: translateY(-1px);
   }
 
-  .toggle-icon {
-    font-size: 0.8rem;
-  }
-
-  .toggle-active {
-    background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(168, 85, 247, 0.2)) !important;
+  .view-nav-active {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(168, 85, 247, 0.14)) !important;
+    border-color: rgba(129, 140, 248, 0.4) !important;
     color: #c4b5fd !important;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    box-shadow: 0 0 16px rgba(99, 102, 241, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .view-nav-active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 20%;
+    right: 20%;
+    height: 2px;
+    background: linear-gradient(90deg, #818cf8, #c084fc);
+    border-radius: 999px;
+  }
+
+  .view-nav-icon {
+    font-size: 1rem;
+    line-height: 1;
+  }
+
+  .view-nav-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .view-nav-desc {
+    font-size: 0.55rem;
+    font-weight: 500;
+    opacity: 0.6;
+    line-height: 1;
   }
 
   /* ── Refresh Button ── */
@@ -749,6 +775,19 @@
   .refresh-icon {
     width: 14px;
     height: 14px;
+  }
+
+  /* ═══════════════════ SECTION TITLES ═══════════════════ */
+  .section-title {
+    font-size: 1.5rem;
+    font-weight: 800;
+    margin-bottom: 1.25rem;
+  }
+
+  .section-subtitle {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #64748b;
   }
 
   /* ═══════════════════ CHARTS SECTION ═══════════════════ */
@@ -964,12 +1003,6 @@
   /* ═══════════════════ STATUS CARDS ═══════════════════ */
   .cards-section {
     margin-bottom: 2rem;
-  }
-
-  .section-title {
-    font-size: 1.5rem;
-    font-weight: 800;
-    margin-bottom: 1.25rem;
   }
 
   .status-cards-grid {
