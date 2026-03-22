@@ -18,6 +18,7 @@ import Header from '../components/Header'
 import FilterBar from '../components/FilterBar'
 import ChartSection from '../components/ChartSection'
 import StatusSection from '../components/StatusSection'
+import { showToast } from '../components/ui/Toast'
 import { logout } from '../services/auth'
 
 const REQUEST_INTERVAL_MS = 5000
@@ -111,6 +112,7 @@ export default function Dashboard() {
 
     const handleLogout = useCallback(() => {
         logout()
+        showToast('Đã đăng xuất thành công.', 'info')
         navigate('/login', { replace: true })
     }, [navigate])
 

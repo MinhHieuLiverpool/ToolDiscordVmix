@@ -20,6 +20,9 @@ export interface BackendLogItem {
     resolution: string
     srt_quality: string
     srt_off_time?: string
+    gpu: number | string | null
+    sender_mbps: number | string | null
+    receiver_mbps: number | string | null
   }
 }
 

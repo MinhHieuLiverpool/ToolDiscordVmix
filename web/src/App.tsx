@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import ToastContainer from './components/ui/Toast'
 import Dashboard from './pages/Dashboard'
 import LoginPage from './pages/Login'
 import { isAuthenticated } from './services/auth'
@@ -12,6 +13,7 @@ function App() {
 
   return (
     <BrowserRouter>
+      <ToastContainer />
       <Routes>
         <Route path="/dashboard" element={<ProtectedDashboard />} />
         <Route path="/Login" element={<LoginPage />} />
