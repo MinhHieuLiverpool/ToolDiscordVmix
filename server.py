@@ -174,6 +174,15 @@ def _build_statistics_id(ip_value, port_value, fallback_name: str) -> str:
         return f"{ip_text}:{port_text}"
     return fallback_name
 
+
+def _normalize_payload_list(raw_value):
+    """Normalize payload field to list (accept dict for backward compatibility)."""
+    if isinstance(raw_value, dict):
+        return [raw_value]
+    if isinstance(raw_value, list):
+        return raw_value
+    return []
+
 def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port: str, status: str):
     """Gửi notification lên Discord (nếu có webhook)"""
     if not DISCORD_WEBHOOK:
@@ -225,14 +234,9 @@ async def receive_data(data: dict):
         timestamp = datetime.now(VIETNAM_TZ).isoformat()
         machine_name = data.get('name', data.get('ip', 'Unknown'))
 
-        # Extract SRT as array (backward compat: accept dict too)
-        srt_raw = data.get('SRT', [])
-        if isinstance(srt_raw, dict):
-            srt_list = [srt_raw]
-        elif isinstance(srt_raw, list):
-            srt_list = srt_raw
-        else:
-            srt_list = []
+        # Extract SRT/stream as arrays (backward compat: accept dict too)
+        srt_list = _normalize_payload_list(data.get('SRT', []))
+        stream_list = _normalize_payload_list(data.get('stream', []))
 
         # ── 1. Cập nhật cache ngay lập tức (<1ms, không block) ──
         prev = _data_cache.get(machine_name, {})
@@ -253,6 +257,7 @@ async def receive_data(data: dict):
             "vmix_external":  data.get('vmix_external', False),
             "resolution":     data.get('resolution', '—'),
             "SRT": srt_list,
+            "stream": stream_list,
             "last_updated": timestamp,
             "timestamp":   timestamp,
         }
@@ -262,7 +267,8 @@ async def receive_data(data: dict):
         statistics_id = f"{ip_val}:{machine_name}" if ip_val else machine_name
 
         # Compare SRT status changes for Discord notifications
-        prev_srt_list = prev.get('SRT', []) if isinstance(prev.get('SRT'), list) else ([prev.get('SRT', {})] if isinstance(prev.get('SRT'), dict) else [])
+        prev_srt_list = _normalize_payload_list(prev.get('SRT', []))
+        prev_stream_list = _normalize_payload_list(prev.get('stream', []))
         prev_srt_map = {s.get('port', ''): s.get('status', '') for s in prev_srt_list if isinstance(s, dict)}
         for srt_item in srt_list:
             if not isinstance(srt_item, dict):
@@ -278,7 +284,7 @@ async def receive_data(data: dict):
         fields_to_check = ['ip', 'ipwan']
         has_changes = not prev or any(
             prev.get(f) != document.get(f) for f in fields_to_check
-        ) or str(prev_srt_list) != str(srt_list)
+        ) or str(prev_srt_list) != str(srt_list) or str(prev_stream_list) != str(stream_list)
         if has_changes and prev:
             for f in fields_to_check:
                 if prev.get(f) != document.get(f):
@@ -995,13 +1001,8 @@ async def get_by_ip(ip: str):
         entries = []
         
         for doc in documents:
-            srt_raw = doc.get("SRT", [])
-            if isinstance(srt_raw, dict):
-                srt_list = [srt_raw]
-            elif isinstance(srt_raw, list):
-                srt_list = srt_raw
-            else:
-                srt_list = []
+            srt_list = _normalize_payload_list(doc.get("SRT", []))
+            stream_list = _normalize_payload_list(doc.get("stream", []))
             entry = {
                 "timestamp": doc.get("last_updated", doc.get("timestamp", "")),
                 "data": {
@@ -1021,6 +1022,7 @@ async def get_by_ip(ip: str):
                     "vmix_external": doc.get("vmix_external", False),
                     "resolution": doc.get("resolution", "—"),
                     "SRT": srt_list,
+                    "stream": stream_list,
                 }
             }
             entries.append(entry)

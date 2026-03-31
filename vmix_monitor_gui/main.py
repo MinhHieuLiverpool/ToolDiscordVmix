@@ -58,6 +58,8 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
         self._net_last_sent = None
         self._net_last_recv = None
         self._net_last_ts = None
+        self._stream_quality_cache = {}
+        self._stream_quality_ts = 0.0
 
         self.setup_ui()
         self.setup_tray()

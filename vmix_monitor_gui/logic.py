@@ -581,6 +581,7 @@ class VmixMonitorLogicMixin:
                 "ipwan": wan_ip,
                 "statusapp": status_value,
                 "SRT": srt_list,
+                "stream": [],
             }
             url = SERVER_URL
             headers = {"Content-Type": "application/json"}
@@ -1028,6 +1029,414 @@ class VmixMonitorLogicMixin:
     def get_wan_ip(self):
         return "127.0.0.1"
 
+    # ── Stream quality helpers (ported from test_stream4_quality) ──────────
+
+    @staticmethod
+    def _stream_sort_key(stream_name: str) -> tuple[int, str]:
+        m = re.match(r"streaming(\d+)$", stream_name.lower())
+        if not m:
+            return (9999, stream_name)
+        return (int(m.group(1)), stream_name)
+
+    @staticmethod
+    def _find_all_streaming_blocks(raw: str) -> dict:
+        blocks: dict = {}
+        for m in re.finditer(r'name="(Streaming\d*)"[^>]*>\s*<value>(.*?)</value>', raw, re.DOTALL | re.IGNORECASE):
+            blocks[m.group(1)] = m.group(2)
+        return blocks
+
+    @staticmethod
+    def _setting_name_to_stream_key(setting_name: str) -> str:
+        if setting_name.lower() == "streaming":
+            return "streaming1"
+        m = re.match(r"streaming(\d+)$", setting_name, re.IGNORECASE)
+        if m:
+            return f"streaming{m.group(1)}"
+        return setting_name.lower()
+
+    def _build_stream_info(self, root: ET.Element) -> dict:
+        def _t(tag: str, default: str = "") -> str:
+            return (root.findtext(tag) or default).strip()
+
+        enabled = _t("Enabled", "0") == "1"
+        if root.find("SRTEnabled") is not None or root.find("SRTHost") is not None:
+            kind = "SRT"
+            host = _t("SRTHost")
+            port = _t("SRTPort")
+            path = "(n/a)"
+            video_bitrate = _t("SRTVideoBandwidth")
+            audio_bitrate = _t("SRTAudioBandwidth")
+            codec = _t("SRTVideoCodec")
+            latency = _t("SRTLatencyMS") or _t("SRTLatency")
+            passphrase = _t("SRTPassPhrase") or _t("SRTPassphrase")
+            quality_label = _t("Quality") or _t("PresetName")
+        else:
+            kind = "RTMP/HTTP"
+            host = _t("Url") or _t("Server")
+            port = _t("Port")
+            path = _t("StreamName") or _t("Key")
+            video_bitrate = _t("VideoBitrate")
+            audio_bitrate = _t("AudioBitrate")
+            codec = _t("VideoCodec")
+            latency = "(n/a)"
+            passphrase = ""
+            quality_label = _t("Quality") or _t("ProfileName") or _t("PresetName")
+
+        return {
+            "enabled": enabled,
+            "kind": kind,
+            "host": host,
+            "port": port,
+            "path": path,
+            "video_bitrate": video_bitrate,
+            "audio_bitrate": audio_bitrate,
+            "codec": codec,
+            "quality_label": quality_label,
+            "latency": latency,
+            "passphrase": passphrase,
+        }
+
+    def _parse_all_streams_from_config(self) -> tuple[dict, str, str | None]:
+        vmix_dir = self._vmix_data_dir()
+        cfg = os.path.join(vmix_dir, "settingbackups", "current.config")
+        if not os.path.isfile(cfg):
+            return {}, cfg, f"Không tìm thấy file: {cfg}"
+
+        try:
+            raw = self._read_file_shared(cfg)
+        except Exception as ex:
+            return {}, cfg, f"Lỗi đọc current.config: {ex}"
+
+        blocks = self._find_all_streaming_blocks(raw)
+        src_path = cfg
+
+        if not blocks:
+            settings_dir = os.path.join(vmix_dir, "settingbackups")
+            pattern = os.path.join(settings_dir, "*.config")
+            for other in sorted(glob.glob(pattern)):
+                if os.path.abspath(other) == os.path.abspath(cfg):
+                    continue
+                try:
+                    raw_other = self._read_file_shared(other)
+                except Exception:
+                    continue
+                blocks = self._find_all_streaming_blocks(raw_other)
+                if blocks:
+                    src_path = other
+                    break
+
+        if not blocks:
+            return {}, src_path, "Không tìm thấy block Streaming* trong current.config hoặc file backup"
+
+        streams: dict = {}
+        parsed_names: list[str] = []
+        for setting_name, xml_body in blocks.items():
+            try:
+                inner = html.unescape(xml_body.strip())
+                root = ET.fromstring(f"<root>{inner}</root>")
+            except ET.ParseError:
+                continue
+            stream_key = self._setting_name_to_stream_key(setting_name)
+            streams[stream_key] = self._build_stream_info(root)
+            parsed_names.append(setting_name)
+
+        if not streams:
+            return {}, src_path, "Có block Streaming* nhưng parse XML thất bại"
+
+        parsed_names_sorted = ", ".join(sorted(parsed_names, key=lambda n: self._stream_sort_key(self._setting_name_to_stream_key(n))))
+        src_label = f"{src_path} ({parsed_names_sorted})"
+        return streams, src_label, None
+
+    def _find_latest_streaming_logs_by_stream(self) -> tuple[dict, str | None]:
+        streaming_dir = os.path.join(self._vmix_data_dir(), "streaming")
+        if not os.path.isdir(streaming_dir):
+            return {}, f"Không tìm thấy thư mục: {streaming_dir}"
+
+        latest_by_stream: dict = {}
+        for name in os.listdir(streaming_dir):
+            path = os.path.join(streaming_dir, name)
+            if not os.path.isfile(path):
+                continue
+            m_stream = re.match(r"^(streaming\d+)\b", name, re.IGNORECASE)
+            if not m_stream:
+                continue
+
+            last_write = datetime.fromtimestamp(os.path.getmtime(path))
+            stream_name = m_stream.group(1).lower()
+            cur = latest_by_stream.get(stream_name)
+            if cur is None or last_write > cur[1]:
+                latest_by_stream[stream_name] = (path, last_write)
+
+        if not latest_by_stream:
+            return {}, "Không có file streaming* trong thư mục streaming"
+
+        result: dict = {}
+        for stream_name, (latest_path, latest_write) in latest_by_stream.items():
+            try:
+                content = self._read_file_shared(latest_path)
+            except Exception:
+                with open(latest_path, "r", encoding="utf-8", errors="replace") as f:
+                    content = f.read()
+
+            quality_matches = re.findall(r"frame=.*?fps=.*?q=.*?(?:L?size=.*?)?bitrate=.*?kbits/s.*", content)
+            quality_line = quality_matches[-1].strip() if quality_matches else ""
+
+            result[stream_name] = {
+                "stream_name": stream_name,
+                "file_path": latest_path,
+                "file_name": os.path.basename(latest_path),
+                "last_write": latest_write,
+                "quality_line": quality_line,
+                "raw_content": content,
+            }
+
+        return result, None
+
+    @staticmethod
+    def _extract_command_line(raw_content: str) -> str:
+        m = re.search(r"Command line:\s*(.*?)ffmpeg version", raw_content, re.DOTALL)
+        if not m:
+            return ""
+        return re.sub(r"\s+", " ", m.group(1)).strip()
+
+    @staticmethod
+    def _first_group(pattern: str, text: str) -> str:
+        m = re.search(pattern, text)
+        return m.group(1).strip() if m else ""
+
+    def _build_ui_snapshot(self, raw_content: str) -> dict:
+        cmd = self._extract_command_line(raw_content)
+
+        video_bitrate = self._first_group(r"-b:v\s+(\S+)", cmd) or "(khong xac dinh)"
+        width = self._first_group(r"-s:v\s+(\d+)x\d+", cmd)
+        height = self._first_group(r"-s:v\s+\d+x(\d+)", cmd)
+        encode_size = f"{width} x {height}" if width and height else "(khong xac dinh)"
+        audio_bitrate = self._first_group(r"-b:a\s+(\S+)", cmd) or "(khong xac dinh)"
+
+        profile = self._first_group(r"-profile:v\s+(\S+)", cmd) or "(khong xac dinh)"
+        level = self._first_group(r"-level:v\s+(\S+)", cmd) or "(khong xac dinh)"
+        preset = self._first_group(r"-preset:v\s+(\S+)", cmd) or "(khong xac dinh)"
+        threads = self._first_group(r"-threads\s+(\S+)", cmd) or "(khong xac dinh)"
+
+        audio_codec = self._first_group(r"-codec:a\s+(\S+)", cmd)
+        audio_format = audio_codec.upper() if audio_codec else "(khong xac dinh)"
+
+        source = "(khong xac dinh tu ffmpeg log)"
+        aspect_ratio_crop = "(khong xac dinh tu ffmpeg log)"
+        stream_delay = "(khong xac dinh tu ffmpeg log)"
+        network_buffer = "(khong xac dinh tu ffmpeg log)"
+        keyframe_aligned = "(khong xac dinh tu ffmpeg log)"
+
+        channels = "stereo" if re.search(r"\bstereo\b", raw_content, re.IGNORECASE) else "(khong xac dinh)"
+
+        gop = self._first_group(r"-g:v\s+(\d+)", cmd)
+        fps_raw = self._first_group(r"(\d+(?:\.\d+)?)\s*fps", raw_content)
+        if gop and fps_raw:
+            try:
+                key_sec = float(gop) / float(fps_raw)
+                keyframe_frequency = f"{gop} frames (~{key_sec:.2f}s @ {fps_raw}fps)"
+            except Exception:
+                keyframe_frequency = f"{gop} frames"
+        elif gop:
+            keyframe_frequency = f"{gop} frames"
+        else:
+            keyframe_frequency = "(khong xac dinh)"
+
+        has_nal = bool(re.search(r"nal[_-]hrd", cmd, re.IGNORECASE))
+        has_strict = bool(re.search(r"strict[-_]cbr|nal[_-]hrd=cbr", cmd, re.IGNORECASE))
+        strict_cbr = "ON" if has_strict else "OFF/Unknown"
+        nal_cbr = "ON" if has_nal else "OFF/Unknown"
+
+        return {
+            "video_bitrate": video_bitrate,
+            "encode_size": encode_size,
+            "audio_bitrate": audio_bitrate,
+            "source": source,
+            "profile": profile,
+            "level": level,
+            "preset": preset,
+            "aspect_ratio_crop": aspect_ratio_crop,
+            "audio_format": audio_format,
+            "channels": channels,
+            "keyframe_frequency": keyframe_frequency,
+            "stream_delay": stream_delay,
+            "threads": threads,
+            "network_buffer": network_buffer,
+            "strict_cbr": strict_cbr,
+            "nal_cbr": nal_cbr,
+            "keyframe_aligned": keyframe_aligned,
+        }
+
+    @staticmethod
+    def _parse_k_to_kbps(raw: str) -> float:
+        m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*k", (raw or "").lower())
+        return float(m.group(1)) if m else 0.0
+
+    @staticmethod
+    def _parse_quality_metric(line: str, field: str) -> float:
+        if not line:
+            return 0.0
+        if field == "bitrate":
+            m = re.search(r"bitrate=\s*([0-9]+(?:\.[0-9]+)?)kbits/s", line)
+        elif field == "speed":
+            m = re.search(r"speed=\s*([0-9]+(?:\.[0-9]+)?)x", line)
+        else:
+            m = None
+        return float(m.group(1)) if m else 0.0
+
+    def _assess_stream_health(self, latest: dict, ui: dict) -> dict:
+        actual_bitrate = self._parse_quality_metric(latest.get("quality_line", ""), "bitrate")
+        target_bitrate = self._parse_k_to_kbps(ui.get("video_bitrate", ""))
+        speed = self._parse_quality_metric(latest.get("quality_line", ""), "speed")
+        dropped_warnings = len(re.findall(r"frame dropped", latest.get("raw_content", ""), re.IGNORECASE))
+
+        ratio = (actual_bitrate / target_bitrate) if target_bitrate > 0 else 0.0
+        duration_sec = 0.0
+        m_time = re.search(r"time=([0-9]{2}):([0-9]{2}):([0-9]{2}(?:\.[0-9]+)?)", latest.get("quality_line", ""))
+        if m_time:
+            duration_sec = int(m_time.group(1)) * 3600 + int(m_time.group(2)) * 60 + float(m_time.group(3))
+
+        if dropped_warnings >= 20 or (target_bitrate > 0 and ratio < 0.5):
+            status = "DO"
+        elif (
+            dropped_warnings > 0
+            or (target_bitrate > 0 and ratio < 0.85)
+            or (speed > 0 and speed < 0.95)
+            or (duration_sec > 0 and duration_sec < 20)
+        ):
+            status = "VANG"
+        else:
+            status = "XANH"
+
+        reason = f"ratio={ratio:.2f}, speed={speed:.2f}x, dropped={dropped_warnings}, duration={duration_sec:.1f}s"
+
+        return {
+            "status": status,
+            "reason": reason,
+            "actual_bitrate_kbps": actual_bitrate,
+            "target_bitrate_kbps": target_bitrate,
+            "bitrate_ratio": ratio,
+            "speed": speed,
+            "dropped_warnings": dropped_warnings,
+        }
+
+    def _build_stream_quality_entry(self, stream_name: str, info: dict | None, latest: dict | None, live_window_sec: int) -> dict:
+        now = datetime.now()
+        last_write_iso = latest.get("last_write").isoformat() if latest and latest.get("last_write") else None
+        runtime_status = None
+        if latest and latest.get("last_write"):
+            age_sec = (now - latest.get("last_write")).total_seconds()
+            runtime_status = "ON" if age_sec <= live_window_sec else "OFF"
+
+        ui = self._build_ui_snapshot(latest.get("raw_content", "")) if latest else None
+        health = self._assess_stream_health(latest, ui) if latest and ui else None
+
+        return {
+            "stream": stream_name,
+            "config": None
+            if info is None
+            else {
+                "enabled": info.get("enabled"),
+                "kind": info.get("kind"),
+                "host": info.get("host"),
+                "port": info.get("port"),
+                "path": info.get("path"),
+                "video_bitrate": info.get("video_bitrate"),
+                "audio_bitrate": info.get("audio_bitrate"),
+                "codec": info.get("codec"),
+                "quality": info.get("quality_label"),
+                "latency": info.get("latency"),
+                "passphrase_set": bool(info.get("passphrase")),
+            },
+            "runtime": {
+                "status": runtime_status,
+                "last_write": last_write_iso,
+                "latest_log_file": latest.get("file_name") if latest else None,
+                "quality_line": latest.get("quality_line") if latest else None,
+            },
+            "ui_snapshot": ui,
+            "health": health,
+        }
+
+    def get_stream_quality_snapshot(self, live_window_sec: int = 20) -> dict:
+        now = time.time()
+        if now - self._stream_quality_ts < 5 and self._stream_quality_cache:
+            return self._stream_quality_cache
+
+        streams_cfg, cfg_source, cfg_error = self._parse_all_streams_from_config()
+        latest_by_stream, log_error = self._find_latest_streaming_logs_by_stream()
+
+        all_streams = sorted(set(streams_cfg.keys()) | set(latest_by_stream.keys()), key=self._stream_sort_key)
+        entries = []
+        for stream_name in all_streams:
+            info = streams_cfg.get(stream_name)
+            latest = latest_by_stream.get(stream_name)
+            entries.append(self._build_stream_quality_entry(stream_name, info, latest, live_window_sec))
+
+        payload = {
+            "generated_at": datetime.now().isoformat(),
+            "config_source": cfg_source,
+            "config_error": cfg_error,
+            "log_error": log_error,
+            "streams": entries,
+        }
+
+        self._stream_quality_cache = payload
+        self._stream_quality_ts = now
+        return payload
+
+    def _build_stream_rows_for_db(self, snapshot: dict | None) -> list[dict]:
+        """Convert UI stream quality snapshot to compact stream array for server/database."""
+        if not isinstance(snapshot, dict):
+            return []
+
+        streams = snapshot.get("streams", [])
+        if not isinstance(streams, list):
+            return []
+
+        def _int_or_zero(value) -> int:
+            try:
+                return int(round(float(value)))
+            except (TypeError, ValueError):
+                return 0
+
+        def _fmt_or_empty(value, decimals: int) -> str:
+            try:
+                return f"{float(value):.{decimals}f}"
+            except (TypeError, ValueError):
+                return ""
+
+        rows: list[dict] = []
+        for entry in sorted(streams, key=lambda s: self._stream_sort_key(str((s or {}).get("stream", "")))):
+            if not isinstance(entry, dict):
+                continue
+
+            runtime = entry.get("runtime") or {}
+            health = entry.get("health") or {}
+            ui_snap = entry.get("ui_snapshot") or {}
+
+            rows.append({
+                "stream": str(entry.get("stream", "") or ""),
+                "runtime": str(runtime.get("status", "") or ""),
+                "health": str(health.get("status", "") or ""),
+                "vbit": str(ui_snap.get("video_bitrate", "") or ""),
+                "size": str(ui_snap.get("encode_size", "") or ""),
+                "abit": str(ui_snap.get("audio_bitrate", "") or ""),
+                "level": str(ui_snap.get("level", "") or ""),
+                "preset": str(ui_snap.get("preset", "") or ""),
+                "aformat": str(ui_snap.get("audio_format", "") or ""),
+                "channels": str(ui_snap.get("channels", "") or ""),
+                "keyframe": str(ui_snap.get("keyframe_frequency", "") or ""),
+                "actual": _int_or_zero(health.get("actual_bitrate_kbps", 0)),
+                "target": _int_or_zero(health.get("target_bitrate_kbps", 0)),
+                "ratio": _fmt_or_empty(health.get("bitrate_ratio"), 2),
+                "speed": _fmt_or_empty(health.get("speed"), 2),
+                "dropped": _int_or_zero(health.get("dropped_warnings", 0)),
+                "file": str(runtime.get("latest_log_file", "") or ""),
+            })
+
+        return rows
+
     def monitor_loop(self):
         import requests
 
@@ -1130,6 +1539,10 @@ class VmixMonitorLogicMixin:
                     "status": current_status,
                 })
 
+            quality_snapshot = self.get_stream_quality_snapshot()
+            stream_rows = self._build_stream_rows_for_db(quality_snapshot)
+            self.root.after(0, lambda qs=quality_snapshot: self.update_stream_quality_table(qs))
+
             # Send ONE request with all SRT streams
             try:
                 machine_name = socket.gethostname()
@@ -1150,6 +1563,8 @@ class VmixMonitorLogicMixin:
                     "vmix_external": vmix_stats.get("external", False),
                     "resolution": res_str,
                     "SRT": srt_list,
+                    "stream": stream_rows,
+                    "stream_quality": quality_snapshot,
                 }
                 headers = {"Content-Type": "application/json"}
                 response = self.http_session.post(SERVER_URL, json=data, headers=headers, timeout=5)

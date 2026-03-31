@@ -19,7 +19,7 @@ except ImportError:
 
 class VmixMonitorUIMixin:
     def setup_ui(self):
-        win_w, win_h = 1400, 750
+        win_w, win_h = 1400, 900
         self.root.geometry(f"{win_w}x{win_h}")
         self.root.resizable(True, False)
         self.root.update_idletasks()
@@ -269,6 +269,79 @@ class VmixMonitorUIMixin:
         )
         self.status_label.pack(pady=(5, 0))
 
+        quality_frame = ttk.Labelframe(
+            main_frame,
+            text="📡 Stream Quality Snapshot",
+            padding=10,
+            bootstyle="secondary",
+        )
+        quality_frame.pack(fill=BOTH, expand=YES, pady=(0, 15))
+
+        q_columns = (
+            "stream",
+            "runtime",
+            "health",
+            "vbit",
+            "size",
+            "abit",
+            "level",
+            "preset",
+            "aformat",
+            "channels",
+            "keyframe",
+            "actual",
+            "target",
+            "ratio",
+            "speed",
+            "dropped",
+            "file",
+        )
+        self.stream_quality_tree = ttk.Treeview(
+            quality_frame,
+            columns=q_columns,
+            show="headings",
+            height=6,
+            bootstyle="secondary",
+        )
+        for col, label, width in (
+            ("stream", "Stream", 90),
+            ("runtime", "Runtime", 70),
+            ("health", "Health", 70),
+            ("vbit", "Video", 90),
+            ("size", "Size", 110),
+            ("abit", "Audio", 80),
+            ("level", "Level", 70),
+            ("preset", "Preset", 90),
+            ("aformat", "AudioFmt", 80),
+            ("channels", "Channels", 80),
+            ("keyframe", "Keyframe", 210),
+            ("actual", "Actual kbps", 90),
+            ("target", "Target kbps", 90),
+            ("ratio", "Ratio", 70),
+            ("speed", "Speed", 70),
+            ("dropped", "Dropped", 80),
+            ("file", "LatestFile", 200),
+        ):
+            self.stream_quality_tree.heading(col, text=label, anchor=CENTER)
+            self.stream_quality_tree.column(col, width=width, anchor=CENTER)
+
+        q_scrollbar = ttk.Scrollbar(
+            quality_frame,
+            orient=VERTICAL,
+            command=self.stream_quality_tree.yview,
+            bootstyle="info-round",
+        )
+        q_xscrollbar = ttk.Scrollbar(
+            quality_frame,
+            orient="horizontal",
+            command=self.stream_quality_tree.xview,
+            bootstyle="info-round",
+        )
+        self.stream_quality_tree.configure(yscrollcommand=q_scrollbar.set, xscrollcommand=q_xscrollbar.set)
+        q_scrollbar.pack(side=RIGHT, fill=Y)
+        q_xscrollbar.pack(side="bottom", fill="x")
+        self.stream_quality_tree.pack(side=LEFT, fill=BOTH, expand=YES)
+
         log_frame = ttk.Labelframe(
             main_frame,
             text="📝 Activity Logs",
@@ -287,6 +360,65 @@ class VmixMonitorUIMixin:
             wrap=tk.WORD,
         )
         self.log_text.pack(fill=BOTH, expand=YES)
+
+    def update_stream_quality_table(self, snapshot: dict | None):
+        if not hasattr(self, "stream_quality_tree"):
+            return
+        tree = self.stream_quality_tree
+        for item in tree.get_children():
+            tree.delete(item)
+
+        if not snapshot:
+            tree.insert("", tk.END, values=("(no data)",) + ("-",) * (len(tree["columns"]) - 1))
+            return
+
+        streams = snapshot.get("streams", []) if isinstance(snapshot, dict) else []
+        if not streams:
+            tree.insert("", tk.END, values=("(empty)",) + ("-",) * (len(tree["columns"]) - 1))
+            return
+
+        def _sort_key(entry):
+            return self._stream_sort_key(entry.get("stream", "")) if hasattr(self, "_stream_sort_key") else entry.get("stream", "")
+
+        for entry in sorted(streams, key=_sort_key):
+            cfg = entry.get("config") or {}
+            run = entry.get("runtime") or {}
+            health = entry.get("health") or {}
+            ui_snap = entry.get("ui_snapshot") or {}
+
+            def _health_dot(status: str) -> str:
+                s = (status or "").upper()
+                if s == "XANH":
+                    return "🟢"
+                if s == "VANG":
+                    return "🟡"
+                if s == "DO":
+                    return "🔴"
+                return "⚪"
+
+            tree.insert(
+                "",
+                tk.END,
+                values=(
+                    entry.get("stream", ""),
+                    run.get("status", "-"),
+                    _health_dot(health.get("status", "")) if health else "⚪",
+                    ui_snap.get("video_bitrate", "-"),
+                    ui_snap.get("encode_size", "-"),
+                    ui_snap.get("audio_bitrate", "-"),
+                    ui_snap.get("level", "-"),
+                    ui_snap.get("preset", "-"),
+                    ui_snap.get("audio_format", "-"),
+                    ui_snap.get("channels", "-"),
+                    ui_snap.get("keyframe_frequency", "-"),
+                    f"{health.get('actual_bitrate_kbps', 0):.0f}" if health else "-",
+                    f"{health.get('target_bitrate_kbps', 0):.0f}" if health else "-",
+                    f"{health.get('bitrate_ratio', 0):.2f}" if health else "-",
+                    f"{health.get('speed', 0):.2f}" if health else "-",
+                    str(health.get("dropped_warnings", "-")) if health else "-",
+                    run.get("latest_log_file", "-"),
+                ),
+            )
 
     def create_tray_image(self):
         image = Image.new("RGB", (64, 64), color="green")

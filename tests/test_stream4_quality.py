@@ -21,15 +21,18 @@ Lưu ý:
 
 from __future__ import annotations
 
+import argparse
+import json
 import glob
 import html
 import os
 import re
 import sys
+import time
 from datetime import datetime
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 # ─── Màu ANSI ────────────────────────────────────────────────────────────────
 _USE_COLOR = sys.stdout.isatty() or os.environ.get("TERM") not in (None, "")
@@ -58,6 +61,13 @@ def _warn(label: str, value: str) -> None:
 
 def _err(label: str, value: str) -> None:
     print(f"  {_R}✘{_X}  {_B}{label:<26}{_X}  {value}")
+
+
+def _stream_sort_key(stream_name: str) -> Tuple[int, str]:
+    m = re.match(r"streaming(\d+)$", stream_name.lower())
+    if not m:
+        return (9999, stream_name)
+    return (int(m.group(1)), stream_name)
 
 
 # ─── Helpers đọc file vMix (shared read) ────────────────────────────────────
@@ -163,6 +173,7 @@ class StreamInfo:
 
 @dataclass
 class LatestStreamingLog:
+    stream_name: str
     file_path: str
     file_name: str
     last_write: datetime
@@ -202,6 +213,18 @@ class StreamHealth:
     dropped_warnings: int
 
 
+@dataclass
+class StreamMonitorRow:
+    stream_name: str
+    enabled_config: str
+    runtime_status: str
+    health_status: str
+    last_write: str
+    file_name: str
+    bitrate_actual: str
+    bitrate_target: str
+
+
 # ─── Helpers tìm & parse block Streaming* ────────────────────────────────────
 
 
@@ -220,6 +243,28 @@ def _find_streaming_block(raw: str) -> Tuple[Optional[str], Optional[str]]:
         if m:
             return m.group(1), name
     return None, None
+
+
+def _find_all_streaming_blocks(raw: str) -> Dict[str, str]:
+    """Lấy toàn bộ block Streaming, Streaming2, Streaming3... trong config."""
+
+    blocks: Dict[str, str] = {}
+    for m in re.finditer(
+        r'name="(Streaming\d*)"[^>]*>\s*<value>(.*?)</value>',
+        raw,
+        re.DOTALL | re.IGNORECASE,
+    ):
+        blocks[m.group(1)] = m.group(2)
+    return blocks
+
+
+def _setting_name_to_stream_key(setting_name: str) -> str:
+    if setting_name.lower() == "streaming":
+        return "streaming1"
+    m = re.match(r"streaming(\d+)$", setting_name, re.IGNORECASE)
+    if m:
+        return f"streaming{m.group(1)}"
+    return setting_name.lower()
 
 
 def _build_stream_info(root: ET.Element) -> StreamInfo:
@@ -318,6 +363,59 @@ def _parse_stream4_from_config() -> Tuple[Optional[StreamInfo], str]:
     return info, src_label
 
 
+def _parse_all_streams_from_config() -> Tuple[Dict[str, StreamInfo], str, Optional[str]]:
+    vmix_dir = _vmix_data_dir()
+    cfg = os.path.join(vmix_dir, "settingbackups", "current.config")
+    if not os.path.isfile(cfg):
+        return {}, cfg, f"Không tìm thấy file: {cfg}"
+
+    try:
+        raw = _read_file_shared(cfg)
+    except Exception as ex:
+        return {}, cfg, f"Lỗi đọc current.config: {ex}"
+
+    blocks = _find_all_streaming_blocks(raw)
+    src_path = cfg
+
+    if not blocks:
+        settings_dir = os.path.join(vmix_dir, "settingbackups")
+        pattern = os.path.join(settings_dir, "*.config")
+        for other in sorted(glob.glob(pattern)):
+            if os.path.abspath(other) == os.path.abspath(cfg):
+                continue
+            try:
+                raw_other = _read_file_shared(other)
+            except Exception:
+                continue
+            blocks = _find_all_streaming_blocks(raw_other)
+            if blocks:
+                src_path = other
+                break
+
+    if not blocks:
+        _debug_scan_vmix_for_streaming(vmix_dir)
+        return {}, src_path, "Không tìm thấy block Streaming* trong current.config hoặc file backup"
+
+    streams: Dict[str, StreamInfo] = {}
+    parsed_names: List[str] = []
+    for setting_name, xml_body in blocks.items():
+        try:
+            inner = html.unescape(xml_body.strip())
+            root = ET.fromstring(f"<root>{inner}</root>")
+        except ET.ParseError:
+            continue
+        stream_key = _setting_name_to_stream_key(setting_name)
+        streams[stream_key] = _build_stream_info(root)
+        parsed_names.append(setting_name)
+
+    if not streams:
+        return {}, src_path, "Có block Streaming* nhưng parse XML thất bại"
+
+    parsed_names_sorted = ", ".join(sorted(parsed_names, key=lambda n: _stream_sort_key(_setting_name_to_stream_key(n))))
+    src_label = f"{src_path} ({parsed_names_sorted})"
+    return streams, src_label, None
+
+
 # ─── Hiển thị kết quả ───────────────────────────────────────────────────────
 
 
@@ -352,51 +450,313 @@ def print_stream4(info: Optional[StreamInfo], source: str, error: Optional[str])
         _ok("Passphrase", "(đã đặt)" if info.passphrase else "(không)")
 
 
-def _find_latest_streaming_log_today() -> Tuple[Optional[LatestStreamingLog], Optional[str]]:
+def _find_latest_streaming_logs_by_stream() -> Tuple[Dict[str, LatestStreamingLog], Optional[str]]:
     streaming_dir = os.path.join(_vmix_data_dir(), "streaming")
     if not os.path.isdir(streaming_dir):
-        return None, f"Không tìm thấy thư mục: {streaming_dir}"
+        return {}, f"Không tìm thấy thư mục: {streaming_dir}"
 
-    now = datetime.now()
-    today = now.date()
-    today_logs = []
+    latest_by_stream: Dict[str, Tuple[str, datetime]] = {}
 
     for name in os.listdir(streaming_dir):
         path = os.path.join(streaming_dir, name)
-        if not os.path.isfile(path) or not name.lower().endswith(".log"):
+        if not os.path.isfile(path):
+            continue
+
+        # Chỉ nhận file bắt đầu bằng streaming<so>, ví dụ: streaming1 ....log/txt
+        m_stream = re.match(r"^(streaming\d+)\b", name, re.IGNORECASE)
+        if not m_stream:
             continue
 
         last_write = datetime.fromtimestamp(os.path.getmtime(path))
-        if last_write.date() == today:
-            today_logs.append((path, last_write))
+        stream_name = m_stream.group(1).lower()
+        cur = latest_by_stream.get(stream_name)
+        if cur is None or last_write > cur[1]:
+            latest_by_stream[stream_name] = (path, last_write)
 
-    if not today_logs:
-        return None, f"Không có file streaming .log trong ngày {today.isoformat()}"
+    if not latest_by_stream:
+        return {}, "Không có file streaming* trong thư mục streaming"
 
-    latest_path, latest_write = max(today_logs, key=lambda x: x[1])
+    result: Dict[str, LatestStreamingLog] = {}
+    for stream_name, (latest_path, latest_write) in latest_by_stream.items():
+        try:
+            content = _read_file_shared(latest_path)
+        except Exception:
+            with open(latest_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
 
-    try:
-        content = _read_file_shared(latest_path)
-    except Exception:
-        with open(latest_path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
+        quality_matches = re.findall(
+            r"frame=.*?fps=.*?q=.*?(?:L?size=.*?)?bitrate=.*?kbits/s.*",
+            content,
+        )
+        quality_line = quality_matches[-1].strip() if quality_matches else ""
 
-    quality_matches = re.findall(
-        r"frame=.*?fps=.*?q=.*?(?:L?size=.*?)?bitrate=.*?kbits/s.*",
-        content,
-    )
-    quality_line = quality_matches[-1].strip() if quality_matches else ""
-
-    return (
-        LatestStreamingLog(
+        result[stream_name] = LatestStreamingLog(
+            stream_name=stream_name,
             file_path=latest_path,
             file_name=os.path.basename(latest_path),
             last_write=latest_write,
             quality_line=quality_line,
             raw_content=content,
-        ),
-        None,
-    )
+        )
+
+    return result, None
+
+
+def _render_table(headers: List[str], rows: List[List[str]]) -> None:
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+
+    def _line(parts: List[str]) -> str:
+        return "| " + " | ".join(parts[i].ljust(widths[i]) for i in range(len(parts))) + " |"
+
+    sep = "+-" + "-+-".join("-" * w for w in widths) + "-+"
+    print(sep)
+    print(_line(headers))
+    print(sep)
+    for row in rows:
+        print(_line(row))
+    print(sep)
+
+
+def _build_monitor_rows(
+    streams_cfg: Dict[str, StreamInfo],
+    latest_by_stream: Dict[str, LatestStreamingLog],
+    live_window_sec: int,
+) -> List[StreamMonitorRow]:
+    rows: List[StreamMonitorRow] = []
+    now = datetime.now()
+
+    all_streams = sorted(set(streams_cfg.keys()) | set(latest_by_stream.keys()), key=_stream_sort_key)
+    for stream_name in all_streams:
+        info = streams_cfg.get(stream_name)
+        latest = latest_by_stream.get(stream_name)
+
+        if info is None:
+            enabled_label = "UNKNOWN"
+        else:
+            enabled_label = "ON" if info.enabled else "OFF"
+
+        if latest is None:
+            runtime = "OFF"
+            health_status = "-"
+            last_write = "-"
+            file_name = "-"
+            bitrate_actual = "-"
+        else:
+            age_sec = (now - latest.last_write).total_seconds()
+            runtime = "ON" if age_sec <= live_window_sec else "OFF"
+
+            ui = _build_ui_snapshot(latest.raw_content)
+            health = _assess_stream_health(latest, ui)
+            health_status = health.status
+            last_write = latest.last_write.strftime("%Y-%m-%d %H:%M:%S")
+            file_name = latest.file_name
+            bitrate_actual = f"{health.actual_bitrate_kbps:.0f}"
+
+        target = _parse_k_to_kbps(info.video_bitrate) if info and info.video_bitrate else 0.0
+        bitrate_target = f"{target:.0f}" if target > 0 else "-"
+
+        rows.append(
+            StreamMonitorRow(
+                stream_name=stream_name,
+                enabled_config=enabled_label,
+                runtime_status=runtime,
+                health_status=health_status,
+                last_write=last_write,
+                file_name=file_name,
+                bitrate_actual=bitrate_actual,
+                bitrate_target=bitrate_target,
+            )
+        )
+
+    return rows
+
+
+def _build_json_stream_entry(
+    stream_name: str,
+    info: Optional[StreamInfo],
+    latest: Optional[LatestStreamingLog],
+    ui: Optional[StreamingQualitySnapshot],
+    health: Optional[StreamHealth],
+    live_window_sec: int,
+) -> Dict[str, object]:
+    now = datetime.now()
+    last_write_iso = latest.last_write.isoformat() if latest else None
+    runtime_status = None
+    if latest:
+        age_sec = (now - latest.last_write).total_seconds()
+        runtime_status = "ON" if age_sec <= live_window_sec else "OFF"
+
+    return {
+        "stream": stream_name,
+        "config": {
+            "enabled": info.enabled if info else None,
+            "kind": info.kind if info else None,
+            "host": info.host if info else None,
+            "port": info.port if info else None,
+            "path": info.path if info else None,
+            "video_bitrate": info.video_bitrate if info else None,
+            "audio_bitrate": info.audio_bitrate if info else None,
+            "codec": info.codec if info else None,
+            "quality": info.quality_label if info else None,
+            "latency": info.latency if info else None,
+            "passphrase_set": bool(info.passphrase) if info else None,
+        },
+        "runtime": {
+            "status": runtime_status,
+            "last_write": last_write_iso,
+            "latest_log_file": latest.file_name if latest else None,
+            "quality_line": latest.quality_line if latest else None,
+        },
+        "ui_snapshot": None
+        if ui is None
+        else {
+            "video_bitrate": ui.video_bitrate,
+            "encode_size": ui.encode_size,
+            "audio_bitrate": ui.audio_bitrate,
+            "profile": ui.profile,
+            "level": ui.level,
+            "preset": ui.preset,
+            "aspect_ratio_crop": ui.aspect_ratio_crop,
+            "audio_format": ui.audio_format,
+            "channels": ui.channels,
+            "keyframe_frequency": ui.keyframe_frequency,
+            "stream_delay": ui.stream_delay,
+            "threads": ui.threads,
+            "network_buffer": ui.network_buffer,
+            "strict_cbr": ui.strict_cbr,
+            "nal_cbr": ui.nal_cbr,
+            "keyframe_aligned": ui.keyframe_aligned,
+        },
+        "health": None
+        if health is None
+        else {
+            "status": health.status,
+            "reason": health.reason,
+            "actual_bitrate_kbps": health.actual_bitrate_kbps,
+            "target_bitrate_kbps": health.target_bitrate_kbps,
+            "bitrate_ratio": health.bitrate_ratio,
+            "encode_speed": health.speed,
+            "dropped_warnings": health.dropped_warnings,
+        },
+    }
+
+
+def _export_json_snapshot(
+    streams_cfg: Dict[str, StreamInfo],
+    latest_by_stream: Dict[str, LatestStreamingLog],
+    cfg_source: str,
+    cfg_error: Optional[str],
+    log_error: Optional[str],
+    live_window_sec: int,
+    json_out_path: str | None,
+    json_stdout: bool,
+) -> None:
+    payload: Dict[str, object] = {
+        "generated_at": datetime.now().isoformat(),
+        "config_source": cfg_source,
+        "config_error": cfg_error,
+        "log_error": log_error,
+        "streams": [],
+    }
+
+    all_streams = sorted(set(streams_cfg.keys()) | set(latest_by_stream.keys()), key=_stream_sort_key)
+    for stream_name in all_streams:
+        info = streams_cfg.get(stream_name)
+        latest = latest_by_stream.get(stream_name)
+        ui = _build_ui_snapshot(latest.raw_content) if latest else None
+        health = _assess_stream_health(latest, ui) if latest and ui else None
+        payload["streams"].append(
+            _build_json_stream_entry(stream_name, info, latest, ui, health, live_window_sec)
+        )
+
+    text = json.dumps(payload, ensure_ascii=True, indent=2)
+
+    if json_out_path:
+        with open(json_out_path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    if json_stdout:
+        print("\nJSON SNAPSHOT:")
+        print(text)
+
+
+def _render_monitor_screen(
+    interval_sec: int,
+    live_window_sec: int,
+    json_out_path: str | None = None,
+    json_stdout: bool = False,
+) -> None:
+    streams_cfg, cfg_source, cfg_error = _parse_all_streams_from_config()
+    latest_by_stream, log_error = _find_latest_streaming_logs_by_stream()
+
+    os.system("cls" if os.name == "nt" else "clear")
+    _sep("LOOP STREAM MONITOR")
+    _ok("Time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    _ok("Config source", cfg_source)
+    _ok("Refresh", f"{interval_sec}s")
+    _ok("Live window", f"{live_window_sec}s")
+    print()
+
+    if cfg_error:
+        _warn("Config", cfg_error)
+    if log_error:
+        _warn("Logs", log_error)
+
+    rows = _build_monitor_rows(streams_cfg, latest_by_stream, live_window_sec)
+    if not rows:
+        _warn("Monitor", "Khong co stream nao de hien thi")
+        return
+
+    headers = [
+        "Stream",
+        "Enabled",
+        "Runtime",
+        "Health",
+        "Actual(kbps)",
+        "Target(kbps)",
+        "LastWrite",
+        "LatestFile",
+    ]
+    table_rows = [
+        [
+            r.stream_name,
+            r.enabled_config,
+            r.runtime_status,
+            r.health_status,
+            r.bitrate_actual,
+            r.bitrate_target,
+            r.last_write,
+            r.file_name,
+        ]
+        for r in rows
+    ]
+    _render_table(headers, table_rows)
+    print("\nNhan Ctrl+C de thoat monitor")
+
+    if json_out_path or json_stdout:
+        _export_json_snapshot(
+            streams_cfg,
+            latest_by_stream,
+            cfg_source,
+            cfg_error,
+            log_error,
+            live_window_sec,
+            json_out_path,
+            json_stdout,
+        )
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Loop monitor cho cac stream vMix")
+    parser.add_argument("--interval", type=int, default=2, help="So giay refresh man hinh")
+    parser.add_argument("--live-window", type=int, default=15, help="So giay de xep stream la ON")
+    parser.add_argument("--once", action="store_true", help="Render mot lan roi thoat")
+    parser.add_argument("--json-out", type=str, default="", help="Ghi snapshot JSON ra file (overwrite moi lan)")
+    parser.add_argument("--json-stdout", action="store_true", help="In snapshot JSON ra stdout")
+    return parser.parse_args()
 
 
 def _extract_command_line(raw_content: str) -> str:
@@ -537,67 +897,92 @@ def _assess_stream_health(latest: LatestStreamingLog, ui: StreamingQualitySnapsh
     )
 
 
-def print_latest_streaming_log_today(
-    latest: Optional[LatestStreamingLog],
+def print_latest_streaming_logs_today(
+    latest_by_stream: Dict[str, LatestStreamingLog],
     error: Optional[str],
 ) -> None:
-    _sep("STREAMING LOG HOM NAY - FILE MOI NHAT")
+    _sep("STREAMING LOG HOM NAY - MOI STREAM 1,2,3...")
     if error:
         _err("Trang thai", error)
         return
 
-    if latest is None:
+    if not latest_by_stream:
         _err("Trang thai", "Khong co du lieu")
         return
 
-    _ok("File moi nhat", latest.file_name)
-    _ok("LastWrite", latest.last_write.strftime("%Y-%m-%d %H:%M:%S"))
-    _ok("Duong dan", latest.file_path)
-    if latest.quality_line:
-        _ok("Quality line", latest.quality_line)
-    else:
-        _warn("Quality line", "Khong tim thay dong quality trong log")
+    for stream_name in sorted(latest_by_stream.keys(), key=_stream_sort_key):
+        latest = latest_by_stream[stream_name]
+        _sep(f"{stream_name.upper()} - FILE MOI NHAT TRONG NGAY")
 
-    ui = _build_ui_snapshot(latest.raw_content)
-    _sep("DOI CHIEU STREAMING QUALITY (TU LOG)")
-    _ok("Video Bit Rates", ui.video_bitrate)
-    _ok("Encode Size", ui.encode_size)
-    _ok("Audio Bit Rate", ui.audio_bitrate)
-    _ok("Source", ui.source)
-    _ok("Profile", ui.profile)
-    _ok("Level", ui.level)
-    _ok("Preset", ui.preset)
-    _ok("Aspect Ratio / Crop", ui.aspect_ratio_crop)
-    _ok("Audio Format", ui.audio_format)
-    _ok("Channels", ui.channels)
-    _ok("Keyframe Frequency", ui.keyframe_frequency)
-    _ok("Stream Delay", ui.stream_delay)
-    _ok("Threads", ui.threads)
-    _ok("Network Buffer", ui.network_buffer)
-    _ok("Strict CBR", ui.strict_cbr)
-    _ok("NAL CBR", ui.nal_cbr)
-    _ok("Keyframe Aligned", ui.keyframe_aligned)
+        _ok("File moi nhat", latest.file_name)
+        _ok("LastWrite", latest.last_write.strftime("%Y-%m-%d %H:%M:%S"))
+        _ok("Duong dan", latest.file_path)
+        if latest.quality_line:
+            _ok("Quality line", latest.quality_line)
+        else:
+            _warn("Quality line", "Khong tim thay dong quality trong log")
 
-    health = _assess_stream_health(latest, ui)
-    _sep("DANH GIA MAU STREAM")
-    if health.status == "DO":
-        _err("Trang thai", "DO")
-    elif health.status == "VANG":
-        _warn("Trang thai", "VANG")
-    else:
-        _ok("Trang thai", "XANH")
+        ui = _build_ui_snapshot(latest.raw_content)
+        _sep(f"{stream_name.upper()} - DOI CHIEU STREAMING QUALITY (TU LOG)")
+        _ok("Video Bit Rates", ui.video_bitrate)
+        _ok("Encode Size", ui.encode_size)
+        _ok("Audio Bit Rate", ui.audio_bitrate)
+        _ok("Source", ui.source)
+        _ok("Profile", ui.profile)
+        _ok("Level", ui.level)
+        _ok("Preset", ui.preset)
+        _ok("Aspect Ratio / Crop", ui.aspect_ratio_crop)
+        _ok("Audio Format", ui.audio_format)
+        _ok("Channels", ui.channels)
+        _ok("Keyframe Frequency", ui.keyframe_frequency)
+        _ok("Stream Delay", ui.stream_delay)
+        _ok("Threads", ui.threads)
+        _ok("Network Buffer", ui.network_buffer)
+        _ok("Strict CBR", ui.strict_cbr)
+        _ok("NAL CBR", ui.nal_cbr)
+        _ok("Keyframe Aligned", ui.keyframe_aligned)
 
-    _ok("Bitrate thuc te (kbps)", f"{health.actual_bitrate_kbps:.1f}")
-    _ok("Bitrate muc tieu (kbps)", f"{health.target_bitrate_kbps:.1f}")
-    _ok("Ti le bitrate", f"{health.bitrate_ratio:.2f}")
-    _ok("Toc do encode", f"{health.speed:.2f}x")
-    _ok("Canh bao frame dropped", str(health.dropped_warnings))
-    _ok("Ly do", health.reason)
+        health = _assess_stream_health(latest, ui)
+        _sep(f"{stream_name.upper()} - DANH GIA MAU STREAM")
+        if health.status == "DO":
+            _err("Trang thai", "DO")
+        elif health.status == "VANG":
+            _warn("Trang thai", "VANG")
+        else:
+            _ok("Trang thai", "XANH")
+
+        _ok("Bitrate thuc te (kbps)", f"{health.actual_bitrate_kbps:.1f}")
+        _ok("Bitrate muc tieu (kbps)", f"{health.target_bitrate_kbps:.1f}")
+        _ok("Ti le bitrate", f"{health.bitrate_ratio:.2f}")
+        _ok("Toc do encode", f"{health.speed:.2f}x")
+        _ok("Canh bao frame dropped", str(health.dropped_warnings))
+        _ok("Ly do", health.reason)
 
 
 def main() -> None:
-    latest, error = _find_latest_streaming_log_today()
-    print_latest_streaming_log_today(latest, error)
+    args = _parse_args()
+
+    if args.once:
+        _render_monitor_screen(
+            interval_sec=args.interval,
+            live_window_sec=args.live_window,
+            json_out_path=args.json_out or None,
+            json_stdout=args.json_stdout,
+        )
+        return
+
+    while True:
+        try:
+            _render_monitor_screen(
+                interval_sec=args.interval,
+                live_window_sec=args.live_window,
+                json_out_path=args.json_out or None,
+                json_stdout=args.json_stdout,
+            )
+            time.sleep(max(1, args.interval))
+        except KeyboardInterrupt:
+            print("\nThoat loop monitor")
+            break
 
 
 if __name__ == "__main__":
