@@ -1,7 +1,7 @@
 import json
 import threading
 from datetime import datetime
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 
 import customtkinter as ctk
 import requests
@@ -72,13 +72,49 @@ class ServerDataGUIUIMixin:
 
         ctk.CTkLabel(right_frame, text="⭐ SELECTED MONITOR LIST", font=("Arial", 11, "bold")).pack(pady=5)
 
-        # Right table - Custom scrollable
-        self.table_frame_right = ctk.CTkScrollableFrame(right_frame, fg_color="#2b2b2b")
-        self.table_frame_right.pack(fill="both", expand=True, padx=5, pady=5)
+        # Right table - canvas + both scrollbars (supports horizontal scrolling)
+        import tkinter as tk
+
+        try:
+            tk_scale = float(self.root.tk.call("tk", "scaling"))
+        except Exception:
+            tk_scale = 1.3333
+        scale_factor = max(1.0, tk_scale / 1.3333)
+        self.selected_table_total_width = int(2360 * scale_factor) + 60
+        table_outer = ctk.CTkFrame(right_frame, fg_color="#2b2b2b")
+        table_outer.pack(fill="both", expand=True, padx=5, pady=5)
+
+        self.table_canvas = tk.Canvas(table_outer, bg="#2b2b2b", highlightthickness=0)
+        table_vscroll = ctk.CTkScrollbar(
+            table_outer,
+            orientation="vertical",
+            command=self.table_canvas.yview,
+            fg_color="#1f2329",
+            button_color="#4b5563",
+            button_hover_color="#6b7280",
+        )
+        table_hscroll = ctk.CTkScrollbar(
+            table_outer,
+            orientation="horizontal",
+            command=self.table_canvas.xview,
+            fg_color="#1f2329",
+            button_color="#4b5563",
+            button_hover_color="#6b7280",
+        )
+        self.table_canvas.configure(yscrollcommand=table_vscroll.set, xscrollcommand=table_hscroll.set)
+
+        table_vscroll.pack(side="right", fill="y")
+        table_hscroll.pack(side="bottom", fill="x")
+        self.table_canvas.pack(side="left", fill="both", expand=True)
+
+        self.table_frame_right = ctk.CTkFrame(self.table_canvas, fg_color="#2b2b2b")
+        self._table_window_id = self.table_canvas.create_window((0, 0), window=self.table_frame_right, anchor="nw")
+        self.table_frame_right.bind("<Configure>", lambda e: self.table_canvas.configure(scrollregion=self.table_canvas.bbox("all")))
+        self.table_canvas.bind("<Configure>", self._on_selected_table_canvas_configure)
 
         # Header
-        header_frame_right = ctk.CTkFrame(self.table_frame_right, fg_color="#1a1a1a", height=40)
-        header_frame_right.pack(fill="x", pady=(0, 5))
+        header_frame_right = ctk.CTkFrame(self.table_frame_right, fg_color="#1a1a1a", height=40, width=self.selected_table_total_width)
+        header_frame_right.pack(anchor="w", pady=(0, 5))
         header_frame_right.pack_propagate(False)
 
         ctk.CTkLabel(header_frame_right, text="STT", font=("Arial", 10, "bold"), width=35).pack(side="left", padx=2)
@@ -94,11 +130,13 @@ class ServerDataGUIUIMixin:
         ctk.CTkLabel(header_frame_right, text="❌ TIMEOUT", font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="⚡ CPU%", font=("Arial", 10, "bold"), width=65).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="💾 RAM%", font=("Arial", 10, "bold"), width=65).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="🎮 GPU%", font=("Arial", 10, "bold"), width=65).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="● REC", font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="🔴 LIVE", font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="🟢 EXT", font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="🖥 RES", font=("Arial", 10, "bold"), width=90).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="TIME", font=("Arial", 10, "bold"), width=130).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="TIME", font=("Arial", 10, "bold"), width=200).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="THAO TÁC", font=("Arial", 10, "bold"), width=240).pack(side="left", padx=2)
 
         self.right_table_rows = []
         # Cache widget refs for in-place updates (no flicker)
@@ -155,6 +193,13 @@ class ServerDataGUIUIMixin:
             total_h = self.root.winfo_height()
             y = max(260, int(total_h * 0.62))
             self.vertical_splitter.sash_place(0, 0, y)
+        except Exception:
+            pass
+
+    def _on_selected_table_canvas_configure(self, event):
+        try:
+            target_w = max(int(event.width), int(self.selected_table_total_width))
+            self.table_canvas.itemconfigure(self._table_window_id, width=target_w)
         except Exception:
             pass
 
@@ -473,8 +518,15 @@ class ServerDataGUIUIMixin:
 
         ping = d.get("ping", None)
         ping_timeouts = d.get("ping_timeouts", 0)
-        cpu = d.get("cpu", None)
+        cpu = d.get("temperature", d.get("cpu", None))
         memory = d.get("memory", None)
+        gpu = d.get("gpu", None)
+
+        def _pct_text(v):
+            try:
+                return f"{float(v):.1f}%"
+            except (TypeError, ValueError):
+                return "—"
 
         return {
             "ts": ts,
@@ -489,13 +541,23 @@ class ServerDataGUIUIMixin:
             "ping_str": f"{ping:.0f} ms" if ping is not None else "—",
             "ping_timeouts": ping_timeouts,
             "timeout_str": str(ping_timeouts) if ping_timeouts is not None else "0",
-            "cpu_str": f"{cpu:.1f}%" if cpu is not None else "—",
-            "mem_str": f"{memory:.1f}%" if memory is not None else "—",
+            "cpu_str": _pct_text(cpu),
+            "mem_str": _pct_text(memory),
+            "gpu_str": _pct_text(gpu),
             "vmix_rec": d.get("vmix_recording", False),
             "vmix_live": d.get("vmix_streaming", False),
             "vmix_ext": d.get("vmix_external", False),
             "res": d.get("resolution", "—") or "—",
         }
+
+    @staticmethod
+    def _normalize_stream_list(d: dict) -> list:
+        stream_raw = d.get("stream", [])
+        if isinstance(stream_raw, dict):
+            return [stream_raw]
+        if isinstance(stream_raw, list):
+            return [item for item in stream_raw if isinstance(item, dict)]
+        return []
 
     def _create_selected_row(self, entry, stt, rd):
         """Create a brand-new row frame with all widgets. Returns (row_frame, widget_cache)."""
@@ -503,8 +565,9 @@ class ServerDataGUIUIMixin:
         row_h = max(40, len(rd["srt_rows"]) * 22 + 10)
         row_frame = ctk.CTkFrame(self.table_frame_right,
                                   fg_color="#3a3a3a" if stt % 2 == 0 else "#2b2b2b",
-                                  height=row_h)
-        row_frame.pack(fill="x", pady=1)
+                                  height=row_h,
+                                  width=self.selected_table_total_width)
+        row_frame.pack(anchor="w", pady=1)
         row_frame.pack_propagate(False)
 
         def create_cell(parent, width, expand=False):
@@ -591,6 +654,11 @@ class ServerDataGUIUIMixin:
         wc["mem_lbl"] = ctk.CTkLabel(c, text=rd["mem_str"], font=("Arial", 10))
         wc["mem_lbl"].place(relx=0.5, rely=0.5, anchor="center")
 
+        # GPU
+        c = create_cell(row_frame, 65)
+        wc["gpu_lbl"] = ctk.CTkLabel(c, text=rd["gpu_str"], font=("Arial", 10))
+        wc["gpu_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
         # vMix flags
         c = create_cell(row_frame, 60)
         wc["rec_lbl"] = ctk.CTkLabel(c, text="● ON" if rd["vmix_rec"] else "○ OFF", font=("Arial", 9),
@@ -612,14 +680,38 @@ class ServerDataGUIUIMixin:
         wc["res_lbl"].place(relx=0.5, rely=0.5, anchor="center")
 
         # Time
-        c = create_cell(row_frame, 130)
+        c = create_cell(row_frame, 200)
         wc["ts_lbl"] = ctk.CTkLabel(c, text=rd["ts"], font=("Arial", 9))
         wc["ts_lbl"].place(relx=0.5, rely=0.5, anchor="center")
 
-        # Delete button
-        delete_btn = ctk.CTkButton(row_frame, text="❌", width=30, height=30, fg_color="#f44336", hover_color="#d32f2f",
-                                    command=lambda idx=stt-1: self.remove_single_item(idx))
-        delete_btn.pack(side="right", padx=5)
+        # Action
+        c = create_cell(row_frame, 240)
+        actions = ctk.CTkFrame(c, fg_color="transparent", width=220, height=28)
+        actions.place(relx=0.5, rely=0.5, anchor="center")
+        actions.pack_propagate(False)
+
+        wc["stream_btn"] = ctk.CTkButton(
+            actions,
+            text="Xem Stream",
+            width=150,
+            height=26,
+            fg_color="#1976D2",
+            hover_color="#1565C0",
+            command=lambda idx=stt - 1: self.show_stream_dialog_by_index(idx),
+            font=("Arial", 9, "bold"),
+        )
+        wc["stream_btn"].pack(side="left", padx=(0, 8))
+
+        wc["remove_btn"] = ctk.CTkButton(
+            actions,
+            text="❌",
+            width=40,
+            height=26,
+            fg_color="#f44336",
+            hover_color="#d32f2f",
+            command=lambda idx=stt - 1: self.remove_single_item(idx),
+        )
+        wc["remove_btn"].pack(side="left")
 
         row_frame.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
         return row_frame, wc
@@ -636,6 +728,7 @@ class ServerDataGUIUIMixin:
                                      text_color="#f44336" if rd["ping_timeouts"] else "#9E9E9E")
         wc["cpu_lbl"].configure(text=rd["cpu_str"])
         wc["mem_lbl"].configure(text=rd["mem_str"])
+        wc["gpu_lbl"].configure(text=rd["gpu_str"])
         wc["rec_lbl"].configure(text="● ON" if rd["vmix_rec"] else "○ OFF",
                                  text_color="#f44336" if rd["vmix_rec"] else "#555555")
         wc["live_lbl"].configure(text="● ON" if rd["vmix_live"] else "○ OFF",
@@ -685,8 +778,10 @@ class ServerDataGUIUIMixin:
                 self.right_table_row_widgets.append((row_frame, wc))
         else:
             # In-place update — just reconfigure label text/color, zero flicker
-            for rd, (row_frame, wc) in zip(new_rds, self.right_table_row_widgets):
+            for idx, (rd, (row_frame, wc)) in enumerate(zip(new_rds, self.right_table_row_widgets)):
                 self._patch_selected_row(wc, rd)
+                if "stream_btn" in wc:
+                    wc["stream_btn"].configure(command=lambda i=idx: self.show_stream_dialog_by_index(i))
 
     def edit_name_inline(self, idx, frame, label):
         if idx >= len(self.selected_data):
@@ -868,6 +963,211 @@ class ServerDataGUIUIMixin:
 
     def on_double_click(self, event):
         pass
+
+    def show_stream_dialog_by_index(self, idx: int):
+        if idx < 0 or idx >= len(self.selected_data):
+            return
+        self.open_stream_dialog(self.selected_data[idx])
+
+    def open_stream_dialog(self, entry):
+        d = (entry or {}).get("data", {}) if isinstance(entry, dict) else {}
+        name = str(d.get("name", "") or "Unknown")
+        ip = str(d.get("ip", "") or "")
+
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title(f"Stream Details - {name}")
+        dialog.geometry("1180x340")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        self.root.update_idletasks()
+        x = self.root.winfo_x() + max(0, (self.root.winfo_width() - 1180) // 2)
+        y = self.root.winfo_y() + max(0, (self.root.winfo_height() - 340) // 2)
+        dialog.geometry(f"1180x340+{x}+{y}")
+
+        top = ctk.CTkFrame(dialog, fg_color="transparent")
+        top.pack(fill="x", padx=12, pady=(10, 6))
+        ctk.CTkLabel(top, text=f"📡 STREAM DETAIL | {name} | {ip}", font=("Arial", 13, "bold")).pack(side="left")
+
+        holder = ctk.CTkFrame(dialog)
+        holder.pack(fill="both", expand=True, padx=12, pady=(0, 10))
+        import tkinter as tk
+
+        table_canvas = tk.Canvas(holder, bg="#171a1f", highlightthickness=0)
+        vsb = ctk.CTkScrollbar(
+            holder,
+            orientation="vertical",
+            command=table_canvas.yview,
+            fg_color="#1f2329",
+            button_color="#4b5563",
+            button_hover_color="#6b7280",
+        )
+        hsb = ctk.CTkScrollbar(
+            holder,
+            orientation="horizontal",
+            command=table_canvas.xview,
+            fg_color="#1f2329",
+            button_color="#4b5563",
+            button_hover_color="#6b7280",
+        )
+        table_canvas.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+
+        vsb.pack(side="right", fill="y")
+        hsb.pack(side="bottom", fill="x")
+        table_canvas.pack(side="left", fill="both", expand=True)
+
+        cols = (
+            ("stream", "Stream", 90),
+            ("runtime", "Runtime", 70),
+            ("health", "Health", 70),
+            ("vbit", "Video", 90),
+            ("size", "Size", 120),
+            ("abit", "Audio", 80),
+            ("level", "Level", 70),
+            ("preset", "Preset", 90),
+            ("aformat", "AudioFmt", 80),
+            ("channels", "Channels", 80),
+            ("keyframe", "Keyframe", 230),
+            ("actual", "Actual kbps", 95),
+            ("target", "Target kbps", 95),
+            ("ratio", "Ratio", 70),
+            ("speed", "Speed", 70),
+            ("dropped", "Dropped", 80),
+            ("file", "LatestFile", 270),
+        )
+
+        total_w = sum(w + 4 for _, _, w in cols) + 8
+        table_inner = ctk.CTkFrame(table_canvas, fg_color="#171a1f", corner_radius=0, width=total_w)
+        table_window_id = table_canvas.create_window((0, 0), window=table_inner, anchor="nw")
+
+        def _on_inner_configure(_event=None):
+            table_canvas.configure(scrollregion=table_canvas.bbox("all"))
+
+        def _on_canvas_configure(event):
+            table_canvas.itemconfigure(table_window_id, width=max(int(event.width), int(total_w)))
+
+        table_inner.bind("<Configure>", _on_inner_configure)
+        table_canvas.bind("<Configure>", _on_canvas_configure)
+
+        def _make_cell(parent, text, width, text_color="#e5e7eb", bold=False):
+            lbl = ctk.CTkLabel(
+                parent,
+                text=text,
+                width=width,
+                font=("Segoe UI", 11, "bold" if bold else "normal"),
+                text_color=text_color,
+                anchor="center",
+            )
+            lbl.pack(side="left", padx=2, pady=0)
+            return lbl
+
+        header = ctk.CTkFrame(table_inner, fg_color="#111827", height=36, width=total_w, corner_radius=0)
+        header.pack(anchor="w", pady=(0, 2))
+        header.pack_propagate(False)
+        for _, label, width in cols:
+            _make_cell(header, label, width, text_color="#e5e7eb", bold=True)
+
+        body_frame = ctk.CTkFrame(table_inner, fg_color="transparent", width=total_w, corner_radius=0)
+        body_frame.pack(anchor="w")
+
+        target_name = name
+        target_ip = ip
+
+        def _sort_key(s: dict):
+            name_val = str(s.get("stream", "") or "")
+            low = name_val.lower()
+            if low.startswith("streaming"):
+                try:
+                    return int(low.replace("streaming", "", 1) or "0")
+                except ValueError:
+                    return 9999
+            return 9999
+
+        def _resolve_live_data() -> dict:
+            # Prefer exact IP match because selected_data gets replaced by websocket updates.
+            for item in self.selected_data:
+                cur = item.get("data", {}) if isinstance(item, dict) else {}
+                if not isinstance(cur, dict):
+                    continue
+                if target_ip and str(cur.get("ip", "") or "") == target_ip:
+                    return cur
+            for item in self.selected_data:
+                cur = item.get("data", {}) if isinstance(item, dict) else {}
+                if not isinstance(cur, dict):
+                    continue
+                if target_name and str(cur.get("name", "") or "") == target_name:
+                    return cur
+            return d
+
+        def _render_rows(streams: list):
+            for child in body_frame.winfo_children():
+                child.destroy()
+
+            if not streams:
+                empty_row = ctk.CTkFrame(body_frame, fg_color="#1f2937", height=34, width=total_w, corner_radius=0)
+                empty_row.pack(anchor="w", pady=(0, 1))
+                empty_row.pack_propagate(False)
+                _make_cell(empty_row, "(empty)", cols[0][2], text_color="#9ca3af")
+                for _, _, width in cols[1:]:
+                    _make_cell(empty_row, "", width, text_color="#9ca3af")
+                return
+
+            for idx, s in enumerate(sorted(streams, key=_sort_key)):
+                health = str(s.get("health", "") or "").upper()
+                if health == "DO":
+                    row_color = "#ef4444"
+                elif health == "VANG":
+                    row_color = "#f59e0b"
+                elif health == "XANH":
+                    row_color = "#22c55e"
+                else:
+                    row_color = "#e5e7eb"
+
+                row = ctk.CTkFrame(
+                    body_frame,
+                    fg_color="#1b1f27" if idx % 2 == 0 else "#20242c",
+                    height=34,
+                    width=total_w,
+                    corner_radius=0,
+                )
+                row.pack(anchor="w", pady=(0, 1))
+                row.pack_propagate(False)
+
+                row_values = {
+                    "stream": str(s.get("stream", "") or ""),
+                    "runtime": str(s.get("runtime", "") or ""),
+                    "health": health,
+                    "vbit": str(s.get("vbit", "") or ""),
+                    "size": str(s.get("size", "") or ""),
+                    "abit": str(s.get("abit", "") or ""),
+                    "level": str(s.get("level", "") or ""),
+                    "preset": str(s.get("preset", "") or ""),
+                    "aformat": str(s.get("aformat", "") or ""),
+                    "channels": str(s.get("channels", "") or ""),
+                    "keyframe": str(s.get("keyframe", "") or ""),
+                    "actual": str(s.get("actual", 0) or 0),
+                    "target": str(s.get("target", 0) or 0),
+                    "ratio": str(s.get("ratio", "") or ""),
+                    "speed": str(s.get("speed", "") or ""),
+                    "dropped": str(s.get("dropped", 0) or 0),
+                    "file": str(s.get("file", "") or ""),
+                }
+
+                for key, _, width in cols:
+                    _make_cell(row, row_values.get(key, ""), width, text_color=row_color)
+
+        def _refresh_loop():
+            try:
+                if not dialog.winfo_exists():
+                    return
+            except Exception:
+                return
+
+            live_data = _resolve_live_data()
+            _render_rows(self._normalize_stream_list(live_data))
+            dialog.after(1000, _refresh_loop)
+
+        _refresh_loop()
 
     def show_detail_from_entry(self, entry):
         self.detail_text.delete("1.0", "end")
