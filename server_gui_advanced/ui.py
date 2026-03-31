@@ -7,12 +7,12 @@ import customtkinter as ctk
 import requests
 
 try:
-    from .shared import VIETNAM_TZ, pretty_time
+    from .shared import VIETNAM_TZ, pretty_time, get_first_srt, get_srt_ports_str, get_srt_quality_str
 except ImportError:
     try:
-        from server_gui_advanced.shared import VIETNAM_TZ, pretty_time
+        from server_gui_advanced.shared import VIETNAM_TZ, pretty_time, get_first_srt, get_srt_ports_str, get_srt_quality_str
     except ImportError:
-        from shared import VIETNAM_TZ, pretty_time
+        from shared import VIETNAM_TZ, pretty_time, get_first_srt, get_srt_ports_str, get_srt_quality_str
 
 
 class ServerDataGUIUIMixin:
@@ -87,6 +87,8 @@ class ServerDataGUIUIMixin:
         ctk.CTkLabel(header_frame_right, text="IP WAN", font=("Arial", 10, "bold"), width=110).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="STATUS", font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="PORT", font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="NAME SRT", font=("Arial", 10, "bold"), width=100).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="QUALITY", font=("Arial", 10, "bold"), width=180).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="APP", font=("Arial", 10, "bold"), width=45).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="📡 PING", font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="❌ TIMEOUT", font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
@@ -96,10 +98,11 @@ class ServerDataGUIUIMixin:
         ctk.CTkLabel(header_frame_right, text="🔴 LIVE", font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="🟢 EXT", font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="🖥 RES", font=("Arial", 10, "bold"), width=90).pack(side="left", padx=2)
-        ctk.CTkLabel(header_frame_right, text="📹 SRT", font=("Arial", 10, "bold"), width=180).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="TIME", font=("Arial", 10, "bold"), width=130).pack(side="left", padx=2)
 
         self.right_table_rows = []
+        # Cache widget refs for in-place updates (no flicker)
+        self.right_table_row_widgets = []
 
         # vmPing panel
         vmping_outer = ctk.CTkFrame(self.vertical_splitter, fg_color="#181818")
@@ -336,12 +339,12 @@ class ServerDataGUIUIMixin:
         self.root.update_idletasks()
         root_w = self.root.winfo_width()
         root_h = self.root.winfo_height()
-        dlg_w = min(700, max(520, int(root_w * 0.4)))
+        dlg_w = min(850, max(620, int(root_w * 0.45)))
         dlg_h = min(460, max(460, int(root_h * 0.5)))
         x = self.root.winfo_x() + (root_w - dlg_w) // 2
         y = self.root.winfo_y() + (root_h - dlg_h) // 2
         self.scan_dialog.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
-        self.scan_dialog.minsize(520, 420)
+        self.scan_dialog.minsize(620, 420)
 
         dialog_root = ctk.CTkFrame(self.scan_dialog)
         dialog_root.pack(fill="both", expand=True, padx=10, pady=10)
@@ -363,6 +366,7 @@ class ServerDataGUIUIMixin:
         self.select_all_cb = ctk.CTkCheckBox(header_frame, text="", variable=self.select_all_var, width=35, command=self.toggle_select_all)
         self.select_all_cb.pack(side="left", padx=2)
         ctk.CTkLabel(header_frame, text="STT", font=("Arial", 11, "bold"), width=35).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame, text="TÊN MÁY", font=("Arial", 11, "bold"), width=140).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame, text="IP MÁY", font=("Arial", 11, "bold"), width=130).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame, text="PORT", font=("Arial", 11, "bold"), width=80).pack(side="left", padx=2)
 
@@ -395,8 +399,10 @@ class ServerDataGUIUIMixin:
         stt = 1
         for idx, entry in enumerate(self.data):
             d = entry.get("data", {})
+            srt = get_first_srt(d)
+            name = d.get("name", "").strip()
             ip = d.get("ip", "")
-            port = d.get("port", "")
+            port = get_srt_ports_str(d) or d.get("port", "")
             statusapp = d.get("statusapp", 0)
 
             row_frame = ctk.CTkFrame(self.table_frame_left, fg_color="#3a3a3a" if stt % 2 == 0 else "#2b2b2b", height=35)
@@ -412,104 +418,275 @@ class ServerDataGUIUIMixin:
             stt_label = ctk.CTkLabel(row_frame, text=str(stt), font=("Arial", 11, "bold"), width=35, anchor="center")
             stt_label.pack(side="left", padx=2)
 
+            name_label = ctk.CTkLabel(row_frame, text=name or "—", font=("Arial", 11, "bold"), width=140, anchor="center", text_color="#90CAF9")
+            name_label.pack(side="left", padx=2)
+
             ip_color = "#4CAF50" if statusapp == 1 else "#f44336"
             ip_label = ctk.CTkLabel(row_frame, text=ip, font=("Arial", 11, "bold"), width=110, text_color=ip_color, anchor="center")
             ip_label.pack(side="left", padx=2)
-
             port_label = ctk.CTkLabel(row_frame, text=port, font=("Arial", 11, "bold"), width=60, anchor="center")
             port_label.pack(side="left", padx=2)
 
-            for widget in [row_frame, stt_label, ip_label, port_label]:
+            for widget in [row_frame, stt_label, name_label, ip_label, port_label]:
                 widget.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
 
             self.left_table_rows.append(row_frame)
             stt += 1
 
+    def _build_row_data(self, entry, stt):
+        """Extract all display data from an entry dict."""
+        ts = pretty_time(entry.get("timestamp", ""))
+        d = entry.get("data", {})
+        name = d.get("name", "").strip() or f"MÁY {stt}"
+        ip = d.get("ip", "")
+        ipwan = d.get("ipwan", "")
+        statusapp = d.get("statusapp", 0)
+        statusapp_text = "ON" if statusapp == 1 else "OFF"
+
+        srt_list = d.get("SRT", [])
+        if isinstance(srt_list, dict): srt_list = [srt_list]
+        if not isinstance(srt_list, list): srt_list = []
+
+        if d.get("ptz", False) or not srt_list:
+            srt_rows = [{
+                "status": d.get("status", "—"),
+                "port": d.get("port", "—"),
+                "name": "—",
+                "quality": d.get("srt_quality", "—") or "—",
+                "color": "#4CAF50" if d.get("status") == "ON" else "#f44336"
+            }]
+        else:
+            srt_rows = []
+            for s in srt_list:
+                if not isinstance(s, dict): continue
+                st = s.get("status", "—")
+                q = s.get("quality", "")
+                sn = s.get("nameSRT", "")
+                sp = s.get("port", "")
+                srt_rows.append({
+                    "status": st,
+                    "port": str(sp),
+                    "name": sn or "—",
+                    "quality": q or "—",
+                    "color": "#4CAF50" if st == "ON" else "#f44336"
+                })
+
+        ping = d.get("ping", None)
+        ping_timeouts = d.get("ping_timeouts", 0)
+        cpu = d.get("cpu", None)
+        memory = d.get("memory", None)
+
+        return {
+            "ts": ts,
+            "name": name,
+            "ip": ip,
+            "ipwan": ipwan,
+            "statusapp": statusapp,
+            "statusapp_text": statusapp_text,
+            "app_color": "#4CAF50" if statusapp == 1 else "#f44336",
+            "srt_rows": srt_rows,
+            "ping": ping,
+            "ping_str": f"{ping:.0f} ms" if ping is not None else "—",
+            "ping_timeouts": ping_timeouts,
+            "timeout_str": str(ping_timeouts) if ping_timeouts is not None else "0",
+            "cpu_str": f"{cpu:.1f}%" if cpu is not None else "—",
+            "mem_str": f"{memory:.1f}%" if memory is not None else "—",
+            "vmix_rec": d.get("vmix_recording", False),
+            "vmix_live": d.get("vmix_streaming", False),
+            "vmix_ext": d.get("vmix_external", False),
+            "res": d.get("resolution", "—") or "—",
+        }
+
+    def _create_selected_row(self, entry, stt, rd):
+        """Create a brand-new row frame with all widgets. Returns (row_frame, widget_cache)."""
+
+        row_h = max(40, len(rd["srt_rows"]) * 22 + 10)
+        row_frame = ctk.CTkFrame(self.table_frame_right,
+                                  fg_color="#3a3a3a" if stt % 2 == 0 else "#2b2b2b",
+                                  height=row_h)
+        row_frame.pack(fill="x", pady=1)
+        row_frame.pack_propagate(False)
+
+        def create_cell(parent, width, expand=False):
+            f = ctk.CTkFrame(parent, fg_color="transparent", width=width)
+            f.pack(side="left", padx=2, fill="both", expand=expand)
+            f.pack_propagate(False)
+            return f
+
+        def create_centered_srt_container(parent):
+            inner = ctk.CTkFrame(parent, fg_color="transparent")
+            inner.place(relx=0.5, rely=0.5, anchor="center", relwidth=1.0)
+            return inner
+
+        wc = {}  # widget cache
+
+        # STT
+        c = create_cell(row_frame, 35)
+        ctk.CTkLabel(c, text=str(stt), font=("Arial", 10, "bold")).place(relx=0.5, rely=0.5, anchor="center")
+
+        # Name
+        c = create_cell(row_frame, 110)
+        name_lbl = ctk.CTkLabel(c, text=rd["name"], font=("Arial", 10, "bold"), wraplength=100)
+        name_lbl.place(relx=0.5, rely=0.5, anchor="center")
+        name_lbl.bind("<Double-1>", lambda e, idx=stt-1, frame=c, lbl=name_lbl: self.edit_name_inline(idx, frame, lbl))
+        wc["name_lbl"] = name_lbl
+
+        # IP MÁY
+        c = create_cell(row_frame, 110)
+        wc["ip_lbl"] = ctk.CTkLabel(c, text=rd["ip"], font=("Arial", 10))
+        wc["ip_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        # IP WAN
+        c = create_cell(row_frame, 110)
+        wc["ipwan_lbl"] = ctk.CTkLabel(c, text=rd["ipwan"], font=("Arial", 10))
+        wc["ipwan_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        # SRT multi-row columns
+        c_status = create_cell(row_frame, 70)
+        inner_status = create_centered_srt_container(c_status)
+        c_port = create_cell(row_frame, 60)
+        inner_port = create_centered_srt_container(c_port)
+        c_name_srt = create_cell(row_frame, 100)
+        inner_name_srt = create_centered_srt_container(c_name_srt)
+        c_quality = create_cell(row_frame, 180)
+        inner_quality = create_centered_srt_container(c_quality)
+
+        srt_lbl_groups = []
+        for s_info in rd["srt_rows"]:
+            sl = ctk.CTkLabel(inner_status, text=s_info["status"], font=("Arial", 9, "bold"), text_color=s_info["color"], anchor="center")
+            sl.pack(fill="x")
+            pl = ctk.CTkLabel(inner_port, text=s_info["port"], font=("Arial", 9), anchor="center")
+            pl.pack(fill="x")
+            nl = ctk.CTkLabel(inner_name_srt, text=s_info["name"], font=("Arial", 9, "bold"), text_color="#90CAF9", anchor="center")
+            nl.pack(fill="x")
+            ql = ctk.CTkLabel(inner_quality, text=s_info["quality"], font=("Arial", 9), text_color=s_info["color"], anchor="center")
+            ql.pack(fill="x")
+            srt_lbl_groups.append({"status": sl, "port": pl, "name": nl, "quality": ql})
+        wc["srt_lbl_groups"] = srt_lbl_groups
+
+        # App status
+        c = create_cell(row_frame, 45)
+        wc["app_lbl"] = ctk.CTkLabel(c, text=rd["statusapp_text"], font=("Arial", 10, "bold"), text_color=rd["app_color"])
+        wc["app_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        # Ping
+        c = create_cell(row_frame, 70)
+        wc["ping_lbl"] = ctk.CTkLabel(c, text=rd["ping_str"], font=("Arial", 10),
+                                        text_color="#4CAF50" if rd["ping"] else "#9E9E9E")
+        wc["ping_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        # Timeout
+        c = create_cell(row_frame, 70)
+        wc["timeout_lbl"] = ctk.CTkLabel(c, text=rd["timeout_str"], font=("Arial", 10, "bold"),
+                                           text_color="#f44336" if rd["ping_timeouts"] else "#9E9E9E")
+        wc["timeout_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        # CPU
+        c = create_cell(row_frame, 65)
+        wc["cpu_lbl"] = ctk.CTkLabel(c, text=rd["cpu_str"], font=("Arial", 10))
+        wc["cpu_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        # RAM
+        c = create_cell(row_frame, 65)
+        wc["mem_lbl"] = ctk.CTkLabel(c, text=rd["mem_str"], font=("Arial", 10))
+        wc["mem_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        # vMix flags
+        c = create_cell(row_frame, 60)
+        wc["rec_lbl"] = ctk.CTkLabel(c, text="● ON" if rd["vmix_rec"] else "○ OFF", font=("Arial", 9),
+                                       text_color="#f44336" if rd["vmix_rec"] else "#555555")
+        wc["rec_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        c = create_cell(row_frame, 60)
+        wc["live_lbl"] = ctk.CTkLabel(c, text="● ON" if rd["vmix_live"] else "○ OFF", font=("Arial", 9),
+                                        text_color="#f44336" if rd["vmix_live"] else "#555555")
+        wc["live_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        c = create_cell(row_frame, 60)
+        wc["ext_lbl"] = ctk.CTkLabel(c, text="● ON" if rd["vmix_ext"] else "○ OFF", font=("Arial", 9),
+                                       text_color="#4CAF50" if rd["vmix_ext"] else "#555555")
+        wc["ext_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        c = create_cell(row_frame, 90)
+        wc["res_lbl"] = ctk.CTkLabel(c, text=rd["res"], font=("Arial", 9, "bold"), text_color="#4CAF50")
+        wc["res_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        # Time
+        c = create_cell(row_frame, 130)
+        wc["ts_lbl"] = ctk.CTkLabel(c, text=rd["ts"], font=("Arial", 9))
+        wc["ts_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        # Delete button
+        delete_btn = ctk.CTkButton(row_frame, text="❌", width=30, height=30, fg_color="#f44336", hover_color="#d32f2f",
+                                    command=lambda idx=stt-1: self.remove_single_item(idx))
+        delete_btn.pack(side="right", padx=5)
+
+        row_frame.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
+        return row_frame, wc
+
+    def _patch_selected_row(self, wc, rd):
+        """Update only the changed text/color values in existing widgets (no flicker)."""
+        wc["name_lbl"].configure(text=rd["name"])
+        wc["ip_lbl"].configure(text=rd["ip"])
+        wc["ipwan_lbl"].configure(text=rd["ipwan"])
+        wc["app_lbl"].configure(text=rd["statusapp_text"], text_color=rd["app_color"])
+        wc["ping_lbl"].configure(text=rd["ping_str"],
+                                  text_color="#4CAF50" if rd["ping"] else "#9E9E9E")
+        wc["timeout_lbl"].configure(text=rd["timeout_str"],
+                                     text_color="#f44336" if rd["ping_timeouts"] else "#9E9E9E")
+        wc["cpu_lbl"].configure(text=rd["cpu_str"])
+        wc["mem_lbl"].configure(text=rd["mem_str"])
+        wc["rec_lbl"].configure(text="● ON" if rd["vmix_rec"] else "○ OFF",
+                                 text_color="#f44336" if rd["vmix_rec"] else "#555555")
+        wc["live_lbl"].configure(text="● ON" if rd["vmix_live"] else "○ OFF",
+                                  text_color="#f44336" if rd["vmix_live"] else "#555555")
+        wc["ext_lbl"].configure(text="● ON" if rd["vmix_ext"] else "○ OFF",
+                                 text_color="#4CAF50" if rd["vmix_ext"] else "#555555")
+        wc["res_lbl"].configure(text=rd["res"])
+        wc["ts_lbl"].configure(text=rd["ts"])
+
+        for i, s_info in enumerate(rd["srt_rows"]):
+            if i < len(wc["srt_lbl_groups"]):
+                g = wc["srt_lbl_groups"][i]
+                g["status"].configure(text=s_info["status"], text_color=s_info["color"])
+                g["port"].configure(text=s_info["port"])
+                g["name"].configure(text=s_info["name"])
+                g["quality"].configure(text=s_info["quality"], text_color=s_info["color"])
+
     def update_selected_table(self):
-        for row in self.right_table_rows:
-            row.destroy()
-        self.right_table_rows = []
+        """Rebuild rows only when structure changes; otherwise patch in-place (no flicker)."""
+        new_count = len(self.selected_data)
+        old_count = len(self.right_table_rows)
 
-        stt = 1
-        for entry in self.selected_data:
-            ts = pretty_time(entry.get("timestamp", ""))
-            d = entry.get("data", {})
-            name = d.get("name", "").strip() or f"MÁY {stt}"
-            ip = d.get("ip", "")
-            ipwan = d.get("ipwan", "")
-            status = d.get("status", "")
-            port = d.get("port", "")
-            statusapp = d.get("statusapp", 0)
-            statusapp_text = "ON" if statusapp == 1 else "OFF"
+        # Compute new row data list
+        new_rds = [self._build_row_data(entry, i + 1)
+                   for i, entry in enumerate(self.selected_data)]
 
-            ping = d.get("ping", None)
-            ping_timeouts = d.get("ping_timeouts", 0)
-            cpu = d.get("cpu", None)
-            memory = d.get("memory", None)
-            ping_str = f"{ping:.0f} ms" if ping is not None else "—"
-            timeout_str = str(ping_timeouts) if ping_timeouts is not None else "0"
-            cpu_str = f"{cpu:.1f}%" if cpu is not None else "—"
-            mem_str = f"{memory:.1f}%" if memory is not None else "—"
-            vmix_rec = d.get("vmix_recording", False)
-            vmix_live = d.get("vmix_streaming", False)
-            vmix_ext = d.get("vmix_external", False)
-            resolution = d.get("resolution", "—") or "—"
-            srt_quality = d.get("srt_quality", "—") or "—"
+        # Check if we need a full rebuild: row count or srt_row count per row changed
+        need_rebuild = (new_count != old_count)
+        if not need_rebuild:
+            for i, (rd, wc_pair) in enumerate(zip(new_rds, self.right_table_row_widgets)):
+                _, wc = wc_pair
+                old_srt_count = len(wc.get("srt_lbl_groups", []))
+                if len(rd["srt_rows"]) != old_srt_count:
+                    need_rebuild = True
+                    break
 
-            row_frame = ctk.CTkFrame(self.table_frame_right, fg_color="#3a3a3a" if stt % 2 == 0 else "#2b2b2b", height=35)
-            row_frame.pack(fill="x", pady=1)
-            row_frame.pack_propagate(False)
+        if need_rebuild:
+            # Full rebuild — unavoidable when structure changes
+            for row, _ in self.right_table_row_widgets:
+                row.destroy()
+            self.right_table_rows = []
+            self.right_table_row_widgets = []
 
-            def create_clickable_label(parent, text, width, font=("Arial", 10, "bold"), text_color=None, anchor="center"):
-                lbl = ctk.CTkLabel(parent, text=text, font=font, width=width, text_color=text_color, anchor=anchor)
-                lbl.pack(side="left", padx=2)
-                lbl.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
-                return lbl
-
-            create_clickable_label(row_frame, str(stt), 35)
-
-            name_frame = ctk.CTkFrame(row_frame, fg_color="transparent", width=110)
-            name_frame.pack(side="left", padx=2)
-            name_frame.pack_propagate(False)
-            name_label = ctk.CTkLabel(name_frame, text=name, font=("Arial", 10, "bold"), anchor="center")
-            name_label.pack(fill="both", expand=True)
-            name_label.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
-            name_label.bind("<Double-1>", lambda e, idx=stt - 1, frame=name_frame, lbl=name_label: self.edit_name_inline(idx, frame, lbl))
-
-            create_clickable_label(row_frame, ip, 110)
-            create_clickable_label(row_frame, ipwan, 110)
-
-            status_color = "#4CAF50" if status == "ON" else "#f44336"
-            create_clickable_label(row_frame, status, 70, text_color=status_color)
-            create_clickable_label(row_frame, port, 60)
-
-            app_color = "#4CAF50" if statusapp == 1 else "#f44336"
-            create_clickable_label(row_frame, statusapp_text, 45, text_color=app_color)
-
-            ping_color = "#4CAF50" if ping is not None else "#9E9E9E"
-            create_clickable_label(row_frame, ping_str, 70, font=("Arial", 10), text_color=ping_color)
-            to_color = "#f44336" if ping_timeouts and int(ping_timeouts) > 0 else "#9E9E9E"
-            create_clickable_label(row_frame, timeout_str, 70, font=("Arial", 10, "bold"), text_color=to_color)
-
-            create_clickable_label(row_frame, cpu_str, 65, font=("Arial", 10))
-            create_clickable_label(row_frame, mem_str, 65, font=("Arial", 10))
-
-            rec_color = "#f44336" if vmix_rec else "#555555"
-            live_color = "#f44336" if vmix_live else "#555555"
-            ext_color = "#4CAF50" if vmix_ext else "#555555"
-            create_clickable_label(row_frame, "● ON" if vmix_rec else "○ OFF", 60, font=("Arial", 9), text_color=rec_color)
-            create_clickable_label(row_frame, "● ON" if vmix_live else "○ OFF", 60, font=("Arial", 9), text_color=live_color)
-            create_clickable_label(row_frame, "● ON" if vmix_ext else "○ OFF", 60, font=("Arial", 9), text_color=ext_color)
-            create_clickable_label(row_frame, resolution, 90, font=("Arial", 9, "bold"), text_color="#4CAF50")
-            create_clickable_label(row_frame, srt_quality, 180, font=("Arial", 9, "bold"), text_color="#f44336")
-            create_clickable_label(row_frame, ts, 130, font=("Arial", 9))
-
-            delete_btn = ctk.CTkButton(row_frame, text="❌", width=30, height=30, fg_color="#f44336", hover_color="#d32f2f", command=lambda idx=stt - 1: self.remove_single_item(idx))
-            delete_btn.pack(side="right", padx=5)
-            row_frame.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
-
-            self.right_table_rows.append(row_frame)
-            stt += 1
+            for stt, (entry, rd) in enumerate(zip(self.selected_data, new_rds), start=1):
+                row_frame, wc = self._create_selected_row(entry, stt, rd)
+                self.right_table_rows.append(row_frame)
+                self.right_table_row_widgets.append((row_frame, wc))
+        else:
+            # In-place update — just reconfigure label text/color, zero flicker
+            for rd, (row_frame, wc) in zip(new_rds, self.right_table_row_widgets):
+                self._patch_selected_row(wc, rd)
 
     def edit_name_inline(self, idx, frame, label):
         if idx >= len(self.selected_data):

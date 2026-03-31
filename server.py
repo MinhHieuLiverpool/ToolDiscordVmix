@@ -174,7 +174,7 @@ def _build_statistics_id(ip_value, port_value, fallback_name: str) -> str:
         return f"{ip_text}:{port_text}"
     return fallback_name
 
-def send_discord_notification(machine_name: str, ipwan: str, port: str, status: str):
+def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port: str, status: str):
     """Gửi notification lên Discord (nếu có webhook)"""
     if not DISCORD_WEBHOOK:
         return
@@ -183,50 +183,28 @@ def send_discord_notification(machine_name: str, ipwan: str, port: str, status: 
         import requests
         
         # Gửi text đơn giản thay vì embed
-        message = f"[{machine_name}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
+        label = srt_name if srt_name else machine_name
+        message = f"[{label}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
         payload = {"content": message}
         
         response = requests.post(DISCORD_WEBHOOK, json=payload, timeout=5)
         if response.status_code in [200, 204]:
-            print(f"✓ Discord notification sent for {machine_name}")
+            print(f"✓ Discord notification sent for {label}")
         else:
             print(f"⚠ Discord webhook failed: {response.status_code}")
     except Exception as e:
         print(f"✗ Discord notification error: {e}")
 
 def get_all_logs():
-    """Get all logs – served from MongoDB, not cache"""
+    """Lấy tất cả logs từ in-memory cache để đạt hiệu năng cao nhất"""
     entries = []
-    try:
-        docs = list(collection.find().sort("last_updated", DESCENDING).limit(500))
-        for doc in docs:
-            entry = {
-                "timestamp": doc.get("last_updated", ""),
-                "data": {
-                    "name":      doc.get("name", ""),
-                    "ip":        doc.get("ip", ""),
-                    "ipwan":     doc.get("ipwan", ""),
-                    "status":    doc.get("status", ""),
-                    "port":      doc.get("port", ""),
-                    "statusapp": doc.get("statusapp", 0),
-                    "ping":      doc.get("ping"),
-                    "ping_timeouts": doc.get("ping_timeouts", 0),
-                    "cpu":       doc.get("temperature", doc.get("cpu")),
-                    "memory":    doc.get("memory", doc.get("ram")),
-                    "gpu":       doc.get("gpu"),
-                    "sender_mbps": doc.get("sender_mbps"),
-                    "receiver_mbps": doc.get("receiver_mbps"),
-                    "vmix_recording": doc.get("vmix_recording", False),
-                    "vmix_streaming": doc.get("vmix_streaming", False),
-                    "vmix_external":  doc.get("vmix_external", False),
-                    "resolution":     doc.get("resolution", "—"),
-                    "srt_quality":    doc.get("srt_quality", "—"),
-                    "srt_off_time": doc.get("srt_off_time", ""),
-                }
-            }
-            entries.append(entry)
-    except Exception as e:
-        print(f"✗ MongoDB read error: {e}")
+    # Sắp xếp theo last_updated giảm dần
+    sorted_items = sorted(_data_cache.values(), key=lambda x: x.get("last_updated", ""), reverse=True)
+    for doc in sorted_items:
+        entries.append({
+            "timestamp": doc.get("last_updated", ""),
+            "data": doc
+        })
     return entries
 
 @app.api_route("/", methods=["GET", "HEAD"])
@@ -247,14 +225,21 @@ async def receive_data(data: dict):
         timestamp = datetime.now(VIETNAM_TZ).isoformat()
         machine_name = data.get('name', data.get('ip', 'Unknown'))
 
-        # ── 1. Cập nhật cache ngay lập tức (< 1ms, không block) ──
+        # Extract SRT as array (backward compat: accept dict too)
+        srt_raw = data.get('SRT', [])
+        if isinstance(srt_raw, dict):
+            srt_list = [srt_raw]
+        elif isinstance(srt_raw, list):
+            srt_list = srt_raw
+        else:
+            srt_list = []
+
+        # ── 1. Cập nhật cache ngay lập tức (<1ms, không block) ──
         prev = _data_cache.get(machine_name, {})
         document = {
             "name":        machine_name,
             "ip":          data.get('ip', ''),
             "ipwan":       data.get('ipwan', ''),
-            "status":      data.get('status', 'UNKNOWN'),
-            "port":        data.get('port', ''),
             "statusapp":   data.get('statusapp', 0),
             "ping":        data.get('ping'),
             "ping_timeouts": data.get('ping_timeouts', 0),
@@ -267,21 +252,33 @@ async def receive_data(data: dict):
             "vmix_streaming": data.get('vmix_streaming', False),
             "vmix_external":  data.get('vmix_external', False),
             "resolution":     data.get('resolution', '—'),
-            "srt_quality":    data.get('srt_quality', '—'),
+            "SRT": srt_list,
             "last_updated": timestamp,
             "timestamp":   timestamp,
         }
         _data_cache[machine_name] = document
 
         ip_val = data.get('ip', '')
-        port_val = data.get('port', '')
-        statistics_id = _build_statistics_id(ip_val, port_val, machine_name)
+        statistics_id = f"{ip_val}:{machine_name}" if ip_val else machine_name
 
-        # So sánh thay đổi với cache cũ (không cần query MongoDB)
-        fields_to_check = ['ip', 'ipwan', 'status', 'port']
+        # Compare SRT status changes for Discord notifications
+        prev_srt_list = prev.get('SRT', []) if isinstance(prev.get('SRT'), list) else ([prev.get('SRT', {})] if isinstance(prev.get('SRT'), dict) else [])
+        prev_srt_map = {s.get('port', ''): s.get('status', '') for s in prev_srt_list if isinstance(s, dict)}
+        for srt_item in srt_list:
+            if not isinstance(srt_item, dict):
+                continue
+            port_val = srt_item.get('port', '')
+            new_status = srt_item.get('status', '')
+            old_status = prev_srt_map.get(port_val, '')
+            if old_status and old_status != new_status and new_status in ('ON', 'OFF'):
+                srt_name = srt_item.get('nameSRT', '')
+                send_discord_notification(machine_name, data.get('ipwan', ''), srt_name, port_val, new_status)
+
+        # Check for general field changes
+        fields_to_check = ['ip', 'ipwan']
         has_changes = not prev or any(
             prev.get(f) != document.get(f) for f in fields_to_check
-        )
+        ) or str(prev_srt_list) != str(srt_list)
         if has_changes and prev:
             for f in fields_to_check:
                 if prev.get(f) != document.get(f):
@@ -956,35 +953,35 @@ async def rollup_statistics_scheduler():
 
 @app.post("/delete")
 async def delete_data(payload: dict):
-    """Xóa dữ liệu theo IP và Port"""
+    """Xóa dữ liệu theo name (machine name)"""
     try:
         name = payload.get('name', '')
         ip = payload.get('ip', '')
-        port = payload.get('port', 0)
         
-        # Xóa theo IP và Port để đảm bảo chính xác
-        query = {
-            "ip": ip,
-            "port": port
-        }
+        # Xóa theo name (machine name) để đảm bảo chính xác
+        query = {"name": name} if name else {"ip": ip}
         
         result = collection.delete_one(query)
         
+        # Also remove from in-memory cache
+        if name and name in _data_cache:
+            del _data_cache[name]
+        
         if result.deleted_count > 0:
-            print(f"✓ Deleted: {name} - {ip}:{port}")
+            print(f"✓ Deleted: {name} ({ip})")
             # Broadcast update to all WebSocket clients
             await broadcast_updates()
             return JSONResponse(content={
                 "success": True, 
                 "deleted": result.deleted_count,
-                "message": f"Deleted {name} - {ip}:{port}"
+                "message": f"Deleted {name} ({ip})"
             })
         else:
-            print(f"⚠ Not found: {name} - {ip}:{port}")
+            print(f"⚠ Not found: {name} ({ip})")
             return JSONResponse(content={
                 "success": False,
                 "deleted": 0,
-                "message": f"Not found: {name} - {ip}:{port}"
+                "message": f"Not found: {name} ({ip})"
             })
     except Exception as e:
         print(f"✗ Delete error: {e}")
@@ -998,14 +995,19 @@ async def get_by_ip(ip: str):
         entries = []
         
         for doc in documents:
+            srt_raw = doc.get("SRT", [])
+            if isinstance(srt_raw, dict):
+                srt_list = [srt_raw]
+            elif isinstance(srt_raw, list):
+                srt_list = srt_raw
+            else:
+                srt_list = []
             entry = {
                 "timestamp": doc.get("last_updated", doc.get("timestamp", "")),
                 "data": {
                     "name": doc.get("name", ""),
                     "ip": doc.get("ip", ""),
                     "ipwan": doc.get("ipwan", ""),
-                    "status": doc.get("status", ""),
-                    "port": doc.get("port", ""),
                     "statusapp": doc.get("statusapp", 0),
                     "ping": doc.get("ping"),
                     "ping_timeouts": doc.get("ping_timeouts", 0),
@@ -1018,7 +1020,7 @@ async def get_by_ip(ip: str):
                     "vmix_streaming": doc.get("vmix_streaming", False),
                     "vmix_external": doc.get("vmix_external", False),
                     "resolution": doc.get("resolution", "—"),
-                    "srt_quality": doc.get("srt_quality", "—"),
+                    "SRT": srt_list,
                 }
             }
             entries.append(entry)
@@ -1270,9 +1272,9 @@ async def get_statistics(statistics_id: str, limit: int = _stats_default_limit):
                 def _load_latest_from_logs():
                     port_candidates = [port_text]
                     if port_int is not None:
-                        port_candidates.append(port_int)
+                        port_candidates.append(str(port_int))
                     return collection.find_one(
-                        {"ip": ip_text, "port": {"$in": port_candidates}},
+                        {"ip": ip_text, "SRT.port": {"$in": port_candidates}},
                         {
                             "_id": 0,
                             "temperature": 1,
@@ -1382,11 +1384,9 @@ async def websocket_endpoint(websocket: WebSocket):
         data = get_all_logs()
         await websocket.send_json(data)
         
-        # Keep connection alive and send updates every 5 seconds
+        # Keep connection alive
         while True:
-            data = get_all_logs()
-            await websocket.send_json(data)
-            await asyncio.sleep(5)
+            await websocket.receive_text()
             
     except WebSocketDisconnect:
         active_connections.remove(websocket)
@@ -1482,7 +1482,10 @@ async def flush_statistics_from_cache():
                 if last_updated < cutoff:
                     continue
 
-                statistics_id = _build_statistics_id(doc.get("ip"), doc.get("port"), machine_name)
+                srt_doc = doc.get("SRT", {})
+                if not isinstance(srt_doc, dict):
+                    srt_doc = {}
+                statistics_id = _build_statistics_id(doc.get("ip"), srt_doc.get("port", ""), machine_name)
                 cpu_value = doc.get("temperature", doc.get("cpu"))
                 ram_value = doc.get("memory", doc.get("ram"))
 

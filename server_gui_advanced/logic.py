@@ -11,12 +11,12 @@ import requests
 import websocket
 
 try:
-    from .shared import VIETNAM_TZ
+    from .shared import VIETNAM_TZ, get_first_srt, get_srt_ports_str
 except ImportError:
     try:
-        from server_gui_advanced.shared import VIETNAM_TZ
+        from server_gui_advanced.shared import VIETNAM_TZ, get_first_srt, get_srt_ports_str
     except ImportError:
-        from shared import VIETNAM_TZ
+        from shared import VIETNAM_TZ, get_first_srt, get_srt_ports_str
 
 
 class ServerDataGUILogicMixin:
@@ -30,7 +30,7 @@ class ServerDataGUILogicMixin:
                 deduped = []
                 for entry in data:
                     d = entry.get("data", {})
-                    key = f"{d.get('ip','')}:{d.get('port','')}"
+                    key = d.get("name", d.get("ip", ""))
                     if key not in seen:
                         seen.add(key)
                         deduped.append(entry)
@@ -122,7 +122,7 @@ class ServerDataGUILogicMixin:
                         unique = []
                         for entry in data:
                             d = entry.get("data", {})
-                            key = f"{d.get('ip','')}:{d.get('port','')}"
+                            key = d.get("name", d.get("ip", "")) or d.get("ip", "")
                             if key not in seen:
                                 seen.add(key)
                                 unique.append(entry)
@@ -142,7 +142,7 @@ class ServerDataGUILogicMixin:
                 print(f"⚠ REST polling error: {e}")
 
         threading.Thread(target=poll, daemon=True).start()
-        self.root.after(3000, self.rest_poll_loop)
+        self.root.after(1500, self.rest_poll_loop)
 
     def toggle_auto_send(self):
         self.auto_send_enabled = not self.auto_send_enabled
@@ -166,13 +166,21 @@ class ServerDataGUILogicMixin:
         snapshot = []
         for entry in self.selected_data:
             d = entry.get("data", {})
+            srt = get_first_srt(d)
+            # PTZ entries keep flat status/port
+            if d.get("ptz", False):
+                port = d.get("port", "")
+                status = d.get("status", "")
+            else:
+                port = get_srt_ports_str(d) or d.get("port", "")
+                status = srt.get("status", d.get("status", ""))
             snapshot.append(
                 {
                     "name": d.get("name", ""),
                     "ip": d.get("ip", ""),
                     "ipwan": d.get("ipwan", ""),
-                    "port": d.get("port", ""),
-                    "status": d.get("status", ""),
+                    "port": port,
+                    "status": status,
                 }
             )
         return sorted(snapshot, key=lambda x: (x["name"], x["port"]))
@@ -193,10 +201,15 @@ class ServerDataGUILogicMixin:
 
                 for entry in self.selected_data:
                     d = entry.get("data", {})
+                    srt = get_first_srt(d)
                     name = d.get("name", "")
                     ipwan = d.get("ipwan", "")
-                    port = d.get("port", "")
-                    status = d.get("status", "")
+                    if d.get("ptz", False):
+                        port = d.get("port", "")
+                        status = d.get("status", "")
+                    else:
+                        port = get_srt_ports_str(d) or d.get("port", "")
+                        status = srt.get("status", d.get("status", ""))
                     msg = f"[{prefix}][{name}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
                     messages.append(msg)
 
@@ -226,7 +239,7 @@ class ServerDataGUILogicMixin:
                         unique = []
                         for entry in data:
                             d = entry.get("data", {})
-                            key = f"{d.get('ip','')}:{d.get('port','')}"
+                            key = d.get("name", d.get("ip", "")) or d.get("ip", "")
                             if key not in seen:
                                 seen.add(key)
                                 unique.append(entry)
@@ -330,7 +343,7 @@ class ServerDataGUILogicMixin:
                         unique = []
                         for entry in data:
                             d = entry.get("data", {})
-                            key = f"{d.get('ip','')}:{d.get('port','')}"
+                            key = d.get("name", d.get("ip", "")) or d.get("ip", "")
                             if key not in seen:
                                 seen.add(key)
                                 unique.append(entry)
@@ -358,18 +371,22 @@ class ServerDataGUILogicMixin:
             s = set()
             for entry in data_list:
                 d = entry.get("data", {})
-                s.add(f"{d.get('ip', '')}:{d.get('port', '')}")
+                key = d.get("name", d.get("ip", "")) or d.get("ip", "")
+                s.add(key)
             return s
 
         return build_set(old_data) != build_set(new_data)
 
     def is_in_selected(self, entry):
+        """Check if entry is in selected list - Check by Name or IP"""
         d = entry.get("data", {})
+        name = d.get("name", "")
         ip = d.get("ip", "")
-        port = d.get("port", "")
         for sel in self.selected_data:
             sel_d = sel.get("data", {})
-            if sel_d.get("ip", "") == ip and sel_d.get("port", "") == port:
+            if name and sel_d.get("name") == name:
+                return True
+            if ip and sel_d.get("ip") == ip:
                 return True
         return False
 
@@ -403,7 +420,7 @@ class ServerDataGUILogicMixin:
         unique = {}
         for entry in self.selected_data:
             d = entry.get("data", {})
-            key = f"{d.get('ip','')}:{d.get('port','')}"
+            key = d.get("name", d.get("ip", "")) or d.get("ip", "")
             if key not in unique:
                 unique[key] = entry
         self.selected_data = list(unique.values())
@@ -522,15 +539,22 @@ class ServerDataGUILogicMixin:
             parts = [
                 f"ip: {d.get('ip','')}  ",
                 f"ipwan: {d.get('ipwan','')}  ",
-                f"status: {d.get('status','')}  ",
-                f"port: {d.get('port','')}  ",
+            ]
+            srt = get_first_srt(d)
+            if d.get("ptz", False):
+                parts.append(f"status: {d.get('status','')}  ")
+                parts.append(f"port: {d.get('port','')}  ")
+            else:
+                parts.append(f"status: {srt.get('status', d.get('status',''))}  ")
+                parts.append(f"port: {get_srt_ports_str(d) or d.get('port','')}  ")
+            parts.extend([
                 f"app: {app_s}  ",
                 f"ping: {ping_s}  ",
                 f"timeouts: {d.get('ping_timeouts', 0)}  ",
                 f"cpu: {cpu_s}  ",
                 f"ram: {mem_s}  ",
                 f"temp: {temp_s}",
-            ]
+            ])
             line = f"[{now_str}] [{name}] - " + "".join(parts) + "\n" if is_error else f"[{now_str}] - " + "".join(parts) + "\n"
 
             with open(fpath, "a", encoding="utf-8") as f:
@@ -545,18 +569,16 @@ class ServerDataGUILogicMixin:
                 continue
 
             sel_name = sel_d.get("name", "")
-            sel_port = sel_d.get("port", "")
             matched = False
             for entry in self.data:
                 entry_d = entry.get("data", {})
                 entry_name = entry_d.get("name", "")
-                entry_port = entry_d.get("port", "")
 
                 if sel_name and entry_name and sel_name == entry_name:
                     self.selected_data[i] = entry
                     matched = True
                     break
-                elif not sel_name and sel_port and sel_port == entry_port:
+                elif not sel_name and sel_d.get("ip", "") and sel_d.get("ip", "") == entry_d.get("ip", ""):
                     self.selected_data[i] = entry
                     matched = True
                     break
@@ -564,8 +586,10 @@ class ServerDataGUILogicMixin:
             if matched:
                 new_d = self.selected_data[i].get("data", {})
                 disp_name = new_d.get("name", "") or sel_name
-                old_status = sel_d.get("status", "")
-                new_status = new_d.get("status", "")
+                new_srt = get_first_srt(new_d)
+                old_srt = get_first_srt(sel_d)
+                old_status = old_srt.get("status", sel_d.get("status", ""))
+                new_status = new_srt.get("status", new_d.get("status", ""))
                 status_changed = old_status != new_status and new_status in ("ON", "OFF") and old_status in ("ON", "OFF")
                 now_ts = time.time()
                 since_last = now_ts - self._log_last_write.get(disp_name, 0)
@@ -774,7 +798,7 @@ class ServerDataGUILogicMixin:
                         unique = {}
                         for entry in loaded_data:
                             d = entry.get("data", {})
-                            key = f"{d.get('ip','')}:{d.get('port','')}"
+                            key = d.get("name", d.get("ip", "")) or d.get("ip", "")
                             if key not in unique:
                                 unique[key] = entry
                         self.selected_data = list(unique.values())

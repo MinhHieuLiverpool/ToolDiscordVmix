@@ -160,67 +160,72 @@ class VmixMonitorLogicMixin:
                     imported_count = 0
                     for entry in data:
                         entry_data = entry.get("data", {})
-                        name = entry_data.get("name", "")
-                        port = entry_data.get("port", 0)
+                        srt_list = entry_data.get("SRT", [])
+                        if not isinstance(srt_list, list):
+                            srt_list = [srt_list] if isinstance(srt_list, dict) else []
                         ipwan = entry_data.get("ipwan", "unknown")
-                        if name and port:
-                            exists = False
-                            for existing in self.port_list:
-                                if existing["name"] == name or existing["port"] == port:
-                                    exists = True
-                                    self.log(f"⚠️ Bỏ qua {name} (đã tồn tại)")
-                                    break
 
-                            if not exists:
-                                self.port_list.append(
-                                    {
-                                        "name": name,
-                                        "port": port,
-                                        "ip": current_ip,
-                                        "ipwan": ipwan,
-                                        "ping": "—",
-                                        "timeout": "0",
-                                        "cpu": "—",
-                                        "memory": "—",
-                                        "gpu": "—",
-                                        "sender_bw": "—",
-                                        "receiver_bw": "—",
-                                        "rec": "—",
-                                        "live": "—",
-                                        "ext": "—",
-                                        "resolution": "—",
-                                        "srt": "—",
-                                    }
-                                )
-                                self.tree.insert(
-                                    "",
-                                    tk.END,
-                                    values=(
-                                        name,
-                                        current_ip,
-                                        ipwan,
-                                        port,
-                                        "—",
-                                        "0",
-                                        "—",
-                                        "—",
-                                        "—",
-                                        "—",
-                                        "—",
-                                        "—",
-                                        "—",
-                                        "—",
-                                        "—",
-                                        "—",
-                                    ),
-                                )
-                                imported_count += 1
-                                threading.Thread(
-                                    target=lambda n=name, p=port: self.update_single_ip_in_database(
-                                        old_ip, current_ip, n, p
-                                    ),
-                                    daemon=True,
-                                ).start()
+                        for srt_item in srt_list:
+                            name = srt_item.get("nameSRT", "")
+                            port = srt_item.get("port", 0)
+                            if name and port:
+                                exists = False
+                                for existing in self.port_list:
+                                    if existing["name"] == name or existing["port"] == port:
+                                        exists = True
+                                        self.log(f"⚠️ Bỏ qua {name} (đã tồn tại)")
+                                        break
+
+                                if not exists:
+                                    self.port_list.append(
+                                        {
+                                            "name": name,
+                                            "port": port,
+                                            "ip": current_ip,
+                                            "ipwan": ipwan,
+                                            "ping": "—",
+                                            "timeout": "0",
+                                            "cpu": "—",
+                                            "memory": "—",
+                                            "gpu": "—",
+                                            "sender_bw": "—",
+                                            "receiver_bw": "—",
+                                            "rec": "—",
+                                            "live": "—",
+                                            "ext": "—",
+                                            "resolution": "—",
+                                            "srt": "—",
+                                        }
+                                    )
+                                    self.tree.insert(
+                                        "",
+                                        tk.END,
+                                        values=(
+                                            name,
+                                            current_ip,
+                                            ipwan,
+                                            port,
+                                            "—",
+                                            "0",
+                                            "—",
+                                            "—",
+                                            "—",
+                                            "—",
+                                            "—",
+                                            "—",
+                                            "—",
+                                            "—",
+                                            "—",
+                                            "—",
+                                        ),
+                                    )
+                                    imported_count += 1
+                                    threading.Thread(
+                                        target=lambda n=name, p=port: self.update_single_ip_in_database(
+                                            old_ip, current_ip, n, p
+                                        ),
+                                        daemon=True,
+                                    ).start()
 
                     if imported_count > 0:
                         self.log(f"✅ Đã import {imported_count} port từ IP {old_ip}")
@@ -332,60 +337,66 @@ class VmixMonitorLogicMixin:
                     loaded_count = 0
                     for entry in data:
                         entry_data = entry.get("data", {})
-                        name = entry_data.get("name", "")
-                        port = entry_data.get("port", 0)
                         entry_ip = entry_data.get("ip", ip)
                         ipwan = entry_data.get("ipwan", "unknown")
                         ping = entry_data.get("ping", None)
                         memory = entry_data.get("memory", None)
-                        cpu = entry_data.get("temperature", entry_data.get("cpu", None))
+                        cpu = entry_data.get("cpu", None)
                         gpu = entry_data.get("gpu", None)
                         sender_mbps = entry_data.get("sender_mbps", None)
                         receiver_mbps = entry_data.get("receiver_mbps", None)
 
-                        if name and port:
-                            self.port_list.append(
-                                {
-                                    "name": name,
-                                    "port": port,
-                                    "ip": entry_ip,
-                                    "ipwan": ipwan,
-                                    "ping": f"{ping:.0f}" if ping is not None else "—",
-                                    "cpu": f"{cpu:.1f}" if cpu is not None else "—",
-                                    "memory": f"{memory:.1f}" if memory is not None else "—",
-                                    "gpu": f"{gpu:.1f}" if gpu is not None else "—",
-                                    "sender_bw": self._format_mbps_text(self._to_float_or_none(sender_mbps)),
-                                    "receiver_bw": self._format_mbps_text(self._to_float_or_none(receiver_mbps)),
-                                    "rec": "—",
-                                    "live": "—",
-                                    "ext": "—",
-                                    "resolution": "—",
-                                    "srt": "—",
-                                }
-                            )
-                            self.tree.insert(
-                                "",
-                                tk.END,
-                                values=(
-                                    name,
-                                    entry_ip,
-                                    ipwan,
-                                    port,
-                                    f"{ping:.0f}" if ping is not None else "—",
-                                    "0",
-                                    f"{cpu:.1f}" if cpu is not None else "—",
-                                    f"{memory:.1f}" if memory is not None else "—",
-                                    f"{gpu:.1f}" if gpu is not None else "—",
-                                    self._format_mbps_text(self._to_float_or_none(sender_mbps)),
-                                    self._format_mbps_text(self._to_float_or_none(receiver_mbps)),
-                                    "—",
-                                    "—",
-                                    "—",
-                                    "—",
-                                    "—",
-                                ),
-                            )
-                            loaded_count += 1
+                        # SRT is now an array
+                        srt_list = entry_data.get("SRT", [])
+                        if not isinstance(srt_list, list):
+                            srt_list = [srt_list] if isinstance(srt_list, dict) else []
+
+                        for srt_item in srt_list:
+                            name = srt_item.get("nameSRT", "")
+                            port = srt_item.get("port", 0)
+                            if name and port:
+                                self.port_list.append(
+                                    {
+                                        "name": name,
+                                        "port": port,
+                                        "ip": entry_ip,
+                                        "ipwan": ipwan,
+                                        "ping": f"{ping:.0f}" if ping is not None else "—",
+                                        "cpu": f"{cpu:.1f}" if cpu is not None else "—",
+                                        "memory": f"{memory:.1f}" if memory is not None else "—",
+                                        "gpu": f"{gpu:.1f}" if gpu is not None else "—",
+                                        "sender_bw": self._format_mbps_text(self._to_float_or_none(sender_mbps)),
+                                        "receiver_bw": self._format_mbps_text(self._to_float_or_none(receiver_mbps)),
+                                        "rec": "—",
+                                        "live": "—",
+                                        "ext": "—",
+                                        "resolution": "—",
+                                        "srt": "—",
+                                    }
+                                )
+                                self.tree.insert(
+                                    "",
+                                    tk.END,
+                                    values=(
+                                        name,
+                                        entry_ip,
+                                        ipwan,
+                                        port,
+                                        f"{ping:.0f}" if ping is not None else "—",
+                                        "0",
+                                        f"{cpu:.1f}" if cpu is not None else "—",
+                                        f"{memory:.1f}" if memory is not None else "—",
+                                        f"{gpu:.1f}" if gpu is not None else "—",
+                                        self._format_mbps_text(self._to_float_or_none(sender_mbps)),
+                                        self._format_mbps_text(self._to_float_or_none(receiver_mbps)),
+                                        "—",
+                                        "—",
+                                        "—",
+                                        "—",
+                                        "—",
+                                    ),
+                                )
+                                loaded_count += 1
 
                     if loaded_count > 0:
                         self.log(f"✅ Đã tải {loaded_count} port từ database (IP: {ip})")
@@ -524,12 +535,12 @@ class VmixMonitorLogicMixin:
         import requests
 
         try:
-            data = {"name": name, "ip": ip, "port": port}
+            data = {"name": name, "ip": ip}
             url = f"{SERVER_URL}/delete"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=15)
             if response.status_code == 200:
-                self.log(f"🗑️ Đã xóa trên DB: {name} - Port {port}")
+                self.log(f"🗑️ Đã xóa trên DB: {name}")
             elif response.status_code == 500:
                 self.log(f"⚠️ Server error 500 khi xóa {name} (có thể server đang cold start)")
             else:
@@ -552,45 +563,55 @@ class VmixMonitorLogicMixin:
 
         try:
             wan_ip = self.get_wan_ip()
-            for entry in self.port_list:
-                data = {
-                    "name": entry["name"],
-                    "ip": ip,
-                    "ipwan": wan_ip,
-                    "status": "OFF",
-                    "port": entry["port"],
-                    "statusapp": status_value,
-                }
-                url = SERVER_URL
-                headers = {"Content-Type": "application/json"}
+            machine_name = socket.gethostname()
 
-                max_retries = 3
-                for attempt in range(max_retries):
-                    try:
-                        response = requests.post(url, json=data, headers=headers, timeout=15)
-                        if response.status_code == 200:
-                            status_text = "ON" if status_value == 1 else "OFF"
-                            self.log(f"✅ App status {status_text}: {entry['name']} - Port {entry['port']}")
-                            break
-                        elif response.status_code == 500:
-                            if attempt < max_retries - 1:
-                                wait_time = (attempt + 1) * 2
-                                self.log(f"⚠️ Server error 500 ({entry['name']}), retry sau {wait_time}s... (lần {attempt + 1}/{max_retries})")
-                                time.sleep(wait_time)
-                            else:
-                                self.log(f"❌ Lỗi 500 {entry['name']}")
-                        else:
-                            self.log(f"❌ Lỗi gửi {entry['name']}: HTTP {response.status_code}")
-                            break
-                    except requests.exceptions.Timeout:
-                        if attempt < max_retries - 1:
-                            self.log(f"⏱️ Timeout ({entry['name']}), retry...")
-                            time.sleep(2)
-                        else:
-                            self.log(f"❌ Timeout sau {max_retries} lần thử: {entry['name']}")
-                    except requests.exceptions.ConnectionError:
-                        self.log(f"❌ Không kết nối được server: {entry['name']}")
+            # Build SRT array from all ports
+            srt_list = []
+            for entry in self.port_list:
+                srt_list.append({
+                    "nameSRT": entry["name"],
+                    "port": entry["port"],
+                    "quality": "—",
+                    "status": "OFF",
+                })
+
+            data = {
+                "name": machine_name,
+                "ip": ip,
+                "ipwan": wan_ip,
+                "statusapp": status_value,
+                "SRT": srt_list,
+            }
+            url = SERVER_URL
+            headers = {"Content-Type": "application/json"}
+
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    response = requests.post(url, json=data, headers=headers, timeout=15)
+                    if response.status_code == 200:
+                        status_text = "ON" if status_value == 1 else "OFF"
+                        self.log(f"✅ App status {status_text}: {len(srt_list)} SRT streams")
                         break
+                    elif response.status_code == 500:
+                        if attempt < max_retries - 1:
+                            wait_time = (attempt + 1) * 2
+                            self.log(f"⚠️ Server error 500, retry sau {wait_time}s... (lần {attempt + 1}/{max_retries})")
+                            time.sleep(wait_time)
+                        else:
+                            self.log(f"❌ Lỗi 500 gửi app status")
+                    else:
+                        self.log(f"❌ Lỗi gửi app status: HTTP {response.status_code}")
+                        break
+                except requests.exceptions.Timeout:
+                    if attempt < max_retries - 1:
+                        self.log(f"⏱️ Timeout gửi app status, retry...")
+                        time.sleep(2)
+                    else:
+                        self.log(f"❌ Timeout sau {max_retries} lần thử")
+                except requests.exceptions.ConnectionError:
+                    self.log(f"❌ Không kết nối được server")
+                    break
         except Exception as e:
             self.log(f"❌ ERROR gửi app status: {str(e)}")
 
@@ -1074,6 +1095,8 @@ class VmixMonitorLogicMixin:
                 _, srt_by_port = self.get_res_and_srt_from_file()
             srt_fallback = next(iter(srt_by_port.values()), "—")
 
+            # Build SRT array and update UI entries
+            srt_list = []
             for entry in self.port_list:
                 port = entry["port"]
                 name = entry["name"]
@@ -1094,44 +1117,54 @@ class VmixMonitorLogicMixin:
 
                 vmix_running = self.is_vmix_on_port(port)
                 current_status = "ON" if vmix_running else "OFF"
-                try:
-                    data = {
-                        "name": name,
-                        "ip": ip,
-                        "ipwan": wan_ip,
-                        "status": current_status,
-                        "port": port,
-                        "statusapp": 1,
-                        "ping": ping_ms,
-                        "ping_timeouts": self.ping_timeout_count,
-                        "temperature": cpu_pct,
-                        "memory": mem_pct,
-                        "gpu": gpu_pct,
-                        "sender_mbps": sender_mbps,
-                        "receiver_mbps": receiver_mbps,
-                        "vmix_recording": vmix_stats.get("recording", False),
-                        "vmix_streaming": vmix_stats.get("streaming", False),
-                        "vmix_external": vmix_stats.get("external", False),
-                        "resolution": res_str,
-                        "srt_quality": srt_str,
-                    }
-                    headers = {"Content-Type": "application/json"}
-                    response = self.http_session.post(SERVER_URL, json=data, headers=headers, timeout=5)
-                    if response.status_code == 200:
-                        if prev_status.get(port) != current_status:
-                            icon = "🟢" if current_status == "ON" else "🔴"
-                            self.log(f"{icon} SRT {current_status}: {name} {ip}:{port}")
-                            prev_status[port] = current_status
-                    elif response.status_code == 500:
-                        self.log(f"⚠️ Server error 500 ({name})")
-                    else:
-                        self.log(f"❌ HTTP {response.status_code} gửi {name}")
-                except requests.exceptions.Timeout:
-                    self.log(f"⏱️ Timeout gửi {name}")
-                except requests.exceptions.ConnectionError:
-                    self.log(f"❌ Mất kết nối ({name})")
-                except Exception as e:
-                    self.log(f"❌ ERROR {name}: {str(e)}")
+
+                if prev_status.get(port) != current_status:
+                    icon = "🟢" if current_status == "ON" else "🔴"
+                    self.log(f"{icon} SRT {current_status}: {name} {ip}:{port}")
+                    prev_status[port] = current_status
+
+                srt_list.append({
+                    "nameSRT": name,
+                    "port": port,
+                    "quality": srt_str,
+                    "status": current_status,
+                })
+
+            # Send ONE request with all SRT streams
+            try:
+                machine_name = socket.gethostname()
+                data = {
+                    "name": machine_name,
+                    "ip": ip,
+                    "ipwan": wan_ip,
+                    "statusapp": 1,
+                    "ping": ping_ms,
+                    "ping_timeouts": self.ping_timeout_count,
+                    "temperature": cpu_pct,
+                    "memory": mem_pct,
+                    "gpu": gpu_pct,
+                    "sender_mbps": sender_mbps,
+                    "receiver_mbps": receiver_mbps,
+                    "vmix_recording": vmix_stats.get("recording", False),
+                    "vmix_streaming": vmix_stats.get("streaming", False),
+                    "vmix_external": vmix_stats.get("external", False),
+                    "resolution": res_str,
+                    "SRT": srt_list,
+                }
+                headers = {"Content-Type": "application/json"}
+                response = self.http_session.post(SERVER_URL, json=data, headers=headers, timeout=5)
+                if response.status_code == 200:
+                    pass  # Status changes already logged above per-port
+                elif response.status_code == 500:
+                    self.log(f"⚠️ Server error 500")
+                else:
+                    self.log(f"❌ HTTP {response.status_code}")
+            except requests.exceptions.Timeout:
+                self.log(f"⏱️ Timeout gửi data")
+            except requests.exceptions.ConnectionError:
+                self.log(f"❌ Mất kết nối server")
+            except Exception as e:
+                self.log(f"❌ ERROR: {str(e)}")
 
             self.root.after(0, self.update_table_display)
 
