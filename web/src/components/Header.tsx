@@ -15,75 +15,57 @@ export default function Header({
 }) {
     const totalOffline = rows.length - totalOnline
 
+    const wsLabel = wsStatus === 'connected' ? 'CONNECTED' : wsStatus === 'connecting' ? 'CONNECTING...' : 'DISCONNECTED'
+    const wsColorClass = wsStatus === 'connected' ? 'header-ws-ok' : wsStatus === 'connecting' ? 'header-ws-warn' : 'header-ws-err'
+
     return (
         <div className="header-top">
+            {/* Left: Branding */}
             <div className="header-left">
                 <div className="header-brand-row">
                     <div className="header-logo-circle">
-                        <span className="header-logo-icon">⚡</span>
+                        <img src="/favicon.svg" alt="Vmix Monitor Logo" className="header-logo-img" />
                     </div>
                     <div>
-                        <p className="header-tag">Performance Dashboard</p>
                         <h1 className="header-title">
                             <span className="gradient-text">Vmix</span> Monitor
                         </h1>
+                        <p className="header-subtitle">
+                            Realtime Fleet Performance
+                        </p>
                     </div>
                 </div>
-                <p className="header-subtitle">
-                    Giám sát CPU, RAM & GPU realtime — mỗi máy 1 biểu đồ
-                </p>
             </div>
 
-            <div className="header-right">
-                <div className="header-stats">
-                    <div className="stat-card stat-total">
-                        <div className="stat-card-icon">🖥️</div>
-                        <div className="stat-card-content">
-                            <span className="stat-number">{rows.length}</span>
-                            <span className="stat-label">Tổng máy</span>
-                        </div>
+            {/* Center: System KPIs */}
+            <div className="header-center">
+                <div className="header-kpi-row">
+                    <div className="header-kpi">
+                        <span className="header-kpi-number">{rows.length}</span>
+                        <span className="header-kpi-label">TOTAL</span>
                     </div>
-                    <div className="stat-card stat-online">
-                        <div className="stat-card-icon">🟢</div>
-                        <div className="stat-card-content">
-                            <span className="stat-number">{totalOnline}</span>
-                            <span className="stat-label">Online</span>
-                        </div>
+                    <div className="header-kpi-divider" />
+                    <div className="header-kpi header-kpi-online">
+                        <span className="header-kpi-number">{totalOnline}</span>
+                        <span className="header-kpi-label">ONLINE</span>
                     </div>
-                    <div className="stat-card stat-offline">
-                        <div className="stat-card-icon">🔴</div>
-                        <div className="stat-card-content">
-                            <span className="stat-number">{totalOffline}</span>
-                            <span className="stat-label">Offline</span>
-                        </div>
-                    </div>
-                    <div
-                        className={`stat-card ${wsStatus === 'connected'
-                            ? 'stat-ws-ok'
-                            : wsStatus === 'connecting'
-                                ? 'stat-ws-warn'
-                                : 'stat-ws-err'
-                            }`}
-                    >
-                        <div className="stat-card-icon">
-                            <span className={`ws-indicator ${wsStatus === 'connected' ? 'ws-pulse' : ''}`} />
-                        </div>
-                        <div className="stat-card-content">
-                            <span className="stat-number stat-number-sm">
-                                {wsStatus === 'connected' ? 'Live' : wsStatus === 'connecting' ? '...' : 'Off'}
-                            </span>
-                            <span className="stat-label">WebSocket</span>
-                        </div>
+                    <div className="header-kpi-divider" />
+                    <div className="header-kpi header-kpi-offline">
+                        <span className="header-kpi-number">{totalOffline}</span>
+                        <span className="header-kpi-label">OFFLINE</span>
                     </div>
                 </div>
+            </div>
 
+            {/* Right: WS Status + Logout */}
+            <div className="header-right">
+                <div className={`header-ws-badge ${wsColorClass}`}>
+                    <span className={`header-ws-dot ${wsStatus === 'connected' ? 'ws-pulse' : ''}`} />
+                    <span className="header-ws-text">{wsLabel}</span>
+                </div>
                 <button className="logout-btn" type="button" onClick={onLogout}>
-                    <svg className="logout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                        <polyline points="16 17 21 12 16 7" />
-                        <line x1="21" y1="12" x2="9" y2="12" />
-                    </svg>
-                    Đăng xuất
+                    <span style={{ fontSize: '1.1rem', marginRight: '4px' }}>⎋</span>
+                    LOGOUT
                 </button>
             </div>
         </div>

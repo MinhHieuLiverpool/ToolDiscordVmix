@@ -1,5 +1,13 @@
+import { useState } from 'react'
 import { toNumber } from '../types'
-import type { BackendLogItem } from '../services/api'
+import { normalizeSrtList, normalizeStreamList, type BackendLogItem } from '../services/api'
+import Dialog from './ui/Dialog'
+import { renderStreamCard, toOnOff } from './DialogHelpers'
+
+function checkOn(value: unknown): boolean {
+    const text = String(value || '').toUpperCase()
+    return ['ONLINE', 'ON', '1', 'TRUE', 'RUNNING', 'LIVE', 'ACTIVE'].includes(text)
+}
 
 export default function MachineStatusCard({
     item,
@@ -8,20 +16,26 @@ export default function MachineStatusCard({
     item: BackendLogItem
     index: number
 }) {
-    const srtOnline = ['ONLINE', 'ON', '1', 'TRUE'].includes(String(item.data.status || '').toUpperCase())
-    const cpuVal = toNumber(item.data.cpu)
+    const [isStreamOpen, setIsStreamOpen] = useState(false)
+
+    const srtOnline = checkOn(item.data.status)
+    const appOn = checkOn(item.data.statusapp)
+    const recOn = checkOn(item.data.vmix_recording)
+    const liveOn = checkOn(item.data.vmix_streaming)
+
+    const cpuVal = toNumber(item.data.temperature)
     const ramVal = toNumber(item.data.memory)
     const gpuVal = toNumber(item.data.gpu)
-    const senderVal = toNumber(item.data.sender_mbps)
-    const receiverVal = toNumber(item.data.receiver_mbps)
+    const rawSender = toNumber(item.data.sender_mbps)
+    const rawReceiver = toNumber(item.data.receiver_mbps)
+
+    const senderVal = (rawSender !== null && rawSender > 0.02) ? rawSender : 0
+    const receiverVal = (rawReceiver !== null && rawReceiver > 0.02) ? rawReceiver : 0
+
     const cpuHigh = cpuVal !== null && cpuVal > 50
     const ramHigh = ramVal !== null && ramVal > 50
-    const gpuHigh = gpuVal !== null && gpuVal > 80
-    const hasHighUsage = cpuHigh || ramHigh
-    const appOn = Number(item.data.statusapp) === 1
-    const recOn = Boolean(item.data.vmix_recording)
-    const liveOn = Boolean(item.data.vmix_streaming)
-    const extOn = Boolean(item.data.vmix_external)
+    const gpuHigh = gpuVal !== null && gpuVal > 50
+    const hasHighUsage = cpuHigh || ramHigh || gpuHigh
 
     const timeText = (() => {
         const raw = item.timestamp || ''
@@ -32,6 +46,9 @@ export default function MachineStatusCard({
 
     const onOff = (v: boolean) => (v ? 'ON' : 'OFF')
 
+    const srtList = normalizeSrtList(item.data.SRT)
+    const streamList = normalizeStreamList(item.data.stream)
+
     return (
         <div
             className={`glass-card card-animate machine-card ${srtOnline ? 'card-online' : 'card-offline'} ${hasHighUsage ? 'card-overload' : ''}`}
@@ -39,32 +56,34 @@ export default function MachineStatusCard({
         >
             {/* Header */}
             <div className="card-header">
-                <h3 className="card-name">{item.data.name || 'Unknown'}</h3>
+                <h3 className="card-name">{item.data.name || 'Unknown Device'}</h3>
                 <span className={`status-badge ${srtOnline ? 'badge-online' : 'badge-offline'}`}>
                     <span className={`status-dot ${srtOnline ? 'dot-online' : 'dot-offline'}`} />
-                    {onOff(srtOnline)}
+                    SRT {onOff(srtOnline)}
                 </span>
             </div>
 
             {/* IP info */}
             <div className="card-info">
                 <div className="info-row">
-                    <span className="info-label">IP</span>
-                    <span className="info-value mono">{item.data.ip || '-'}</span>
+                    <span className="info-label">NETWORK</span>
+                    <span className="info-value mono" style={{ fontSize: '0.6rem' }}>
+                        {item.data.ip || '-'}{item.data.port ? `:${item.data.port}` : ''}
+                    </span>
                 </div>
                 <div className="info-row">
                     <span className="info-label">WAN</span>
-                    <span className="info-value mono">{item.data.ipwan || '-'}</span>
+                    <span className="info-value mono" style={{ fontSize: '0.6rem' }}>{item.data.ipwan || '-'}</span>
                 </div>
                 <div className="info-row">
-                    <span className="info-label">Port</span>
-                    <span className="info-value mono">{item.data.port || '-'}</span>
+                    <span className="info-label">RESOLUTION</span>
+                    <span className="info-value mono" style={{ fontSize: '0.6rem' }}>{item.data.resolution || '-'}</span>
                 </div>
             </div>
 
             <div className="card-divider" />
 
-            {/* Metrics Row 1: CPU / RAM / Ping */}
+            {/* Metrics Row 1: Core Usage */}
             <div className="card-metrics">
                 <div className={`metric-box ${cpuHigh ? 'metric-box-danger' : ''}`}>
                     <div className="metric-label">CPU</div>
@@ -86,78 +105,102 @@ export default function MachineStatusCard({
                 </div>
             </div>
 
-            {/* Metrics Row 2: Ping / APP / EXT */}
+            {/* Metrics Row 2: Networking */}
             <div className="card-metrics">
                 <div className="metric-box">
-                    <div className="metric-label">Ping</div>
-                    <div className="metric-value metric-ping">{item.data.ping ?? '-'}</div>
+                    <div className="metric-label">PING</div>
+                    <div className="metric-value metric-ping">{item.data.ping ?? '0'}<span className="metric-unit">ms</span></div>
                 </div>
                 <div className="metric-box">
-                    <div className="metric-label">APP</div>
-                    <div className={`metric-value ${appOn ? 'metric-ping' : 'metric-warn'}`}>{onOff(appOn)}</div>
-                </div>
-                <div className="metric-box">
-                    <div className="metric-label">Timeout</div>
-                    <div className="metric-value metric-cpu">{item.data.ping_timeouts ?? 0}</div>
-                </div>
-            </div>
-
-            {/* Metrics Row 3: Sender / Receiver / EXT */}
-            <div className="card-metrics">
-                <div className="metric-box">
-                    <div className="metric-label">Sender</div>
+                    <div className="metric-label">SENDER</div>
                     <div className="metric-value metric-sender">
-                        {senderVal !== null ? `${senderVal.toFixed(1)}` : '-'}
-                        {senderVal !== null && <span className="metric-unit">Mbps</span>}
+                        {senderVal.toFixed(2)}<span className="metric-unit">Mbps</span>
                     </div>
                 </div>
                 <div className="metric-box">
-                    <div className="metric-label">Receiver</div>
+                    <div className="metric-label">RECV</div>
                     <div className="metric-value metric-receiver">
-                        {receiverVal !== null ? `${receiverVal.toFixed(1)}` : '-'}
-                        {receiverVal !== null && <span className="metric-unit">Mbps</span>}
+                        {receiverVal.toFixed(2)}<span className="metric-unit">Mbps</span>
                     </div>
-                </div>
-                <div className="metric-box">
-                    <div className="metric-label">EXT</div>
-                    <div className={`metric-value ${extOn ? 'metric-ping' : 'metric-cpu'}`}>{onOff(extOn)}</div>
                 </div>
             </div>
 
-            {/* Extra info */}
-            <div className="card-extra">
-                <div className="info-row">
-                    <span className="info-label">Resolution</span>
-                    <span className="info-value">{item.data.resolution || '-'}</span>
+            {/* Metrics Row 3: App Status (VITAL) */}
+            <div className="card-metrics">
+                <div className={`metric-box ${!appOn ? 'metric-box-danger' : ''}`}>
+                    <div className="metric-label">APP</div>
+                    <div className={`metric-value ${appOn ? 'metric-ping' : 'metric-danger'}`}>{onOff(appOn)}</div>
                 </div>
-                <div className="info-row">
-                    <span className="info-label">SRT</span>
-                    <span
-                        className={`info-value ${item.data.srt_quality?.toUpperCase() === 'GOOD'
-                                ? 'srt-good'
-                                : item.data.srt_quality?.toUpperCase() === 'BAD'
-                                    ? 'srt-bad'
-                                    : ''
-                            }`}
-                    >
-                        {item.data.srt_quality || '-'}
-                    </span>
+                <div className="metric-box">
+                    <div className="metric-label">REC</div>
+                    <div className={`metric-value ${recOn ? 'metric-ping' : 'metric-warn'}`}>{onOff(recOn)}</div>
                 </div>
-                <div className="info-row">
-                    <span className="info-label">vMix</span>
-                    <span className="info-value">
-                        REC {onOff(recOn)} | LIVE {onOff(liveOn)}
-                    </span>
+                <div className="metric-box">
+                    <div className="metric-label">LIVE</div>
+                    <div className={`metric-value ${liveOn ? 'metric-ping' : 'metric-warn'}`}>{onOff(liveOn)}</div>
                 </div>
-                {item.data.srt_off_time ? (
-                    <div className="info-row">
-                        <span className="info-label">SRT Off</span>
-                        <span className="info-value mono">{item.data.srt_off_time}</span>
-                    </div>
-                ) : null}
             </div>
+
+            {/* Mini SRT Table */}
+            {srtList.length > 0 && (
+                <div className="mini-srt-table-wrap">
+                    <table className="mini-srt-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Port</th>
+                                <th>Quality</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {srtList.map((s, i) => {
+                                const st = toOnOff(s.status)
+                                return (
+                                    <tr 
+                                        key={`${item.data.name || 'machine'}-${item.data.ip || 'ip'}-${index}`}
+                                        className={hasHighUsage ? 'row-overload' : ''}
+                                    >
+                                        <td>{s.nameSRT || `SRT ${i + 1}`}</td>
+                                        <td className="mono">{s.port || '-'}</td>
+                                        <td>{s.quality || '-'}</td>
+                                        <td>
+                                            <span className={`mini-srt-tag ${st === 'ON' ? 'mini-srt-tag-on' : 'mini-srt-tag-off'}`}>
+                                                {st}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                )
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Stream Detail Action */}
+            {streamList.length > 0 && (
+                <div className="card-stream-action">
+                    <button
+                        className="btn-stream-full"
+                        onClick={() => setIsStreamOpen(true)}
+                    >
+                        Stream Full ({streamList.length})
+                    </button>
+                </div>
+            )}
 
             <div className="card-timestamp">{timeText}</div>
+
+            {/* Stream Dialog */}
+            <Dialog
+                open={isStreamOpen}
+                onClose={() => setIsStreamOpen(false)}
+                title={`Vmix Stream - ${item.data.name || 'Unknown'}`}
+            >
+                <div className="dialog-detail-grid">
+                    {streamList.map((s, i) => renderStreamCard(s, i))}
+                </div>
+            </Dialog>
         </div>
     )
 }

@@ -1,5 +1,11 @@
-import MachineStatusCard from './MachineStatusCard'
+import { useEffect, useState } from 'react'
+import StatusByMachinePage from '../pages/status/StatusByMachinePage'
+import StatusByTablePage from '../pages/status/StatusByTablePage'
 import type { BackendLogItem } from '../services/api'
+
+type StatusViewMode = 'machine' | 'table'
+
+const STATUS_VIEW_STORAGE_KEY = 'vmix:status:view-mode'
 
 export default function StatusSection({
     rows,
@@ -10,32 +16,52 @@ export default function StatusSection({
     loading: boolean
     error: string
 }) {
+    const [viewMode, setViewMode] = useState<StatusViewMode>('machine')
+
+    useEffect(() => {
+        const saved = window.localStorage.getItem(STATUS_VIEW_STORAGE_KEY)
+        if (saved === 'machine' || saved === 'table') {
+            setViewMode(saved)
+        }
+    }, [])
+
+    useEffect(() => {
+        window.localStorage.setItem(STATUS_VIEW_STORAGE_KEY, viewMode)
+    }, [viewMode])
+
     return (
         <section className="cards-section">
-            <h2 className="section-title">
-                <span className="gradient-text">Trạng thái máy</span>
-            </h2>
+            <div className="status-header-row">
+                <h2 className="section-title status-section-title">
+                    <span className="gradient-text">Trạng thái máy</span>
+                </h2>
 
-            {loading ? (
-                <div className="status-cards-grid">
-                    {Array.from({ length: 5 }).map((_, i) => (
-                        <div key={`skeleton-${i}`} className="glass-card skeleton-card shimmer-loading" />
-                    ))}
+                <div className="status-view-nav" role="tablist" aria-label="Machine status view mode">
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={viewMode === 'machine'}
+                        className={`status-view-btn ${viewMode === 'machine' ? 'status-view-btn-active' : ''}`}
+                        onClick={() => setViewMode('machine')}
+                    >
+                        Theo từng máy
+                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={viewMode === 'table'}
+                        className={`status-view-btn ${viewMode === 'table' ? 'status-view-btn-active' : ''}`}
+                        onClick={() => setViewMode('table')}
+                    >
+                        Bảng tổng hợp
+                    </button>
                 </div>
-            ) : error ? (
-                <div className="glass-card error-card">{error}</div>
-            ) : rows.length === 0 ? (
-                <div className="glass-card empty-card">Chưa có dữ liệu từ backend.</div>
+            </div>
+
+            {viewMode === 'machine' ? (
+                <StatusByMachinePage rows={rows} loading={loading} error={error} />
             ) : (
-                <div className="status-cards-grid">
-                    {rows.map((item, index) => (
-                        <MachineStatusCard
-                            key={`${item.data.ip || 'no-ip'}:${item.data.port || 'no-port'}`}
-                            item={item}
-                            index={index}
-                        />
-                    ))}
-                </div>
+                <StatusByTablePage rows={rows} loading={loading} error={error} />
             )}
         </section>
     )

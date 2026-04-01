@@ -102,20 +102,22 @@ export default function Dashboard() {
     }, [onlineMachineOptions])
 
     const totalOnline = useMemo(
-        () => rows.filter((item) => ['ONLINE', 'ON'].includes(item.data.status?.toUpperCase())).length,
+        () => rows.filter((item) => ['ONLINE', 'ON'].includes(String(item.data.status || '').toUpperCase())).length,
         [rows],
     )
 
     const currentMetrics = activeView === 'realtime' ? realtimeMap : dailyMap
     const currentLoading = activeView === 'realtime' ? realtimeLoading : dailyLoading
 
-    const filteredMachines = useMemo(
-        () => {
-            const validIds = new Set(onlineMachineOptions.map((item) => item.id))
-            return Array.from(currentMetrics.values()).filter((m) => validIds.has(m.id))
-        },
-        [currentMetrics, onlineMachineOptions],
-    )
+    const filteredMachines = useMemo(() => {
+        const validIds = new Set(onlineMachineOptions.map((item) => item.id))
+        return Array.from(currentMetrics.values())
+            .filter((m) => validIds.has(m.id))
+            .map((m) => ({
+                ...m,
+                latestItem: latestRowByMachineId.get(m.id),
+            }))
+    }, [currentMetrics, onlineMachineOptions, latestRowByMachineId])
 
     const handleLogout = useCallback(() => {
         logout()
@@ -374,31 +376,34 @@ export default function Dashboard() {
         <div className="app-shell">
             <header className="dashboard-header">
                 <Header rows={rows} totalOnline={totalOnline} wsStatus={wsStatus} onLogout={handleLogout} />
-                <FilterBar
-                    deviceFilter={deviceFilter}
-                    setDeviceFilter={setDeviceFilter}
-                    activeView={activeView}
-                    setActiveView={setActiveView}
-                    machineOptions={onlineMachineOptions}
-                    onRefresh={() => void loadData()}
-                />
             </header>
 
-            {/* View-specific section title */}
             <section className="charts-section">
-                <h2 className="section-title">
-                    {activeView === 'realtime' ? (
-                        <>
-                            <span className="gradient-text">⏱ Realtime</span>
-                            <span className="section-subtitle"> — 3 phút cuốn chiếu</span>
-                        </>
-                    ) : (
-                        <>
-                            <span className="gradient-text">📅 Cả ngày</span>
-                            <span className="section-subtitle"> — lịch sử trung bình 15 phút</span>
-                        </>
-                    )}
-                </h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
+                    <h2 className="section-title" style={{ textAlign: 'left', margin: 0 }}>
+                        {activeView === 'realtime' ? (
+                            <>
+                                <span className="gradient-text">Realtime</span>
+                                <span className="section-subtitle"> — 3 phút cuốn chiếu</span>
+                            </>
+                        ) : (
+                            <>
+                                <span className="gradient-text">Cả ngày</span>
+                                <span className="section-subtitle"> — lịch sử trung bình 15 phút</span>
+                            </>
+                        )}
+                    </h2>
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1rem' }}>
+                        <FilterBar
+                            deviceFilter={deviceFilter}
+                            setDeviceFilter={setDeviceFilter}
+                            activeView={activeView}
+                            setActiveView={setActiveView}
+                            machineOptions={onlineMachineOptions}
+                            onRefresh={() => void loadData()}
+                        />
+                    </div>
+                </div>
                 <ChartSection
                     machines={filteredMachines}
                     chartLoading={currentLoading}

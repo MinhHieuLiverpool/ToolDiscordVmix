@@ -16,10 +16,13 @@ export type MetricPoint = {
     extras?: DailyExtras
 }
 
+import type { BackendLogItem } from './services/api'
+
 export type MachineMetrics = {
     id: string
     label: string
     history: MetricPoint[]
+    latestItem?: BackendLogItem
 }
 
 export type DeviceFilter = '__all__' | string
