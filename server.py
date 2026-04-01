@@ -150,6 +150,7 @@ _TIERED_ROLLUP_INTERVAL_SEC = int(os.getenv("TIERED_ROLLUP_INTERVAL_SEC", "15"))
 # {statistics_id: [{window_start, window_end, avg_cpu, avg_ram, samples, cpu_points, ram_points, calculated_at}, ...]}
 _stats_1m_buffer: dict = {}
 _stats_5m_buffer: dict = {}
+_app_started_at_utc = datetime.now(pytz.UTC)
 
 
 def _parse_statistics_id(statistics_id: str):
@@ -216,11 +217,37 @@ def get_all_logs():
         })
     return entries
 
+
+def _build_health_payload() -> dict:
+    """Create a lightweight health payload without external I/O."""
+    now_utc = datetime.now(pytz.UTC)
+    uptime_seconds = int((now_utc - _app_started_at_utc).total_seconds())
+    return {
+        "status": "ok",
+        "service": "vmix-monitor-server",
+        "uptime_seconds": uptime_seconds,
+        "server_time_utc": now_utc.isoformat(),
+        "machines_cached": len(_data_cache),
+        "websocket_clients": len(active_connections),
+    }
+
 @app.api_route("/", methods=["GET", "HEAD"])
 async def health_check():
     """Health check endpoint for UptimeRobot - hỗ trợ cả GET và HEAD"""
     from fastapi.responses import PlainTextResponse
     return PlainTextResponse("I am alive!")
+
+
+@app.api_route("/health", methods=["GET", "HEAD"])
+async def health_endpoint():
+    """Primary lightweight health endpoint for Render/UptimeRobot."""
+    return JSONResponse(content=_build_health_payload())
+
+
+@app.api_route("/healthz", methods=["GET", "HEAD"])
+async def healthz_endpoint():
+    """Alias of /health for compatibility with common probe defaults."""
+    return JSONResponse(content=_build_health_payload())
 
 @app.get("/logs")
 async def get_all_data():
