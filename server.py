@@ -1,4 +1,5 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
@@ -6,6 +7,7 @@ import json
 from datetime import datetime, timedelta
 from collections import deque
 import pytz
+from bson import ObjectId
 from pymongo import MongoClient, DESCENDING
 import os
 import sys
@@ -218,6 +220,15 @@ def get_all_logs():
     return entries
 
 
+def _to_json_safe(value):
+    """Convert values to JSON-safe payload (notably MongoDB ObjectId)."""
+    return jsonable_encoder(
+        value,
+        custom_encoder={ObjectId: str},
+        exclude={"_id"},
+    )
+
+
 def _build_health_payload() -> dict:
     """Create a lightweight health payload without external I/O."""
     now_utc = datetime.now(pytz.UTC)
@@ -252,7 +263,7 @@ async def healthz_endpoint():
 @app.get("/logs")
 async def get_all_data():
     """GET endpoint - lấy tất cả dữ liệu"""
-    return JSONResponse(content=get_all_logs())
+    return JSONResponse(content=_to_json_safe(get_all_logs()))
 
 @app.post("/")
 async def receive_data(data: dict):
@@ -1411,7 +1422,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         # Send initial data
         data = get_all_logs()
-        await websocket.send_json(data)
+        await websocket.send_json(_to_json_safe(data))
         
         # Keep connection alive
         while True:
@@ -1436,7 +1447,7 @@ async def broadcast_updates():
         return
 
     _last_broadcast = now
-    data = get_all_logs()  # đọc từ cache, không có I/O
+    data = _to_json_safe(get_all_logs())  # đọc từ cache, không có I/O
     disconnected = []
     
     for connection in active_connections:
@@ -1591,7 +1602,7 @@ async def startup_event():
         for doc in docs:
             name = doc.get("name")
             if name:
-                _data_cache[name] = doc
+                _data_cache[name] = _to_json_safe(doc)
         print(f"✓ Cache preloaded: {len(_data_cache)} machines from MongoDB")
     except Exception as e:
         print(f"✗ Cache preload error: {e}")
