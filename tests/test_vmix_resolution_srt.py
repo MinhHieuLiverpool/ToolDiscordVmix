@@ -103,13 +103,14 @@ def _fps_from_ticks(ticks_str: str) -> str:
         if ticks <= 0:
             return "?"
         fps_val = 10_000_000 / ticks
-        for std, lbl in [
+        std_fps = [
             (23.976, "23.976"), (24, "24"), (25, "25"),
             (29.97,  "29.97"),  (30, "30"), (50, "50"),
             (59.94,  "59.94"),  (60, "60"),
-        ]:
-            if abs(fps_val - std) < 0.1:
-                return lbl
+        ]
+        std, lbl = min(std_fps, key=lambda item: abs(fps_val - item[0]))
+        if abs(fps_val - std) < 0.1:
+            return lbl
         return f"{fps_val:.4g}"
     except (ValueError, ZeroDivisionError):
         return "?"

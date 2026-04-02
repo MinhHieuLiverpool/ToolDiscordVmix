@@ -166,24 +166,61 @@ class ServerDataGUILogicMixin:
         snapshot = []
         for entry in self.selected_data:
             d = entry.get("data", {})
-            srt = get_first_srt(d)
-            # PTZ entries keep flat status/port
-            if d.get("ptz", False):
-                port = d.get("port", "")
-                status = d.get("status", "")
-            else:
-                port = get_srt_ports_str(d) or d.get("port", "")
-                status = srt.get("status", d.get("status", ""))
-            snapshot.append(
+            ip = d.get("ip", "")
+            ipwan = d.get("ipwan", "")
+            for row in self._build_discord_rows(d):
+                snapshot.append(
+                    {
+                        "name": row["name"],
+                        "ip": ip,
+                        "ipwan": ipwan,
+                        "port": row["port"],
+                        "status": row["status"],
+                    }
+                )
+        return sorted(snapshot, key=lambda x: (x["name"], x["port"]))
+
+    def _build_discord_rows(self, d):
+        """Build per-row Discord payload data using nameSRT when available."""
+        if d.get("ptz", False):
+            return [
                 {
                     "name": d.get("name", ""),
-                    "ip": d.get("ip", ""),
-                    "ipwan": d.get("ipwan", ""),
-                    "port": port,
-                    "status": status,
+                    "port": str(d.get("port", "")),
+                    "status": d.get("status", ""),
+                }
+            ]
+
+        base_name = d.get("name", "")
+        srt_raw = d.get("SRT", [])
+        if isinstance(srt_raw, dict):
+            srt_items = [srt_raw]
+        elif isinstance(srt_raw, list):
+            srt_items = [item for item in srt_raw if isinstance(item, dict)]
+        else:
+            srt_items = []
+
+        rows = []
+        for s in srt_items:
+            rows.append(
+                {
+                    "name": str(s.get("nameSRT", "")).strip() or base_name,
+                    "port": str(s.get("port", "")),
+                    "status": s.get("status", d.get("status", "")),
                 }
             )
-        return sorted(snapshot, key=lambda x: (x["name"], x["port"]))
+
+        if rows:
+            return rows
+
+        srt = get_first_srt(d)
+        return [
+            {
+                "name": base_name,
+                "port": str(get_srt_ports_str(d) or d.get("port", "")),
+                "status": srt.get("status", d.get("status", "")),
+            }
+        ]
 
     def send_full_list_to_discord(self):
         webhook = self.webhook_var.get().strip()
@@ -201,17 +238,10 @@ class ServerDataGUILogicMixin:
 
                 for entry in self.selected_data:
                     d = entry.get("data", {})
-                    srt = get_first_srt(d)
-                    name = d.get("name", "")
                     ipwan = d.get("ipwan", "")
-                    if d.get("ptz", False):
-                        port = d.get("port", "")
-                        status = d.get("status", "")
-                    else:
-                        port = get_srt_ports_str(d) or d.get("port", "")
-                        status = srt.get("status", d.get("status", ""))
-                    msg = f"[{prefix}][{name}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
-                    messages.append(msg)
+                    for row in self._build_discord_rows(d):
+                        msg = f"[{prefix}][{row['name']}] SRT {row['status']} | IPWAN: {ipwan} | PORT: {row['port']}"
+                        messages.append(msg)
 
                 payload = {"content": "\n".join(messages)}
                 resp = requests.post(webhook, json=payload, timeout=10)
@@ -284,8 +314,8 @@ class ServerDataGUILogicMixin:
         def send():
             try:
                 prefix = self.prefix_var.get().strip()
-                prev_dict = {f"{item['name']}:{item['port']}": item for item in self.previous_data}
-                curr_dict = {f"{item['name']}:{item['port']}": item for item in current_snapshot}
+                prev_dict = {f"{item['ip']}:{item['name']}:{item['port']}": item for item in self.previous_data}
+                curr_dict = {f"{item['ip']}:{item['name']}:{item['port']}": item for item in current_snapshot}
 
                 changed_items = []
                 for key, curr_item in curr_dict.items():

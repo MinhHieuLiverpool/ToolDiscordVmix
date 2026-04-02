@@ -40,9 +40,19 @@ class VmixMonitorLogicMixin:
 
     @staticmethod
     def _format_fps_value(fps_val: float) -> str:
-        for std in (23.976, 24.0, 25.0, 29.97, 30.0, 50.0, 59.94, 60.0):
-            if abs(fps_val - std) < 0.1:
-                return f"{std:g}"
+        std_fps = (
+            (23.976, "23.976"),
+            (24.0, "24"),
+            (25.0, "25"),
+            (29.97, "29.97"),
+            (30.0, "30"),
+            (50.0, "50"),
+            (59.94, "59.94"),
+            (60.0, "60"),
+        )
+        closest_std, closest_label = min(std_fps, key=lambda item: abs(fps_val - item[0]))
+        if abs(fps_val - closest_std) < 0.1:
+            return closest_label
         return f"{fps_val:.4g}"
 
     def _fps_from_ticks(self, ticks_str: str) -> str:
@@ -1027,7 +1037,58 @@ class VmixMonitorLogicMixin:
             return False
 
     def get_wan_ip(self):
-        return "127.0.0.1"
+        import ipaddress
+        import requests
+
+        endpoints = [
+            ("https://api.ipify.org?format=json", "json", "ip"),
+            ("https://api64.ipify.org?format=json", "json", "ip"),
+            ("https://checkip.amazonaws.com", "text", ""),
+            ("https://ifconfig.me/ip", "text", ""),
+            ("https://ipv4.icanhazip.com", "text", ""),
+        ]
+
+        fallback_ip = ""
+        session = getattr(self, "http_session", None)
+
+        for url, mode, key in endpoints:
+            try:
+                response = (session or requests).get(url, timeout=3)
+                if response.status_code != 200:
+                    continue
+
+                if mode == "json":
+                    payload_obj = response.json()
+                    payload = payload_obj if isinstance(payload_obj, dict) else {}
+                    raw_ip = str(payload.get(key, "")).strip()
+                else:
+                    raw_ip = (response.text or "").strip()
+
+                if not raw_ip:
+                    continue
+
+                ip_str = raw_ip.splitlines()[0].strip()
+                ip_obj = ipaddress.ip_address(ip_str)
+                if ip_obj.is_loopback or ip_obj.is_unspecified or ip_obj.is_link_local or ip_obj.is_multicast:
+                    continue
+
+                if ip_obj.is_global:
+                    return ip_str
+
+                if not fallback_ip:
+                    fallback_ip = ip_str
+            except Exception:
+                continue
+
+        if fallback_ip:
+            return fallback_ip
+
+        for entry in self.port_list:
+            old_ip = str(entry.get("ipwan", "")).strip()
+            if old_ip and old_ip not in {"loading...", "unknown", "—", "127.0.0.1"}:
+                return old_ip
+
+        return "unknown"
 
     # ── Stream quality helpers (ported from test_stream4_quality) ──────────
 

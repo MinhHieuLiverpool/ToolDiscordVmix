@@ -6,7 +6,7 @@ hiddenimports += collect_submodules('server_gui_advanced')
 
 
 a = Analysis(
-    ['server_gui_advanced.py'],
+    ['server_gui_advanced\\main.py'],
     pathex=[],
     binaries=[],
     datas=[('config.py', '.'), ('assets/Discord-Logo.ico', 'assets')],

@@ -108,7 +108,7 @@ def build_vmix_monitor_exe():
     
     build_executable(
         exe_name="VmixMonitor",
-        entry="vmix_monitor_gui.py",
+        entry="vmix_monitor_gui",
         windowed=True,
         icon="assets/Discord-Logo.ico",
         add_data=[
@@ -134,8 +134,8 @@ def build_server_gui_exe():
     
     build_executable(
         exe_name="ServerLogViewer",
-        # Dùng launcher ổn định ở root, đồng thời gom toàn bộ module trong folder package
-        entry="server_gui_advanced.py",
+        # Build trực tiếp từ folder package (auto resolve main.py)
+        entry="server_gui_advanced",
         windowed=True,
         icon="assets/Discord-Logo.ico",
         add_data=[

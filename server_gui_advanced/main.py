@@ -25,8 +25,8 @@ class ServerDataGUI(ServerDataGUIUIMixin, ServerDataGUILogicMixin):
         self.root.geometry("2000x750")
         self.root.after(100, lambda: self.root.state("zoomed"))
 
-        self.api_url = "http://localhost:8000"
-        self.ws_url = "ws://localhost:8000/ws"
+        self.api_url = "https://tooldiscordvmix.onrender.com"
+        self.ws_url = "wss://tooldiscordvmix.onrender.com/ws"
         self.webhook_var = ctk.StringVar(value="")
         self.prefix_var = ctk.StringVar(value="SRT")
 
