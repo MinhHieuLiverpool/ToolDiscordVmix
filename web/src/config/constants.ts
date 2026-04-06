@@ -1,5 +1,5 @@
 const isLocalHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
-const DEFAULT_LOCAL_BACKEND_BASE_URL = 'https://tooldiscordvmixweb.onrender.com'
+const DEFAULT_LOCAL_BACKEND_BASE_URL = 'http://192.168.30.216:8000'
 const DEFAULT_PROD_BACKEND_BASE_URL = 'https://tooldiscordvmixweb.onrender.com'
 
 const configuredBackendBaseUrl = String(import.meta.env.VITE_BACKEND_BASE_URL || '')

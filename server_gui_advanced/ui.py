@@ -80,7 +80,7 @@ class ServerDataGUIUIMixin:
         except Exception:
             tk_scale = 1.3333
         scale_factor = max(1.0, tk_scale / 1.3333)
-        self.selected_table_total_width = int(2360 * scale_factor) + 60
+        self.selected_table_total_width = int(2540 * scale_factor) + 60
         table_outer = ctk.CTkFrame(right_frame, fg_color="#2b2b2b")
         table_outer.pack(fill="both", expand=True, padx=5, pady=5)
 
@@ -131,6 +131,8 @@ class ServerDataGUIUIMixin:
         ctk.CTkLabel(header_frame_right, text="⚡ CPU%", font=("Arial", 10, "bold"), width=65).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="💾 RAM%", font=("Arial", 10, "bold"), width=65).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="🎮 GPU%", font=("Arial", 10, "bold"), width=65).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="⬆ SEND", font=("Arial", 10, "bold"), width=88).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="⬇ RECV", font=("Arial", 10, "bold"), width=88).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="● REC", font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="🔴 LIVE", font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="🟢 EXT", font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
@@ -521,12 +523,35 @@ class ServerDataGUIUIMixin:
         cpu = d.get("temperature", d.get("cpu", None))
         memory = d.get("memory", None)
         gpu = d.get("gpu", None)
+        sender_mbps = d.get("sender_mbps", d.get("sender_bw", None))
+        receiver_mbps = d.get("receiver_mbps", d.get("receiver_bw", None))
 
         def _pct_text(v):
             try:
                 return f"{float(v):.1f}%"
             except (TypeError, ValueError):
                 return "—"
+
+        def _mbps_text(v):
+            if v is None:
+                return "—"
+            if isinstance(v, str):
+                value_text = v.strip()
+                if not value_text:
+                    return "—"
+                try:
+                    v = float(value_text)
+                except ValueError:
+                    return value_text
+            try:
+                value = float(v)
+            except (TypeError, ValueError):
+                return "—"
+            if value >= 100:
+                return f"{value:.0f} Mbps"
+            if value >= 10:
+                return f"{value:.1f} Mbps"
+            return f"{value:.2f} Mbps"
 
         return {
             "ts": ts,
@@ -544,6 +569,8 @@ class ServerDataGUIUIMixin:
             "cpu_str": _pct_text(cpu),
             "mem_str": _pct_text(memory),
             "gpu_str": _pct_text(gpu),
+            "sender_str": _mbps_text(sender_mbps),
+            "receiver_str": _mbps_text(receiver_mbps),
             "vmix_rec": d.get("vmix_recording", False),
             "vmix_live": d.get("vmix_streaming", False),
             "vmix_ext": d.get("vmix_external", False),
@@ -659,6 +686,15 @@ class ServerDataGUIUIMixin:
         wc["gpu_lbl"] = ctk.CTkLabel(c, text=rd["gpu_str"], font=("Arial", 10))
         wc["gpu_lbl"].place(relx=0.5, rely=0.5, anchor="center")
 
+        # Sender / Receiver bandwidth
+        c = create_cell(row_frame, 88)
+        wc["sender_lbl"] = ctk.CTkLabel(c, text=rd["sender_str"], font=("Arial", 10))
+        wc["sender_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        c = create_cell(row_frame, 88)
+        wc["receiver_lbl"] = ctk.CTkLabel(c, text=rd["receiver_str"], font=("Arial", 10))
+        wc["receiver_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
         # vMix flags
         c = create_cell(row_frame, 60)
         wc["rec_lbl"] = ctk.CTkLabel(c, text="● ON" if rd["vmix_rec"] else "○ OFF", font=("Arial", 9),
@@ -729,6 +765,8 @@ class ServerDataGUIUIMixin:
         wc["cpu_lbl"].configure(text=rd["cpu_str"])
         wc["mem_lbl"].configure(text=rd["mem_str"])
         wc["gpu_lbl"].configure(text=rd["gpu_str"])
+        wc["sender_lbl"].configure(text=rd["sender_str"])
+        wc["receiver_lbl"].configure(text=rd["receiver_str"])
         wc["rec_lbl"].configure(text="● ON" if rd["vmix_rec"] else "○ OFF",
                                  text_color="#f44336" if rd["vmix_rec"] else "#555555")
         wc["live_lbl"].configure(text="● ON" if rd["vmix_live"] else "○ OFF",

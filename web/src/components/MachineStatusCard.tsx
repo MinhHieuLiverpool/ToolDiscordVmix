@@ -18,7 +18,6 @@ export default function MachineStatusCard({
 }) {
     const [isStreamOpen, setIsStreamOpen] = useState(false)
 
-    const srtOnline = checkOn(item.data.status)
     const appOn = checkOn(item.data.statusapp)
     const recOn = checkOn(item.data.vmix_recording)
     const liveOn = checkOn(item.data.vmix_streaming)
@@ -51,15 +50,15 @@ export default function MachineStatusCard({
 
     return (
         <div
-            className={`glass-card card-animate machine-card ${srtOnline ? 'card-online' : 'card-offline'} ${hasHighUsage ? 'card-overload' : ''}`}
+            className={`glass-card card-animate machine-card ${appOn ? 'card-online' : 'card-offline'} ${hasHighUsage ? 'card-overload' : ''}`}
             style={{ animationDelay: `${index * 40}ms` }}
         >
             {/* Header */}
             <div className="card-header">
                 <h3 className="card-name">{item.data.name || 'Unknown Device'}</h3>
-                <span className={`status-badge ${srtOnline ? 'badge-online' : 'badge-offline'}`}>
-                    <span className={`status-dot ${srtOnline ? 'dot-online' : 'dot-offline'}`} />
-                    SRT {onOff(srtOnline)}
+                <span className={`status-badge ${appOn ? 'badge-online' : 'badge-offline'}`}>
+                    <span className={`status-dot ${appOn ? 'dot-online' : 'dot-offline'}`} />
+                    APP {onOff(appOn)}
                 </span>
             </div>
 
@@ -127,10 +126,6 @@ export default function MachineStatusCard({
 
             {/* Metrics Row 3: App Status (VITAL) */}
             <div className="card-metrics">
-                <div className={`metric-box ${!appOn ? 'metric-box-danger' : ''}`}>
-                    <div className="metric-label">APP</div>
-                    <div className={`metric-value ${appOn ? 'metric-ping' : 'metric-danger'}`}>{onOff(appOn)}</div>
-                </div>
                 <div className="metric-box">
                     <div className="metric-label">REC</div>
                     <div className={`metric-value ${recOn ? 'metric-ping' : 'metric-warn'}`}>{onOff(recOn)}</div>
@@ -158,7 +153,7 @@ export default function MachineStatusCard({
                                 const st = toOnOff(s.status)
                                 return (
                                     <tr 
-                                        key={`${item.data.name || 'machine'}-${item.data.ip || 'ip'}-${index}`}
+                                        key={`srt-${item.data.ip || 'ip'}-${index}-${i}-${s.nameSRT || s.port || i}`}
                                         className={hasHighUsage ? 'row-overload' : ''}
                                     >
                                         <td>{s.nameSRT || `SRT ${i + 1}`}</td>

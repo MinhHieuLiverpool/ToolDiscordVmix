@@ -13,6 +13,10 @@ import os
 import sys
 import hashlib
 import hmac
+import argparse
+import subprocess
+import threading
+import queue
 from typing import List
 
 try:
@@ -1615,9 +1619,173 @@ async def startup_event():
     print(f"✓ Background task started: Tiered rollup every {_TIERED_ROLLUP_INTERVAL_SEC}s (raw→1m→5m→15m→hours)")
     print("✓ Background task started: Daily cleanup scheduled at 03:00 AM")
 
-if __name__ == "__main__":
+def run_server():
     import uvicorn
+
     print(f"🚀 Starting WebSocket server on http://localhost:{PORT}")
     print(f"📡 WebSocket endpoint: ws://localhost:{PORT}/ws")
     print(f"🔌 REST API endpoint: http://localhost:{PORT}/")
     uvicorn.run(app, host="0.0.0.0", port=PORT)
+
+
+def launch_server_gui():
+    import tkinter as tk
+    from tkinter import ttk
+
+    class ServerControlGUI:
+        def __init__(self, root):
+            self.root = root
+            self.root.title("Server Control - vMix Monitor")
+            self.root.geometry("980x620")
+
+            self.process = None
+            self.log_queue = queue.Queue()
+            self._build_ui()
+            self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+            self.root.after(100, self._drain_log_queue)
+
+        def _build_ui(self):
+            top = ttk.Frame(self.root, padding=10)
+            top.pack(fill="x")
+
+            self.status_var = tk.StringVar(value="Stopped")
+            self.status_label = ttk.Label(top, textvariable=self.status_var)
+            self.status_label.pack(side="right")
+
+            self.start_btn = ttk.Button(top, text="Start Server", command=self.start_server)
+            self.start_btn.pack(side="left", padx=(0, 8))
+
+            self.stop_btn = ttk.Button(top, text="Stop Server", command=self.stop_server, state="disabled")
+            self.stop_btn.pack(side="left", padx=(0, 8))
+
+            self.clear_btn = ttk.Button(top, text="Clear Logs", command=self.clear_logs)
+            self.clear_btn.pack(side="left", padx=(0, 8))
+
+            self.health_btn = ttk.Button(top, text="Open Health", command=self.open_health)
+            self.health_btn.pack(side="left")
+
+            log_frame = ttk.Frame(self.root, padding=(10, 0, 10, 10))
+            log_frame.pack(fill="both", expand=True)
+
+            self.log_text = tk.Text(log_frame, wrap="none", bg="#121212", fg="#d7ffd7", insertbackground="#d7ffd7")
+            self.log_text.pack(side="left", fill="both", expand=True)
+
+            y_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
+            y_scroll.pack(side="right", fill="y")
+            self.log_text.configure(yscrollcommand=y_scroll.set)
+
+        def append_log(self, text):
+            self.log_text.insert("end", text)
+            self.log_text.see("end")
+
+        def _set_running_state(self, running):
+            if running:
+                self.status_var.set(f"Running on http://localhost:{PORT}")
+                self.start_btn.configure(state="disabled")
+                self.stop_btn.configure(state="normal")
+            else:
+                self.status_var.set("Stopped")
+                self.start_btn.configure(state="normal")
+                self.stop_btn.configure(state="disabled")
+
+        def _enqueue_output(self):
+            if not self.process or not self.process.stdout:
+                return
+            try:
+                for line in self.process.stdout:
+                    self.log_queue.put(line)
+            finally:
+                code = self.process.poll()
+                if code is not None:
+                    self.log_queue.put(f"\n[Process exited with code {code}]\n")
+                    self.log_queue.put("__PROCESS_EXITED__")
+
+        def _drain_log_queue(self):
+            try:
+                while True:
+                    item = self.log_queue.get_nowait()
+                    if item == "__PROCESS_EXITED__":
+                        self.process = None
+                        self._set_running_state(False)
+                        continue
+                    self.append_log(item)
+            except queue.Empty:
+                pass
+            self.root.after(100, self._drain_log_queue)
+
+        def start_server(self):
+            if self.process and self.process.poll() is None:
+                return
+
+            script_path = os.path.abspath(__file__)
+            cmd = [sys.executable, "-u", script_path, "--run-server"]
+            creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+            self.append_log(f"\n$ {' '.join(cmd)}\n")
+            try:
+                self.process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    bufsize=1,
+                    creationflags=creationflags,
+                )
+                self._set_running_state(True)
+                threading.Thread(target=self._enqueue_output, daemon=True).start()
+            except Exception as e:
+                self.append_log(f"Failed to start server: {e}\n")
+                self._set_running_state(False)
+
+        def stop_server(self):
+            if not self.process or self.process.poll() is not None:
+                self._set_running_state(False)
+                return
+
+            self.append_log("\n[Stopping server...]\n")
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=5)
+            except Exception:
+                try:
+                    self.process.kill()
+                except Exception:
+                    pass
+            finally:
+                self.process = None
+                self._set_running_state(False)
+
+        def clear_logs(self):
+            self.log_text.delete("1.0", "end")
+
+        def open_health(self):
+            import webbrowser
+
+            webbrowser.open(f"http://localhost:{PORT}/health")
+
+        def on_close(self):
+            self.stop_server()
+            self.root.destroy()
+
+    root = tk.Tk()
+    ServerControlGUI(root)
+    root.mainloop()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="vMix Monitor backend server")
+    parser.add_argument("--gui", action="store_true", help="Open GUI launcher to start/stop server and view logs")
+    parser.add_argument("--run-server", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+
+    if args.gui:
+        launch_server_gui()
+        return
+
+    run_server()
+
+
+if __name__ == "__main__":
+    main()

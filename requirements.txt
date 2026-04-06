@@ -6,6 +6,7 @@ pytz
 fastapi==0.114.1
 uvicorn==0.30.6
 websockets==13.1
+customtkinter==5.2.2
 ttkbootstrap
 websocket-client
 psutil

@@ -32,7 +32,7 @@ export default function StatusByMachinePage({
     <div className="status-cards-grid">
       {rows.map((item, index) => (
         <MachineStatusCard
-          key={getMachineStatisticsId(item) || `${item.data.ip || 'no-ip'}:${index}`}
+          key={`${getMachineStatisticsId(item) || `${item.data.ip || 'no-ip'}`}::${index}`}
           item={item}
           index={index}
         />

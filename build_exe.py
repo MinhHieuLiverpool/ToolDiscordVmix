@@ -41,6 +41,16 @@ def install_pyinstaller():
         print("PyInstaller đã được cài đặt thành công!")
 
 
+def ensure_importable(module_name: str, pip_name: str | None = None):
+    """Đảm bảo module có sẵn trong môi trường Python đang build."""
+    try:
+        __import__(module_name)
+    except ImportError:
+        package_name = pip_name or module_name
+        print(f"Đang cài đặt package còn thiếu: {package_name}")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
+
+
 def resolve_entry_script(entry: str) -> str:
     """Resolve entry point. Nếu entry là folder thì tìm main.py hoặc __main__.py."""
     p = Path(entry)
@@ -70,6 +80,7 @@ def build_executable(
     add_data: list[str] | None = None,
     hidden_imports: list[str] | None = None,
     collect_submodules: list[str] | None = None,
+    collect_all: list[str] | None = None,
 ):
     """Build exe với PyInstaller từ file hoặc folder."""
     entry_script = resolve_entry_script(entry)
@@ -93,6 +104,8 @@ def build_executable(
         cmd.append(f"--hidden-import={item}")
     for item in collect_submodules or []:
         cmd.append(f"--collect-submodules={item}")
+    for item in collect_all or []:
+        cmd.append(f"--collect-all={item}")
 
     cmd.append(entry_script)
 
@@ -132,6 +145,8 @@ def build_server_gui_exe():
     print("Building Server Log Viewer...")
     print("="*50 + "\n")
     
+    ensure_importable("customtkinter")
+
     build_executable(
         exe_name="ServerLogViewer",
         # Build trực tiếp từ folder package (auto resolve main.py)
@@ -150,7 +165,8 @@ def build_server_gui_exe():
             "websocket",
             "websocket._app",
         ],
-        collect_submodules=["server_gui_advanced"],
+        collect_submodules=["server_gui_advanced", "customtkinter"],
+        collect_all=["customtkinter"],
     )
 
 def build_server_exe():
