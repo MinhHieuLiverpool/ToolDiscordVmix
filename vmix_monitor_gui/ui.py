@@ -40,8 +40,11 @@ class VmixMonitorUIMixin:
             bootstyle="primary",
         ).pack(side=LEFT)
 
-        ip_frame = ttk.Frame(header_frame)
-        ip_frame.pack(side=RIGHT)
+        right_header = ttk.Frame(header_frame)
+        right_header.pack(side=RIGHT)
+
+        ip_frame = ttk.Frame(right_header)
+        ip_frame.pack(side=TOP, anchor=E)
 
         ttk.Label(
             ip_frame,
@@ -59,6 +62,34 @@ class VmixMonitorUIMixin:
             bootstyle="info",
         )
         self.ip_entry.pack(side=LEFT, padx=(0, 5))
+
+        server_frame = ttk.Frame(right_header)
+        server_frame.pack(side=TOP, anchor=E, pady=(6, 0))
+
+        ttk.Label(
+            server_frame,
+            text="Server:",
+            font=("Segoe UI", 10, "bold"),
+            bootstyle="secondary",
+        ).pack(side=LEFT, padx=(0, 5))
+
+        self.server_entry = ttk.Entry(
+            server_frame,
+            textvariable=self.server_url_var,
+            width=28,
+            font=("Segoe UI", 10),
+            bootstyle="info",
+        )
+        self.server_entry.pack(side=LEFT, padx=(0, 5))
+        self.server_entry.bind("<Return>", lambda _e: self.apply_server_url())
+
+        ttk.Button(
+            server_frame,
+            text="Áp dụng",
+            command=self.apply_server_url,
+            bootstyle="info-outline",
+            width=9,
+        ).pack(side=LEFT)
 
         add_frame = ttk.Labelframe(
             main_frame,
@@ -133,6 +164,9 @@ class VmixMonitorUIMixin:
             "gpu",
             "sender_bw",
             "receiver_bw",
+            "vmixsend",
+            "vmixreceive",
+            "pid_vmix",
             "rec",
             "live",
             "ext",
@@ -158,6 +192,9 @@ class VmixMonitorUIMixin:
         self.tree.heading("gpu", text="GPU%", anchor=CENTER)
         self.tree.heading("sender_bw", text="Sender", anchor=CENTER)
         self.tree.heading("receiver_bw", text="Receiver", anchor=CENTER)
+        self.tree.heading("vmixsend", text="vMix Send", anchor=CENTER)
+        self.tree.heading("vmixreceive", text="vMix Receive", anchor=CENTER)
+        self.tree.heading("pid_vmix", text="PID vMix", anchor=CENTER)
         self.tree.heading("rec", text="REC", anchor=CENTER)
         self.tree.heading("live", text="LIVE", anchor=CENTER)
         self.tree.heading("ext", text="EXT", anchor=CENTER)
@@ -175,6 +212,9 @@ class VmixMonitorUIMixin:
         self.tree.column("gpu", width=70, anchor=CENTER)
         self.tree.column("sender_bw", width=110, anchor=CENTER)
         self.tree.column("receiver_bw", width=110, anchor=CENTER)
+        self.tree.column("vmixsend", width=110, anchor=CENTER)
+        self.tree.column("vmixreceive", width=110, anchor=CENTER)
+        self.tree.column("pid_vmix", width=95, anchor=CENTER)
         self.tree.column("rec", width=55, anchor=CENTER)
         self.tree.column("live", width=55, anchor=CENTER)
         self.tree.column("ext", width=55, anchor=CENTER)
@@ -402,7 +442,7 @@ class VmixMonitorUIMixin:
                 values=(
                     entry.get("stream", ""),
                     run.get("status", "-"),
-                    _health_dot(health.get("status", "")) if health else "⚪",
+                    _health_dot(health.get("status", "")) if health else "-",
                     ui_snap.get("video_bitrate", "-"),
                     ui_snap.get("encode_size", "-"),
                     ui_snap.get("audio_bitrate", "-"),
@@ -584,6 +624,9 @@ class VmixMonitorUIMixin:
             gpu = entry.get("gpu", "—")
             sender_bw = entry.get("sender_bw", "—")
             receiver_bw = entry.get("receiver_bw", "—")
+            vmixsend = entry.get("vmixsend", "—")
+            vmixreceive = entry.get("vmixreceive", "—")
+            pid_vmix = entry.get("pid_vmix", "—")
             rec = entry.get("rec", "—")
             live = entry.get("live", "—")
             ext = entry.get("ext", "—")
@@ -604,6 +647,9 @@ class VmixMonitorUIMixin:
                     gpu,
                     sender_bw,
                     receiver_bw,
+                    vmixsend,
+                    vmixreceive,
+                    pid_vmix,
                     rec,
                     live,
                     ext,

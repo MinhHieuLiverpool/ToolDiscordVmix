@@ -9,13 +9,16 @@ import ttkbootstrap as ttk
 try:
     from .logic import VmixMonitorLogicMixin
     from .ui import VmixMonitorUIMixin
+    from .shared import SERVER_URL
 except ImportError:
     try:
         from vmix_monitor_gui.logic import VmixMonitorLogicMixin
         from vmix_monitor_gui.ui import VmixMonitorUIMixin
+        from vmix_monitor_gui.shared import SERVER_URL
     except ImportError:
         from logic import VmixMonitorLogicMixin
         from ui import VmixMonitorUIMixin
+        from shared import SERVER_URL
 
 
 SINGLE_INSTANCE_SOCKET = None
@@ -31,6 +34,7 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
             pass
 
         self.ip_var = tk.StringVar(value=self.get_local_ip())
+        self.server_url_var = tk.StringVar(value=SERVER_URL)
         self.name_var = tk.StringVar(value="")
         self.port_var = tk.StringVar(value="")
         self.is_running = False
@@ -60,6 +64,10 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
         self._net_last_ts = None
         self._stream_quality_cache = {}
         self._stream_quality_ts = 0.0
+        self._vmix_bw_cache_ts = 0.0
+        self._vmix_bw_cache_pid = ""
+        self._vmix_bw_cache_send = None
+        self._vmix_bw_cache_recv = None
 
         self.setup_ui()
         self.setup_tray()

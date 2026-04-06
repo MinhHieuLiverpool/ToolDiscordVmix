@@ -1,5 +1,6 @@
 import glob
 import html
+import json
 import os
 import re
 import socket
@@ -21,6 +22,27 @@ except ImportError:
 
 
 class VmixMonitorLogicMixin:
+    def get_server_url(self) -> str:
+        raw = SERVER_URL
+        var = getattr(self, "server_url_var", None)
+        if var is not None:
+            raw = str(var.get() or "").strip() or SERVER_URL
+
+        normalized = str(raw).strip().rstrip("/")
+        if not normalized:
+            normalized = SERVER_URL
+
+        if not normalized.startswith(("http://", "https://")):
+            normalized = f"http://{normalized}"
+
+        return normalized.rstrip("/")
+
+    def apply_server_url(self):
+        url = self.get_server_url()
+        if hasattr(self, "server_url_var"):
+            self.server_url_var.set(url)
+        self.log(f"🌐 Server URL: {url}")
+
     @staticmethod
     def _to_float_or_none(value) -> float | None:
         try:
@@ -161,7 +183,7 @@ class VmixMonitorLogicMixin:
                 return
 
             self.log(f"📥 Đang import data từ IP {old_ip}...")
-            url = f"{SERVER_URL}/get_by_ip?ip={old_ip}"
+            url = f"{self.get_server_url()}/get_by_ip?ip={old_ip}"
             response = requests.get(url, timeout=20)
 
             if response.status_code == 200:
@@ -200,6 +222,9 @@ class VmixMonitorLogicMixin:
                                             "gpu": "—",
                                             "sender_bw": "—",
                                             "receiver_bw": "—",
+                                            "vmixsend": "—",
+                                            "vmixreceive": "—",
+                                            "pid_vmix": "—",
                                             "rec": "—",
                                             "live": "—",
                                             "ext": "—",
@@ -217,6 +242,9 @@ class VmixMonitorLogicMixin:
                                             port,
                                             "—",
                                             "0",
+                                            "—",
+                                            "—",
+                                            "—",
                                             "—",
                                             "—",
                                             "—",
@@ -253,7 +281,7 @@ class VmixMonitorLogicMixin:
 
         try:
             data = {"old_ip": old_ip, "new_ip": new_ip, "port": port, "name": name}
-            url = f"{SERVER_URL}/update_ip"
+            url = f"{self.get_server_url()}/update_ip"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=10)
             if response.status_code == 200:
@@ -294,7 +322,7 @@ class VmixMonitorLogicMixin:
                     "port": entry["port"],
                     "name": entry["name"],
                 }
-                url = f"{SERVER_URL}/update_ip"
+                url = f"{self.get_server_url()}/update_ip"
                 headers = {"Content-Type": "application/json"}
                 response = requests.post(url, json=data, headers=headers, timeout=10)
                 if response.status_code == 200:
@@ -313,7 +341,7 @@ class VmixMonitorLogicMixin:
         self.log("🔍 Đang kiểm tra server...")
         start_time = time.time()
         try:
-            url = f"{SERVER_URL}/logs"
+            url = f"{self.get_server_url()}/logs"
             response = requests.get(url, timeout=30)
             elapsed = time.time() - start_time
             if response.status_code == 200:
@@ -334,7 +362,7 @@ class VmixMonitorLogicMixin:
 
         try:
             ip = self.ip_var.get().strip()
-            url = f"{SERVER_URL}/get_by_ip?ip={ip}"
+            url = f"{self.get_server_url()}/get_by_ip?ip={ip}"
             self.log("⏳ Đang tải dữ liệu từ server...")
             response = requests.get(url, timeout=20)
             if response.status_code == 200:
@@ -355,6 +383,9 @@ class VmixMonitorLogicMixin:
                         gpu = entry_data.get("gpu", None)
                         sender_mbps = entry_data.get("sender_mbps", None)
                         receiver_mbps = entry_data.get("receiver_mbps", None)
+                        vmixsend_mbps = entry_data.get("vmixsend", None)
+                        vmixreceive_mbps = entry_data.get("vmixreceive", None)
+                        pid_vmix = str(entry_data.get("PIDVMIX", "") or "")
 
                         # SRT is now an array
                         srt_list = entry_data.get("SRT", [])
@@ -377,6 +408,9 @@ class VmixMonitorLogicMixin:
                                         "gpu": f"{gpu:.1f}" if gpu is not None else "—",
                                         "sender_bw": self._format_mbps_text(self._to_float_or_none(sender_mbps)),
                                         "receiver_bw": self._format_mbps_text(self._to_float_or_none(receiver_mbps)),
+                                        "vmixsend": self._format_mbps_text(self._to_float_or_none(vmixsend_mbps)),
+                                        "vmixreceive": self._format_mbps_text(self._to_float_or_none(vmixreceive_mbps)),
+                                        "pid_vmix": pid_vmix if pid_vmix else "—",
                                         "rec": "—",
                                         "live": "—",
                                         "ext": "—",
@@ -399,6 +433,9 @@ class VmixMonitorLogicMixin:
                                         f"{gpu:.1f}" if gpu is not None else "—",
                                         self._format_mbps_text(self._to_float_or_none(sender_mbps)),
                                         self._format_mbps_text(self._to_float_or_none(receiver_mbps)),
+                                        self._format_mbps_text(self._to_float_or_none(vmixsend_mbps)),
+                                        self._format_mbps_text(self._to_float_or_none(vmixreceive_mbps)),
+                                        pid_vmix if pid_vmix else "—",
                                         "—",
                                         "—",
                                         "—",
@@ -429,7 +466,7 @@ class VmixMonitorLogicMixin:
         import requests
 
         try:
-            url = f"{SERVER_URL}/logs"
+            url = f"{self.get_server_url()}/logs"
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
                 all_data = response.json()
@@ -500,6 +537,9 @@ class VmixMonitorLogicMixin:
                 "gpu": "—",
                 "sender_bw": "—",
                 "receiver_bw": "—",
+                "vmixsend": "—",
+                "vmixreceive": "—",
+                "pid_vmix": "—",
                 "rec": "—",
                 "live": "—",
                 "ext": "—",
@@ -507,7 +547,7 @@ class VmixMonitorLogicMixin:
                 "srt": "—",
             }
         )
-        self.tree.insert("", tk.END, values=(name, ip, "loading...", port, "—", "0", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—"))
+        self.tree.insert("", tk.END, values=(name, ip, "loading...", port, "—", "0", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—"))
 
         self.name_var.set("")
         self.port_var.set("")
@@ -546,7 +586,7 @@ class VmixMonitorLogicMixin:
 
         try:
             data = {"name": name, "ip": ip}
-            url = f"{SERVER_URL}/delete"
+            url = f"{self.get_server_url()}/delete"
             headers = {"Content-Type": "application/json"}
             response = requests.post(url, json=data, headers=headers, timeout=15)
             if response.status_code == 200:
@@ -593,7 +633,7 @@ class VmixMonitorLogicMixin:
                 "SRT": srt_list,
                 "stream": [],
             }
-            url = SERVER_URL
+            url = self.get_server_url()
             headers = {"Content-Type": "application/json"}
 
             max_retries = 3
@@ -766,6 +806,126 @@ class VmixMonitorLogicMixin:
             return round(sender_mbps, 3), round(receiver_mbps, 3)
         except Exception:
             return None, None
+
+    def _run_powershell_json(self, command: str):
+        try:
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    command,
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=3,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if result.returncode != 0:
+                return None
+
+            output = (result.stdout or "").strip()
+            if not output:
+                return None
+
+            return json.loads(output)
+        except Exception:
+            return None
+
+    def measure_vmix_pid_and_bandwidth_mbps(self) -> tuple[str, float | None, float | None]:
+        """Return vMix PID list plus process send/receive bandwidth (Mbps)."""
+        now = time.time()
+        cache_ts = float(getattr(self, "_vmix_bw_cache_ts", 0.0) or 0.0)
+        if now - cache_ts < 1.0:
+            return (
+                str(getattr(self, "_vmix_bw_cache_pid", "") or ""),
+                getattr(self, "_vmix_bw_cache_send", None),
+                getattr(self, "_vmix_bw_cache_recv", None),
+            )
+
+        try:
+            import psutil
+        except Exception:
+            return "", None, None
+
+        pids: list[int] = []
+        try:
+            for proc in psutil.process_iter(["pid", "name", "exe"]):
+                try:
+                    pid = int(proc.info.get("pid") or 0)
+                    if pid <= 0:
+                        continue
+                    pname = str(proc.info.get("name") or "").lower().strip()
+                    pexe = str(proc.info.get("exe") or "")
+                    exe_name = os.path.basename(pexe).lower().strip() if pexe else ""
+                    if pname == "vmix64.exe" or exe_name == "vmix64.exe":
+                        pids.append(pid)
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+                except Exception:
+                    continue
+        except Exception:
+            return "", None, None
+
+        pids = sorted(set(pids))
+        if not pids:
+            self._vmix_bw_cache_ts = now
+            self._vmix_bw_cache_pid = ""
+            self._vmix_bw_cache_send = None
+            self._vmix_bw_cache_recv = None
+            return "", None, None
+
+        raw = self._run_powershell_json(
+            r"""
+Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
+  Where-Object { $_.IDProcess -gt 0 -and $_.Name -ne '_Total' -and $_.Name -ne 'Idle' } |
+  Select-Object IDProcess,IOReadBytesPersec,IOWriteBytesPersec |
+  ConvertTo-Json -Compress
+"""
+        )
+        rows = raw if isinstance(raw, list) else ([raw] if isinstance(raw, dict) else [])
+        if not rows:
+            pid_text = ",".join(str(pid) for pid in pids)
+            self._vmix_bw_cache_ts = now
+            self._vmix_bw_cache_pid = pid_text
+            self._vmix_bw_cache_send = None
+            self._vmix_bw_cache_recv = None
+            return pid_text, None, None
+
+        want_pids = set(pids)
+        send_bps = 0.0
+        recv_bps = 0.0
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            try:
+                pid = int(item.get("IDProcess", 0) or 0)
+            except Exception:
+                continue
+            if pid not in want_pids:
+                continue
+            try:
+                recv_bps += max(float(item.get("IOReadBytesPersec", 0) or 0), 0.0)
+            except Exception:
+                pass
+            try:
+                send_bps += max(float(item.get("IOWriteBytesPersec", 0) or 0), 0.0)
+            except Exception:
+                pass
+
+        send_mbps = round((send_bps * 8) / 1_000_000, 3)
+        recv_mbps = round((recv_bps * 8) / 1_000_000, 3)
+        pid_text = ",".join(str(pid) for pid in pids)
+
+        self._vmix_bw_cache_ts = now
+        self._vmix_bw_cache_pid = pid_text
+        self._vmix_bw_cache_send = send_mbps
+        self._vmix_bw_cache_recv = recv_mbps
+        return pid_text, send_mbps, recv_mbps
 
     @staticmethod
     def _vmix_data_dir() -> str:
@@ -1213,6 +1373,8 @@ class VmixMonitorLogicMixin:
         if not os.path.isdir(streaming_dir):
             return {}, f"Không tìm thấy thư mục: {streaming_dir}"
 
+        today = datetime.now().date()
+        has_any_stream_file = False
         latest_by_stream: dict = {}
         for name in os.listdir(streaming_dir):
             path = os.path.join(streaming_dir, name)
@@ -1222,13 +1384,21 @@ class VmixMonitorLogicMixin:
             if not m_stream:
                 continue
 
+            has_any_stream_file = True
+
             last_write = datetime.fromtimestamp(os.path.getmtime(path))
+            if last_write.date() != today:
+                # Chỉ lấy file stream được ghi trong ngày hôm nay.
+                continue
+
             stream_name = m_stream.group(1).lower()
             cur = latest_by_stream.get(stream_name)
             if cur is None or last_write > cur[1]:
                 latest_by_stream[stream_name] = (path, last_write)
 
         if not latest_by_stream:
+            if has_any_stream_file:
+                return {}, "Hôm nay chưa có file streaming*"
             return {}, "Không có file streaming* trong thư mục streaming"
 
         result: dict = {}
@@ -1383,11 +1553,16 @@ class VmixMonitorLogicMixin:
 
     def _build_stream_quality_entry(self, stream_name: str, info: dict | None, latest: dict | None, live_window_sec: int) -> dict:
         now = datetime.now()
-        last_write_iso = latest.get("last_write").isoformat() if latest and latest.get("last_write") else None
-        runtime_status = None
+        last_write_iso = "-"
+        runtime_status = "-"
+        latest_log_file = "-"
+        quality_line = "-"
         if latest and latest.get("last_write"):
+            last_write_iso = latest.get("last_write").isoformat()
             age_sec = (now - latest.get("last_write")).total_seconds()
             runtime_status = "ON" if age_sec <= live_window_sec else "OFF"
+            latest_log_file = latest.get("file_name") or "-"
+            quality_line = latest.get("quality_line") or "-"
 
         ui = self._build_ui_snapshot(latest.get("raw_content", "")) if latest else None
         health = self._assess_stream_health(latest, ui) if latest and ui else None
@@ -1412,8 +1587,8 @@ class VmixMonitorLogicMixin:
             "runtime": {
                 "status": runtime_status,
                 "last_write": last_write_iso,
-                "latest_log_file": latest.get("file_name") if latest else None,
-                "quality_line": latest.get("quality_line") if latest else None,
+                "latest_log_file": latest_log_file,
+                "quality_line": quality_line,
             },
             "ui_snapshot": ui,
             "health": health,
@@ -1546,6 +1721,7 @@ class VmixMonitorLogicMixin:
             mem_pct = self.measure_memory()
             gpu_pct = self.measure_gpu()
             sender_mbps, receiver_mbps = self.measure_network_sender_receiver_mbps()
+            pid_vmix, vmix_send_mbps, vmix_receive_mbps = self.measure_vmix_pid_and_bandwidth_mbps()
 
             vmix_stats = self.get_vmix_stats()
             ping_str = f"{ping_ms:.0f}" if ping_ms is not None else "—"
@@ -1555,6 +1731,9 @@ class VmixMonitorLogicMixin:
             gpu_str = f"{gpu_pct:.1f}" if gpu_pct is not None else "—"
             sender_bw_str = self._format_mbps_text(sender_mbps)
             receiver_bw_str = self._format_mbps_text(receiver_mbps)
+            vmix_send_bw_str = self._format_mbps_text(vmix_send_mbps)
+            vmix_receive_bw_str = self._format_mbps_text(vmix_receive_mbps)
+            pid_vmix_str = pid_vmix if pid_vmix else "—"
 
             rec_str = "🔴 ON" if vmix_stats["recording"] else "OFF"
             live_str = "🔴 ON" if vmix_stats["streaming"] else "OFF"
@@ -1579,6 +1758,9 @@ class VmixMonitorLogicMixin:
                 entry["gpu"] = gpu_str
                 entry["sender_bw"] = sender_bw_str
                 entry["receiver_bw"] = receiver_bw_str
+                entry["vmixsend"] = vmix_send_bw_str
+                entry["vmixreceive"] = vmix_receive_bw_str
+                entry["pid_vmix"] = pid_vmix_str
                 entry["rec"] = rec_str
                 entry["live"] = live_str
                 entry["ext"] = ext_str
@@ -1619,6 +1801,9 @@ class VmixMonitorLogicMixin:
                     "gpu": gpu_pct,
                     "sender_mbps": sender_mbps,
                     "receiver_mbps": receiver_mbps,
+                    "vmixsend": vmix_send_mbps,
+                    "vmixreceive": vmix_receive_mbps,
+                    "PIDVMIX": pid_vmix,
                     "vmix_recording": vmix_stats.get("recording", False),
                     "vmix_streaming": vmix_stats.get("streaming", False),
                     "vmix_external": vmix_stats.get("external", False),
@@ -1628,7 +1813,7 @@ class VmixMonitorLogicMixin:
                     "stream_quality": quality_snapshot,
                 }
                 headers = {"Content-Type": "application/json"}
-                response = self.http_session.post(SERVER_URL, json=data, headers=headers, timeout=5)
+                response = self.http_session.post(self.get_server_url(), json=data, headers=headers, timeout=5)
                 if response.status_code == 200:
                     pass  # Status changes already logged above per-port
                 elif response.status_code == 500:

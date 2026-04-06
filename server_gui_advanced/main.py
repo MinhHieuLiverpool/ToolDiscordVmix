@@ -3,15 +3,18 @@ import customtkinter as ctk
 try:
     from .logic import ServerDataGUILogicMixin
     from .ui import ServerDataGUIUIMixin
+    from .shared import DEFAULT_SERVER_URL
 except ImportError:
     try:
         # PyInstaller / script execution with package available
         from server_gui_advanced.logic import ServerDataGUILogicMixin
         from server_gui_advanced.ui import ServerDataGUIUIMixin
+        from server_gui_advanced.shared import DEFAULT_SERVER_URL
     except ImportError:
         # Allow running this file directly: python main.py
         from logic import ServerDataGUILogicMixin
         from ui import ServerDataGUIUIMixin
+        from shared import DEFAULT_SERVER_URL
 
 
 ctk.set_appearance_mode("dark")
@@ -25,8 +28,9 @@ class ServerDataGUI(ServerDataGUIUIMixin, ServerDataGUILogicMixin):
         self.root.geometry("2000x750")
         self.root.after(100, lambda: self.root.state("zoomed"))
 
-        self.api_url = "http://192.168.30.216:8000"
-        self.ws_url = "wss://192.168.30.216:8000/ws"
+        self.server_url_var = ctk.StringVar(value=DEFAULT_SERVER_URL)
+        self.api_url = ""
+        self.ws_url = ""
         self.webhook_var = ctk.StringVar(value="")
         self.prefix_var = ctk.StringVar(value="SRT")
 
@@ -46,6 +50,7 @@ class ServerDataGUI(ServerDataGUIUIMixin, ServerDataGUILogicMixin):
         self.rest_polling_active = False
 
         self.setup_main_ui()
+        self.apply_server_url(reconnect=False, announce=False)
 
         self.refresh_data(show_dialog=False)
         self.load_selected_from_database()

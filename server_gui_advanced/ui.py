@@ -28,6 +28,20 @@ class ServerDataGUIUIMixin:
         self.webhook_entry = ctk.CTkEntry(row1, textvariable=self.webhook_var, width=600, font=("Arial", 10))
         self.webhook_entry.pack(side="left", padx=5, fill="x", expand=True)
 
+        ctk.CTkLabel(row1, text="Server:", font=("Arial", 10, "bold")).pack(side="left", padx=(8, 4))
+        self.server_entry = ctk.CTkEntry(row1, textvariable=self.server_url_var, width=240, font=("Arial", 10))
+        self.server_entry.pack(side="left", padx=(0, 4))
+        self.server_entry.bind("<Return>", lambda _e: self.apply_server_url(reconnect=True, announce=True))
+        ctk.CTkButton(
+            row1,
+            text="Áp dụng",
+            command=lambda: self.apply_server_url(reconnect=True, announce=True),
+            width=88,
+            fg_color="#2196F3",
+            hover_color="#1976D2",
+            font=("Arial", 10, "bold"),
+        ).pack(side="left", padx=(0, 3))
+
         # Row 2: Prefix and buttons
         row2 = ctk.CTkFrame(top_frame, fg_color="transparent")
         row2.pack(fill="x", pady=5)
@@ -80,7 +94,7 @@ class ServerDataGUIUIMixin:
         except Exception:
             tk_scale = 1.3333
         scale_factor = max(1.0, tk_scale / 1.3333)
-        self.selected_table_total_width = int(2540 * scale_factor) + 60
+        self.selected_table_total_width = int(2660 * scale_factor) + 60
         table_outer = ctk.CTkFrame(right_frame, fg_color="#2b2b2b")
         table_outer.pack(fill="both", expand=True, padx=5, pady=5)
 
@@ -133,6 +147,9 @@ class ServerDataGUIUIMixin:
         ctk.CTkLabel(header_frame_right, text="🎮 GPU%", font=("Arial", 10, "bold"), width=65).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="⬆ SEND", font=("Arial", 10, "bold"), width=88).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="⬇ RECV", font=("Arial", 10, "bold"), width=88).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="⬆ vMix SEND", font=("Arial", 10, "bold"), width=98).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="⬇ vMix RECV", font=("Arial", 10, "bold"), width=98).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="PID VMIX", font=("Arial", 10, "bold"), width=95).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="● REC", font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="🔴 LIVE", font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="🟢 EXT", font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
@@ -525,6 +542,9 @@ class ServerDataGUIUIMixin:
         gpu = d.get("gpu", None)
         sender_mbps = d.get("sender_mbps", d.get("sender_bw", None))
         receiver_mbps = d.get("receiver_mbps", d.get("receiver_bw", None))
+        vmixsend_mbps = d.get("vmixsend", d.get("sendvmix", None))
+        vmixreceive_mbps = d.get("vmixreceive", d.get("receivevmix", None))
+        pid_vmix = d.get("PIDVMIX", d.get("pid_vmix", d.get("pidvmix", "")))
 
         def _pct_text(v):
             try:
@@ -571,6 +591,9 @@ class ServerDataGUIUIMixin:
             "gpu_str": _pct_text(gpu),
             "sender_str": _mbps_text(sender_mbps),
             "receiver_str": _mbps_text(receiver_mbps),
+            "vmixsend_str": _mbps_text(vmixsend_mbps),
+            "vmixreceive_str": _mbps_text(vmixreceive_mbps),
+            "pid_vmix_str": str(pid_vmix).strip() if str(pid_vmix).strip() else "—",
             "vmix_rec": d.get("vmix_recording", False),
             "vmix_live": d.get("vmix_streaming", False),
             "vmix_ext": d.get("vmix_external", False),
@@ -695,6 +718,18 @@ class ServerDataGUIUIMixin:
         wc["receiver_lbl"] = ctk.CTkLabel(c, text=rd["receiver_str"], font=("Arial", 10))
         wc["receiver_lbl"].place(relx=0.5, rely=0.5, anchor="center")
 
+        c = create_cell(row_frame, 98)
+        wc["vmixsend_lbl"] = ctk.CTkLabel(c, text=rd["vmixsend_str"], font=("Arial", 10))
+        wc["vmixsend_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        c = create_cell(row_frame, 98)
+        wc["vmixreceive_lbl"] = ctk.CTkLabel(c, text=rd["vmixreceive_str"], font=("Arial", 10))
+        wc["vmixreceive_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
+        c = create_cell(row_frame, 95)
+        wc["pid_vmix_lbl"] = ctk.CTkLabel(c, text=rd["pid_vmix_str"], font=("Arial", 10))
+        wc["pid_vmix_lbl"].place(relx=0.5, rely=0.5, anchor="center")
+
         # vMix flags
         c = create_cell(row_frame, 60)
         wc["rec_lbl"] = ctk.CTkLabel(c, text="● ON" if rd["vmix_rec"] else "○ OFF", font=("Arial", 9),
@@ -767,6 +802,9 @@ class ServerDataGUIUIMixin:
         wc["gpu_lbl"].configure(text=rd["gpu_str"])
         wc["sender_lbl"].configure(text=rd["sender_str"])
         wc["receiver_lbl"].configure(text=rd["receiver_str"])
+        wc["vmixsend_lbl"].configure(text=rd["vmixsend_str"])
+        wc["vmixreceive_lbl"].configure(text=rd["vmixreceive_str"])
+        wc["pid_vmix_lbl"].configure(text=rd["pid_vmix_str"])
         wc["rec_lbl"].configure(text="● ON" if rd["vmix_rec"] else "○ OFF",
                                  text_color="#f44336" if rd["vmix_rec"] else "#555555")
         wc["live_lbl"].configure(text="● ON" if rd["vmix_live"] else "○ OFF",

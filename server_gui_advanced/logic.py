@@ -11,15 +11,61 @@ import requests
 import websocket
 
 try:
-    from .shared import VIETNAM_TZ, get_first_srt, get_srt_ports_str
+    from .shared import DEFAULT_SERVER_URL, VIETNAM_TZ, get_first_srt, get_srt_ports_str
 except ImportError:
     try:
-        from server_gui_advanced.shared import VIETNAM_TZ, get_first_srt, get_srt_ports_str
+        from server_gui_advanced.shared import DEFAULT_SERVER_URL, VIETNAM_TZ, get_first_srt, get_srt_ports_str
     except ImportError:
-        from shared import VIETNAM_TZ, get_first_srt, get_srt_ports_str
+        from shared import DEFAULT_SERVER_URL, VIETNAM_TZ, get_first_srt, get_srt_ports_str
 
 
 class ServerDataGUILogicMixin:
+    def _normalize_api_url(self, raw_url: str) -> str:
+        url = str(raw_url or "").strip().rstrip("/")
+        if not url:
+            url = DEFAULT_SERVER_URL
+        if not (url.startswith("http://") or url.startswith("https://")):
+            url = f"http://{url}"
+        return url.rstrip("/")
+
+    def _build_ws_url(self, api_url: str) -> str:
+        if api_url.startswith("https://"):
+            return f"wss://{api_url[len('https://'): ]}/ws"
+        if api_url.startswith("http://"):
+            return f"ws://{api_url[len('http://'): ]}/ws"
+        return f"ws://{api_url}/ws"
+
+    def apply_server_url(self, reconnect: bool = True, announce: bool = True):
+        candidate = self.api_url
+        if hasattr(self, "server_url_var"):
+            candidate = self.server_url_var.get()
+
+        new_api_url = self._normalize_api_url(candidate)
+        new_ws_url = self._build_ws_url(new_api_url)
+        old_api_url = getattr(self, "api_url", "")
+
+        self.api_url = new_api_url
+        self.ws_url = new_ws_url
+
+        if hasattr(self, "server_url_var"):
+            self.server_url_var.set(new_api_url)
+
+        if announce:
+            print(f"🌐 API URL: {self.api_url}")
+            print(f"📡 WS URL: {self.ws_url}")
+
+        if reconnect and old_api_url and old_api_url != new_api_url and self.use_websocket:
+            if self.ws is not None:
+                try:
+                    self.ws.close()
+                except Exception:
+                    pass
+            elif not self.ws_connected:
+                self.connect_websocket()
+
+        if reconnect:
+            self.refresh_data(show_dialog=False)
+
     def connect_websocket(self):
         def on_message(ws, message):
             try:
