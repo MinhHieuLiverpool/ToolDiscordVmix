@@ -164,14 +164,28 @@ class VmixMonitorLogicMixin:
         return resolution, srt_by_port
 
     def get_local_ip(self):
+        # Use short socket timeouts to avoid blocking GUI startup on unstable networks.
+        probes = (("1.1.1.1", 80), ("8.8.8.8", 80))
+        for host, port in probes:
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.settimeout(0.8)
+                s.connect((host, port))
+                ip = s.getsockname()[0]
+                s.close()
+                if ip:
+                    return ip
+            except Exception:
+                pass
+
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
+            host_ip = socket.gethostbyname(socket.gethostname())
+            if host_ip and host_ip != "127.0.0.1":
+                return host_ip
         except Exception:
-            return "127.0.0.1"
+            pass
+
+        return "127.0.0.1"
 
     def import_from_old_ip(self, old_ip: str):
         import requests
@@ -357,102 +371,27 @@ class VmixMonitorLogicMixin:
         except Exception as e:
             self.log(f"❌ Lỗi kiểm tra server: {str(e)}")
 
-    def load_data_from_database(self):
+    def load_data_from_database_async(self):
+        ip = self.ip_var.get().strip()
+        server_url = self.get_server_url()
+        threading.Thread(
+            target=self.load_data_from_database,
+            args=(ip, server_url),
+            daemon=True,
+        ).start()
+
+    def load_data_from_database(self, ip: str | None = None, server_url: str | None = None):
         import requests
 
         try:
-            ip = self.ip_var.get().strip()
-            url = f"{self.get_server_url()}/get_by_ip?ip={ip}"
+            current_ip = (ip or self.ip_var.get().strip()).strip()
+            base_url = str(server_url or self.get_server_url()).rstrip("/")
+            url = f"{base_url}/get_by_ip?ip={current_ip}"
             self.log("⏳ Đang tải dữ liệu từ server...")
             response = requests.get(url, timeout=20)
             if response.status_code == 200:
                 data = response.json()
-                if data and isinstance(data, list):
-                    self.port_list.clear()
-                    for item in self.tree.get_children():
-                        self.tree.delete(item)
-
-                    loaded_count = 0
-                    for entry in data:
-                        entry_data = entry.get("data", {})
-                        entry_ip = entry_data.get("ip", ip)
-                        ipwan = entry_data.get("ipwan", "unknown")
-                        ping = entry_data.get("ping", None)
-                        memory = entry_data.get("memory", None)
-                        cpu = entry_data.get("cpu", None)
-                        gpu = entry_data.get("gpu", None)
-                        sender_mbps = entry_data.get("sender_mbps", None)
-                        receiver_mbps = entry_data.get("receiver_mbps", None)
-                        vmixsend_mbps = entry_data.get("vmixsend", None)
-                        vmixreceive_mbps = entry_data.get("vmixreceive", None)
-                        pid_vmix = str(entry_data.get("PIDVMIX", "") or "")
-
-                        # SRT is now an array
-                        srt_list = entry_data.get("SRT", [])
-                        if not isinstance(srt_list, list):
-                            srt_list = [srt_list] if isinstance(srt_list, dict) else []
-
-                        for srt_item in srt_list:
-                            name = srt_item.get("nameSRT", "")
-                            port = srt_item.get("port", 0)
-                            if name and port:
-                                self.port_list.append(
-                                    {
-                                        "name": name,
-                                        "port": port,
-                                        "ip": entry_ip,
-                                        "ipwan": ipwan,
-                                        "ping": f"{ping:.0f}" if ping is not None else "—",
-                                        "cpu": f"{cpu:.1f}" if cpu is not None else "—",
-                                        "memory": f"{memory:.1f}" if memory is not None else "—",
-                                        "gpu": f"{gpu:.1f}" if gpu is not None else "—",
-                                        "sender_bw": self._format_mbps_text(self._to_float_or_none(sender_mbps)),
-                                        "receiver_bw": self._format_mbps_text(self._to_float_or_none(receiver_mbps)),
-                                        "vmixsend": self._format_mbps_text(self._to_float_or_none(vmixsend_mbps)),
-                                        "vmixreceive": self._format_mbps_text(self._to_float_or_none(vmixreceive_mbps)),
-                                        "pid_vmix": pid_vmix if pid_vmix else "—",
-                                        "rec": "—",
-                                        "live": "—",
-                                        "ext": "—",
-                                        "resolution": "—",
-                                        "srt": "—",
-                                    }
-                                )
-                                self.tree.insert(
-                                    "",
-                                    tk.END,
-                                    values=(
-                                        name,
-                                        entry_ip,
-                                        ipwan,
-                                        port,
-                                        f"{ping:.0f}" if ping is not None else "—",
-                                        "0",
-                                        f"{cpu:.1f}" if cpu is not None else "—",
-                                        f"{memory:.1f}" if memory is not None else "—",
-                                        f"{gpu:.1f}" if gpu is not None else "—",
-                                        self._format_mbps_text(self._to_float_or_none(sender_mbps)),
-                                        self._format_mbps_text(self._to_float_or_none(receiver_mbps)),
-                                        self._format_mbps_text(self._to_float_or_none(vmixsend_mbps)),
-                                        self._format_mbps_text(self._to_float_or_none(vmixreceive_mbps)),
-                                        pid_vmix if pid_vmix else "—",
-                                        "—",
-                                        "—",
-                                        "—",
-                                        "—",
-                                        "—",
-                                    ),
-                                )
-                                loaded_count += 1
-
-                    if loaded_count > 0:
-                        self.log(f"✅ Đã tải {loaded_count} port từ database (IP: {ip})")
-                    else:
-                        self.log(f"ℹ️ Không có dữ liệu cho IP {ip} trong database")
-                        self.check_for_old_ip_data()
-                else:
-                    self.log(f"ℹ️ Không có dữ liệu cho IP {ip} trong database")
-                    self.check_for_old_ip_data()
+                self.root.after(0, lambda d=data, local_ip=current_ip: self._apply_loaded_data_to_ui(local_ip, d))
             elif response.status_code == 500:
                 self.log("⚠️ Server đang có vấn đề (500) - có thể đang cold start, hãy thử lại sau 30s")
             else:
@@ -462,16 +401,112 @@ class VmixMonitorLogicMixin:
         except Exception as e:
             self.log(f"❌ Lỗi khi load dữ liệu: {str(e)}")
 
-    def check_for_old_ip_data(self):
+    def _apply_loaded_data_to_ui(self, ip: str, data):
+        if data and isinstance(data, list):
+            self.port_list.clear()
+            for item in self.tree.get_children():
+                self.tree.delete(item)
+
+            loaded_count = 0
+            for entry in data:
+                entry_data = entry.get("data", {})
+                entry_ip = entry_data.get("ip", ip)
+                ipwan = entry_data.get("ipwan", "unknown")
+                ping = entry_data.get("ping", None)
+                memory = entry_data.get("memory", None)
+                cpu = entry_data.get("cpu", None)
+                gpu = entry_data.get("gpu", None)
+                sender_mbps = entry_data.get("sender_mbps", None)
+                receiver_mbps = entry_data.get("receiver_mbps", None)
+                vmixsend_mbps = entry_data.get("vmixsend", None)
+                vmixreceive_mbps = entry_data.get("vmixreceive", None)
+                pid_vmix = str(entry_data.get("PIDVMIX", "") or "")
+
+                # SRT is now an array
+                srt_list = entry_data.get("SRT", [])
+                if not isinstance(srt_list, list):
+                    srt_list = [srt_list] if isinstance(srt_list, dict) else []
+
+                for srt_item in srt_list:
+                    name = srt_item.get("nameSRT", "")
+                    port = srt_item.get("port", 0)
+                    if name and port:
+                        self.port_list.append(
+                            {
+                                "name": name,
+                                "port": port,
+                                "ip": entry_ip,
+                                "ipwan": ipwan,
+                                "ping": f"{ping:.0f}" if ping is not None else "—",
+                                "cpu": f"{cpu:.1f}" if cpu is not None else "—",
+                                "memory": f"{memory:.1f}" if memory is not None else "—",
+                                "gpu": f"{gpu:.1f}" if gpu is not None else "—",
+                                "sender_bw": self._format_mbps_text(self._to_float_or_none(sender_mbps)),
+                                "receiver_bw": self._format_mbps_text(self._to_float_or_none(receiver_mbps)),
+                                "vmixsend": self._format_mbps_text(self._to_float_or_none(vmixsend_mbps)),
+                                "vmixreceive": self._format_mbps_text(self._to_float_or_none(vmixreceive_mbps)),
+                                "pid_vmix": pid_vmix if pid_vmix else "—",
+                                "rec": "—",
+                                "live": "—",
+                                "ext": "—",
+                                "resolution": "—",
+                                "srt": "—",
+                            }
+                        )
+                        self.tree.insert(
+                            "",
+                            tk.END,
+                            values=(
+                                name,
+                                entry_ip,
+                                ipwan,
+                                port,
+                                f"{ping:.0f}" if ping is not None else "—",
+                                "0",
+                                f"{cpu:.1f}" if cpu is not None else "—",
+                                f"{memory:.1f}" if memory is not None else "—",
+                                f"{gpu:.1f}" if gpu is not None else "—",
+                                self._format_mbps_text(self._to_float_or_none(sender_mbps)),
+                                self._format_mbps_text(self._to_float_or_none(receiver_mbps)),
+                                self._format_mbps_text(self._to_float_or_none(vmixsend_mbps)),
+                                self._format_mbps_text(self._to_float_or_none(vmixreceive_mbps)),
+                                pid_vmix if pid_vmix else "—",
+                                "—",
+                                "—",
+                                "—",
+                                "—",
+                                "—",
+                            ),
+                        )
+                        loaded_count += 1
+
+            if loaded_count > 0:
+                self.log(f"✅ Đã tải {loaded_count} port từ database (IP: {ip})")
+            else:
+                self.log(f"ℹ️ Không có dữ liệu cho IP {ip} trong database")
+                self.check_for_old_ip_data(ip)
+        else:
+            self.log(f"ℹ️ Không có dữ liệu cho IP {ip} trong database")
+            self.check_for_old_ip_data(ip)
+
+    def check_for_old_ip_data(self, current_ip: str | None = None):
+        ip = (current_ip or self.ip_var.get().strip()).strip()
+        server_url = self.get_server_url()
+        threading.Thread(
+            target=self._check_for_old_ip_data_thread,
+            args=(ip, server_url),
+            daemon=True,
+        ).start()
+
+    def _check_for_old_ip_data_thread(self, current_ip: str, server_url: str):
         import requests
 
         try:
-            url = f"{self.get_server_url()}/logs"
+            url = f"{server_url.rstrip('/')}/logs"
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
                 all_data = response.json()
                 if all_data and isinstance(all_data, list):
-                    current_ip = self.ip_var.get().strip()
                     found_ips = set()
                     for entry in all_data:
                         entry_data = entry.get("data", {})
@@ -479,7 +514,7 @@ class VmixMonitorLogicMixin:
                         if entry_ip and entry_ip != current_ip:
                             found_ips.add(entry_ip)
                     if found_ips:
-                        self.root.after(1000, lambda: self.show_old_ip_notification(list(found_ips)))
+                        self.root.after(1000, lambda ips=sorted(found_ips): self.show_old_ip_notification(ips))
         except Exception:
             pass
 

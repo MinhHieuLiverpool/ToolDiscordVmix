@@ -467,15 +467,23 @@ class VmixMonitorUIMixin:
         return image
 
     def setup_tray(self):
-        image = self.create_tray_image()
-        menu = pystray.Menu(
-            pystray.MenuItem("Mở", self.show_window),
-            pystray.MenuItem("Thoát", self.quit_app),
-        )
-        self.tray_icon = pystray.Icon("VmixMonitor", image, "Vmix Monitor", menu)
+        if self.tray_icon is not None:
+            return
+        try:
+            image = self.create_tray_image()
+            menu = pystray.Menu(
+                pystray.MenuItem("Mở", self.show_window),
+                pystray.MenuItem("Thoát", self.quit_app),
+            )
+            self.tray_icon = pystray.Icon("VmixMonitor", image, "Vmix Monitor", menu)
+        except Exception as e:
+            self.tray_icon = None
+            self.log(f"⚠️ Không thể khởi tạo system tray: {e}")
 
     def hide_to_tray(self):
         self.root.withdraw()
+        if self.tray_icon is None:
+            self.setup_tray()
         if self.tray_icon and not self.tray_icon.visible:
             threading.Thread(target=self.tray_icon.run, daemon=True).start()
 

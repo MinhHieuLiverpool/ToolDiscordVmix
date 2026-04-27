@@ -33,7 +33,8 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
         except Exception:
             pass
 
-        self.ip_var = tk.StringVar(value=self.get_local_ip())
+        # Keep startup non-blocking; resolve real local IP asynchronously.
+        self.ip_var = tk.StringVar(value="127.0.0.1")
         self.server_url_var = tk.StringVar(value=SERVER_URL)
         self.name_var = tk.StringVar(value="")
         self.port_var = tk.StringVar(value="")
@@ -55,8 +56,6 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
             _ps.cpu_percent(interval=None)
         except Exception:
             pass
-        threading.Thread(target=self._ping_bg_loop, daemon=True).start()
-
         self._vmix_file_cache = ("—", {})
         self._vmix_file_ts = 0.0
         self._net_last_sent = None
@@ -70,10 +69,22 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
         self._vmix_bw_cache_recv = None
 
         self.setup_ui()
-        self.setup_tray()
-        self.check_log_queue()
-        self.load_data_from_database()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.after(100, self._bootstrap_background_tasks)
+
+    def _bootstrap_background_tasks(self):
+        self.check_log_queue()
+        threading.Thread(target=self._resolve_local_ip_and_load_async, daemon=True).start()
+        threading.Thread(target=self._ping_bg_loop, daemon=True).start()
+
+    def _resolve_local_ip_and_load_async(self):
+        local_ip = self.get_local_ip()
+
+        def _apply_ip_then_load():
+            self.ip_var.set(local_ip)
+            self.load_data_from_database_async()
+
+        self.root.after(0, _apply_ip_then_load)
 
 
 def ensure_single_instance():
