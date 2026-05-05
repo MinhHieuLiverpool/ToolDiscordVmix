@@ -8,6 +8,7 @@ import UrlKeyPage from './pages/UrlKeyPage'
 import FfmpegPage from './pages/FfmpegPage'
 import StatisticsPage from './pages/StatisticsPage'
 import VmixMonitorPage from './pages/VmixMonitorPage'
+import SpeedtestPage from './pages/SpeedtestPage'
 import AccountPage from './pages/AccountPage'
 import RolePage from './pages/RolePage'
 import LoginPage from './pages/Login'
@@ -33,6 +34,7 @@ function App() {
           <Route path="/ffmpeg" element={<FfmpegPage />} />
           <Route path="/statistics" element={<StatisticsPage />} />
           <Route path="/vmix-monitor" element={<VmixMonitorPage />} />
+          <Route path="/speedtest" element={<SpeedtestPage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/account/roles" element={<RolePage />} />
         </Route>

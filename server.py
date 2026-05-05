@@ -4,6 +4,8 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
+import shutil
+import subprocess
 from datetime import datetime, timedelta
 from collections import deque
 import pytz
@@ -1264,6 +1266,67 @@ async def delete_account(payload: dict):
         return JSONResponse(content={"success": False, "deleted": 0, "message": "account not found"}, status_code=404)
     except Exception as e:
         print(f"✗ Delete account error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+
+@app.get("/speedtest")
+async def run_speedtest():
+    """Run speedtest-cli and return parsed JSON results."""
+    try:
+        raw_cmd = os.getenv("SPEEDTEST_CLI_CMD", "speedtest-cli").strip() or "speedtest-cli"
+        base_cmd = raw_cmd.split()
+        if not base_cmd:
+            return JSONResponse(content={"success": False, "message": "speedtest-cli command not configured"}, status_code=500)
+
+        if shutil.which(base_cmd[0]) is None:
+            return JSONResponse(
+                content={"success": False, "message": "speedtest-cli is not installed"},
+                status_code=503,
+            )
+
+        full_cmd = [*base_cmd, "--json"]
+        result = subprocess.run(full_cmd, capture_output=True, text=True, timeout=90)
+        if result.returncode != 0:
+            return JSONResponse(
+                content={"success": False, "message": result.stderr.strip() or "speedtest-cli failed"},
+                status_code=500,
+            )
+
+        try:
+            payload = json.loads(result.stdout)
+        except Exception:
+            return JSONResponse(
+                content={"success": False, "message": "invalid speedtest-cli output"},
+                status_code=500,
+            )
+
+        download_bps = payload.get("download")
+        upload_bps = payload.get("upload")
+        ping_ms = payload.get("ping")
+        client_meta = payload.get("client") if isinstance(payload.get("client"), dict) else {}
+        ipwan = client_meta.get("ip")
+        isp_name = client_meta.get("isp") or client_meta.get("isp_name") or client_meta.get("ispName")
+        result_payload = {
+            "success": True,
+            "timestamp": payload.get("timestamp"),
+            "ping_ms": ping_ms,
+            "download_bps": download_bps,
+            "upload_bps": upload_bps,
+            "download_mbps": (download_bps / 1_000_000) if isinstance(download_bps, (int, float)) else None,
+            "upload_mbps": (upload_bps / 1_000_000) if isinstance(upload_bps, (int, float)) else None,
+            "ipwan": ipwan,
+            "isp": isp_name,
+            "server": payload.get("server", {}),
+            "raw": payload,
+        }
+        return JSONResponse(content=result_payload)
+    except subprocess.TimeoutExpired:
+        return JSONResponse(
+            content={"success": False, "message": "speedtest-cli timeout"},
+            status_code=504,
+        )
+    except Exception as e:
+        print(f"✗ Speedtest error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 @app.get("/statistics/{statistics_id}")

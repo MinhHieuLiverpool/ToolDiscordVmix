@@ -164,6 +164,29 @@ export interface BackendAccountItem {
   created_at?: string
 }
 
+export interface SpeedtestResponse {
+  success: boolean
+  timestamp?: string
+  ping_ms?: number | null
+  download_bps?: number | null
+  upload_bps?: number | null
+  download_mbps?: number | null
+  upload_mbps?: number | null
+  ipwan?: string | null
+  isp?: string | null
+  server?: Record<string, unknown>
+  raw?: {
+    client?: {
+      ip?: string
+      isp?: string
+      isp_name?: string
+      ispName?: string
+    }
+  }
+  message?: string
+  error?: string
+}
+
 const apiClient = axios.create({
   baseURL: BACKEND_BASE_URL,
   timeout: REQUEST_TIMEOUT_MS,
@@ -181,6 +204,11 @@ export async function loginAccount(username: string, password: string): Promise<
 
 export async function fetchAccounts(): Promise<BackendAccountItem[]> {
   const response = await apiClient.get<BackendAccountItem[]>(API_ENDPOINTS.accounts)
+  return response.data
+}
+
+export async function fetchSpeedtest(): Promise<SpeedtestResponse> {
+  const response = await apiClient.get<SpeedtestResponse>(API_ENDPOINTS.speedtest)
   return response.data
 }
 
