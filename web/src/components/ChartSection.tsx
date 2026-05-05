@@ -6,11 +6,13 @@ export default function ChartSection({
     chartLoading,
     totalMachines,
     timeFilter,
+    showXAxisLabels = true,
 }: {
     machines: MachineMetrics[]
     chartLoading: boolean
     totalMachines: number
     timeFilter: TimeFilter
+    showXAxisLabels?: boolean
 }) {
     if (chartLoading && machines.length === 0) {
         return (
@@ -36,7 +38,12 @@ export default function ChartSection({
         <section className="charts-section">
             <div className="charts-grid">
                 {machines.map((machine) => (
-                    <MachineChartCard key={machine.id} machine={machine} timeFilter={timeFilter} />
+                    <MachineChartCard
+                        key={machine.id}
+                        machine={machine}
+                        timeFilter={timeFilter}
+                        showXAxisLabels={showXAxisLabels}
+                    />
                 ))}
             </div>
         </section>

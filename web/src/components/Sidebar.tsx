@@ -1,9 +1,5 @@
-import { NavLink, useNavigate } from 'react-router-dom'
-import { logout } from '../services/auth'
-import { showToast } from './ui/Toast'
+import { NavLink, useLocation } from 'react-router-dom'
 import { useState } from 'react'
-
-type WsStatus = 'connecting' | 'connected' | 'disconnected'
 
 const NAV_ITEMS = [
     {
@@ -30,7 +26,6 @@ const NAV_ITEMS = [
         ),
     },
     {
-        to: '/stream',
         label: 'Stream',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -38,6 +33,45 @@ const NAV_ITEMS = [
                 <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
             </svg>
         ),
+        children: [
+            {
+                to: '/stream',
+                label: 'Thông số Stream',
+                icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="20" x2="18" y2="10" />
+                        <line x1="12" y1="20" x2="12" y2="4" />
+                        <line x1="6" y1="20" x2="6" y2="14" />
+                    </svg>
+                ),
+            },
+            {
+                to: '/url-key',
+                label: 'URL & Key',
+                icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                    </svg>
+                ),
+            },
+            {
+                to: '/ffmpeg',
+                label: 'FFmpeg',
+                icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+                        <line x1="7" y1="2" x2="7" y2="22" />
+                        <line x1="17" y1="2" x2="17" y2="22" />
+                        <line x1="2" y1="12" x2="22" y2="12" />
+                        <line x1="2" y1="7" x2="7" y2="7" />
+                        <line x1="2" y1="17" x2="7" y2="17" />
+                        <line x1="17" y1="7" x2="22" y2="7" />
+                        <line x1="17" y1="17" x2="22" y2="17" />
+                    </svg>
+                ),
+            },
+        ],
     },
     {
         to: '/statistics',
@@ -61,29 +95,129 @@ const NAV_ITEMS = [
             </svg>
         ),
     },
+    {
+        label: 'Người dùng',
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+            </svg>
+        ),
+        children: [
+            {
+                to: '/account',
+                label: 'Tài khoản',
+                icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="7" r="4" />
+                        <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
+                    </svg>
+                ),
+            },
+            {
+                to: '/account/roles',
+                label: 'Phân quyền',
+                icon: (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="3" width="7" height="7" />
+                        <rect x="14" y="3" width="7" height="7" />
+                        <rect x="3" y="14" width="7" height="7" />
+                        <path d="M14 14h7v7h-7z" />
+                    </svg>
+                ),
+            },
+        ],
+    },
 ]
 
-export default function Sidebar({
-    rows,
-    totalOnline,
-    wsStatus,
-}: {
-    rows: { length: number }
-    totalOnline: number
-    wsStatus: WsStatus
-}) {
-    const navigate = useNavigate()
-    const [collapsed, setCollapsed] = useState(false)
+type NavItem = (typeof NAV_ITEMS)[number]
 
-    const handleLogout = () => {
-        logout()
-        showToast('Đã đăng xuất thành công.', 'info')
-        navigate('/login', { replace: true })
+export default function Sidebar() {
+    const location = useLocation()
+    const [collapsed, setCollapsed] = useState(false)
+    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ Stream: true, 'Người dùng': true })
+
+    const toggleGroup = (label: string) => {
+        setExpandedGroups((prev) => ({ ...prev, [label]: !prev[label] }))
     }
 
-    const wsLabel = wsStatus === 'connected' ? 'CONNECTED' : wsStatus === 'connecting' ? 'CONNECTING...' : 'DISCONNECTED'
-    const wsColorClass = wsStatus === 'connected' ? 'sidebar-ws-ok' : wsStatus === 'connecting' ? 'sidebar-ws-warn' : 'sidebar-ws-err'
-    const totalOffline = rows.length - totalOnline
+    const isGroupActive = (item: NavItem) => {
+        if (!('children' in item) || !item.children) return false
+        return item.children.some((child) => location.pathname === child.to)
+    }
+
+    const renderNavItem = (item: NavItem) => {
+        if ('children' in item && item.children) {
+            const isExpanded = expandedGroups[item.label] ?? false
+            const groupActive = isGroupActive(item)
+
+            return (
+                <div key={item.label} className="sidebar-nav-group">
+                    <button
+                        type="button"
+                        className={`sidebar-nav-item sidebar-nav-group-toggle ${groupActive ? 'sidebar-nav-group-active' : ''}`}
+                        onClick={() => toggleGroup(item.label)}
+                        title={item.label}
+                    >
+                        <span className="sidebar-nav-icon">{item.icon}</span>
+                        {!collapsed && (
+                            <>
+                                <span className="sidebar-nav-text">{item.label}</span>
+                                <svg
+                                    className={`sidebar-nav-chevron ${isExpanded ? 'sidebar-nav-chevron-open' : ''}`}
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                >
+                                    <polyline points="6 9 12 15 18 9" />
+                                </svg>
+                            </>
+                        )}
+                    </button>
+                    {!collapsed && isExpanded && (
+                        <div className="sidebar-nav-children">
+                            {item.children.map((child) => (
+                                <NavLink
+                                    key={child.to}
+                                    to={child.to}
+                                    end
+                                    className={({ isActive }) =>
+                                        `sidebar-nav-item sidebar-nav-child ${isActive ? 'sidebar-nav-active' : ''}`
+                                    }
+                                    title={child.label}
+                                >
+                                    <span className="sidebar-nav-icon sidebar-nav-child-icon">{child.icon}</span>
+                                    <span className="sidebar-nav-text">{child.label}</span>
+                                </NavLink>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )
+        }
+
+        // Regular nav item
+        const navTo = 'to' in item ? item.to : undefined
+        if (!navTo) return null
+
+        return (
+            <NavLink
+                key={navTo}
+                to={navTo}
+                end={navTo === '/dashboard'}
+                className={({ isActive }) =>
+                    `sidebar-nav-item ${isActive ? 'sidebar-nav-active' : ''}`
+                }
+                title={item.label}
+            >
+                <span className="sidebar-nav-icon">{item.icon}</span>
+                {!collapsed && <span className="sidebar-nav-text">{item.label}</span>}
+            </NavLink>
+        )
+    }
 
     return (
         <aside className={`sidebar ${collapsed ? 'sidebar-collapsed' : ''}`}>
@@ -100,78 +234,42 @@ export default function Sidebar({
                         <p className="sidebar-subtitle">Fleet Performance</p>
                     </div>
                 )}
-                <button
-                    type="button"
-                    className="sidebar-toggle-btn"
-                    onClick={() => setCollapsed(!collapsed)}
-                    title={collapsed ? 'Mở rộng' : 'Thu gọn'}
-                >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        {collapsed ? (
-                            <polyline points="9 18 15 12 9 6" />
-                        ) : (
+                {!collapsed && (
+                    <button
+                        type="button"
+                        className="sidebar-toggle-btn"
+                        onClick={() => setCollapsed(true)}
+                        title="Thu gọn"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="15 18 9 12 15 6" />
-                        )}
-                    </svg>
-                </button>
+                        </svg>
+                    </button>
+                )}
             </div>
-
-            {/* KPI Summary */}
-            {!collapsed && (
-                <div className="sidebar-kpi">
-                    <div className="sidebar-kpi-item">
-                        <span className="sidebar-kpi-num">{rows.length}</span>
-                        <span className="sidebar-kpi-label">Total</span>
-                    </div>
-                    <div className="sidebar-kpi-divider" />
-                    <div className="sidebar-kpi-item sidebar-kpi-online">
-                        <span className="sidebar-kpi-num">{totalOnline}</span>
-                        <span className="sidebar-kpi-label">Online</span>
-                    </div>
-                    <div className="sidebar-kpi-divider" />
-                    <div className="sidebar-kpi-item sidebar-kpi-offline">
-                        <span className="sidebar-kpi-num">{totalOffline}</span>
-                        <span className="sidebar-kpi-label">Offline</span>
-                    </div>
-                </div>
-            )}
 
             {/* Navigation */}
             <nav className="sidebar-nav">
                 <div className="sidebar-nav-label">{collapsed ? '—' : 'MENU'}</div>
-                {NAV_ITEMS.map((item) => (
-                    <NavLink
-                        key={item.to}
-                        to={item.to}
-                        end={item.to === '/dashboard'}
-                        className={({ isActive }) =>
-                            `sidebar-nav-item ${isActive ? 'sidebar-nav-active' : ''}`
-                        }
-                        title={item.label}
-                    >
-                        <span className="sidebar-nav-icon">{item.icon}</span>
-                        {!collapsed && <span className="sidebar-nav-text">{item.label}</span>}
-                    </NavLink>
-                ))}
+                {NAV_ITEMS.map((item) => renderNavItem(item))}
             </nav>
 
             {/* Bottom section */}
             <div className="sidebar-bottom">
-                {/* WS Badge */}
-                <div className={`sidebar-ws-badge ${wsColorClass}`}>
-                    <span className={`sidebar-ws-dot ${wsStatus === 'connected' ? 'ws-pulse' : ''}`} />
-                    {!collapsed && <span className="sidebar-ws-text">{wsLabel}</span>}
-                </div>
+                {collapsed && (
+                    <button
+                        type="button"
+                        className="sidebar-toggle-btn sidebar-toggle-btn-bottom"
+                        onClick={() => setCollapsed(false)}
+                        title="Mở rộng"
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="9 18 15 12 9 6" />
+                        </svg>
+                    </button>
+                )}
 
                 {/* Logout */}
-                <button className="sidebar-logout-btn" type="button" onClick={handleLogout} title="Đăng xuất">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="sidebar-logout-icon">
-                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                        <polyline points="16 17 21 12 16 7" />
-                        <line x1="21" y1="12" x2="9" y2="12" />
-                    </svg>
-                    {!collapsed && <span>LOGOUT</span>}
-                </button>
             </div>
         </aside>
     )

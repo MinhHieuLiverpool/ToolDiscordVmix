@@ -14,6 +14,7 @@ export const API_ENDPOINTS = {
   logs: '/logs',
   ws: '/ws',
   login: '/login',
+  accounts: '/accounts',
   statistics: '/statistics',
   statisticHours: '/statistic_hours',
 } as const

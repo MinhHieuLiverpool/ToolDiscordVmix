@@ -1,13 +1,14 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { toNumber } from '../types'
-import { normalizeSrtList, normalizeStreamList, type BackendLogItem } from '../services/api'
+import {
+    normalizeFfmpegList,
+    normalizeSrtList,
+    normalizeStreamList,
+    type BackendLogItem,
+    type BackendFfmpegItem,
+} from '../services/api'
 import Dialog from './ui/Dialog'
-import { renderStreamCard, toOnOff } from './DialogHelpers'
-
-function checkOn(value: unknown): boolean {
-    const text = String(value || '').toUpperCase()
-    return ['ONLINE', 'ON', '1', 'TRUE', 'RUNNING', 'LIVE', 'ACTIVE'].includes(text)
-}
+import { renderSrtCard, renderStreamCard } from './DialogHelpers'
 
 export default function MachineStatusCard({
     item,
@@ -16,25 +17,29 @@ export default function MachineStatusCard({
     item: BackendLogItem
     index: number
 }) {
-    const [isStreamOpen, setIsStreamOpen] = useState(false)
+    const isOn = (value: unknown): boolean => ['ONLINE', 'ON', '1', 'TRUE', 'RUNNING', 'LIVE', 'ACTIVE'].includes(String(value || '').toUpperCase())
 
-    const appOn = checkOn(item.data.statusapp)
-    const recOn = checkOn(item.data.vmix_recording)
-    const liveOn = checkOn(item.data.vmix_streaming)
+    const srtList = normalizeSrtList(item.data.SRT)
+    const streamList = normalizeStreamList(item.data.stream)
+    const ffmpegList = normalizeFfmpegList(item.data.ffmpeg)
 
-    const cpuVal = toNumber(item.data.temperature)
-    const ramVal = toNumber(item.data.memory)
+    const appOn = Number(item.data.statusapp) === 1
+    const srtOnlineCount = srtList.filter((s) => isOn(s.status)).length
+    const streamActiveCount = streamList.filter((s) => isOn(s.runtime)).length
+
+    const srtOnline = appOn || srtOnlineCount > 0
+    const cpuVal = toNumber(item.data.temperature ?? item.data.cpu)
+    const ramVal = toNumber(item.data.memory ?? item.data.ram)
     const gpuVal = toNumber(item.data.gpu)
-    const rawSender = toNumber(item.data.sender_mbps)
-    const rawReceiver = toNumber(item.data.receiver_mbps)
-
-    const senderVal = (rawSender !== null && rawSender > 0.02) ? rawSender : 0
-    const receiverVal = (rawReceiver !== null && rawReceiver > 0.02) ? rawReceiver : 0
-
+    const senderVal = toNumber(item.data.sender_mbps)
+    const receiverVal = toNumber(item.data.receiver_mbps)
     const cpuHigh = cpuVal !== null && cpuVal > 50
     const ramHigh = ramVal !== null && ramVal > 50
-    const gpuHigh = gpuVal !== null && gpuVal > 50
-    const hasHighUsage = cpuHigh || ramHigh || gpuHigh
+    const hasHighUsage = cpuHigh || ramHigh
+    const recOn = Boolean(item.data.vmix_recording)
+    const liveOn = Boolean(item.data.vmix_streaming)
+    const extOn = Boolean(item.data.vmix_external)
+    const pidVmix = String(item.data.PIDVMIX ?? '').trim() || '-'
 
     const timeText = (() => {
         const raw = item.timestamp || ''
@@ -44,45 +49,57 @@ export default function MachineStatusCard({
     })()
 
     const onOff = (v: boolean) => (v ? 'ON' : 'OFF')
+    const fmtMbps = (value: number | null) => (value !== null ? `${value.toFixed(2)}` : '-')
+    const machineKeySeed = `${item.data.name || 'unknown'}|${item.data.ip || 'no-ip'}|${item.timestamp || 'no-ts'}|${index}`
+    const [streamOpen, setStreamOpen] = useState(false)
+    const [srtOpen, setSrtOpen] = useState(false)
+    const [ffmpegOpen, setFfmpegOpen] = useState(false)
 
-    const srtList = normalizeSrtList(item.data.SRT)
-    const streamList = normalizeStreamList(item.data.stream)
+    const ffmpegItems = useMemo(() => {
+        return ffmpegList.map((ffmpegItem, ffmpegIndex) => ({
+            ...ffmpegItem,
+            _key: `${machineKeySeed}::ffmpeg::${ffmpegIndex}`,
+        }))
+    }, [ffmpegList, machineKeySeed])
+
 
     return (
         <div
-            className={`glass-card card-animate machine-card ${appOn ? 'card-online' : 'card-offline'} ${hasHighUsage ? 'card-overload' : ''}`}
+            className={`glass-card card-animate machine-card ${srtOnline ? 'card-online' : 'card-offline'} ${hasHighUsage ? 'card-overload' : ''}`}
             style={{ animationDelay: `${index * 40}ms` }}
         >
             {/* Header */}
             <div className="card-header">
-                <h3 className="card-name">{item.data.name || 'Unknown Device'}</h3>
-                <span className={`status-badge ${appOn ? 'badge-online' : 'badge-offline'}`}>
-                    <span className={`status-dot ${appOn ? 'dot-online' : 'dot-offline'}`} />
-                    APP {onOff(appOn)}
+                <h3 className="card-name">{item.data.name || 'Unknown'}</h3>
+                <span className={`status-badge ${srtOnline ? 'badge-online' : 'badge-offline'}`}>
+                    <span className={`status-dot ${srtOnline ? 'dot-online' : 'dot-offline'}`} />
+                    {onOff(srtOnline)}
                 </span>
             </div>
 
             {/* IP info */}
             <div className="card-info">
                 <div className="info-row">
-                    <span className="info-label">NETWORK</span>
-                    <span className="info-value mono" style={{ fontSize: '0.6rem' }}>
-                        {item.data.ip || '-'}{item.data.port ? `:${item.data.port}` : ''}
-                    </span>
+                    <span className="info-label">IP</span>
+                    <span className="info-value mono">{item.data.ip || '-'}</span>
                 </div>
                 <div className="info-row">
                     <span className="info-label">WAN</span>
-                    <span className="info-value mono" style={{ fontSize: '0.6rem' }}>{item.data.ipwan || '-'}</span>
+                    <span className="info-value mono">{item.data.ipwan || '-'}</span>
                 </div>
                 <div className="info-row">
-                    <span className="info-label">RESOLUTION</span>
-                    <span className="info-value mono" style={{ fontSize: '0.6rem' }}>{item.data.resolution || '-'}</span>
+                    <span className="info-label">PID VMIX</span>
+                    <span className="info-value mono">{pidVmix}</span>
+                </div>
+                <div className="info-row">
+                    <span className="info-label">REC | LIVE</span>
+                    <span className="info-value">{onOff(recOn)} | {onOff(liveOn)}</span>
                 </div>
             </div>
 
             <div className="card-divider" />
 
-            {/* Metrics Row 1: Core Usage */}
+            {/* Metrics */}
             <div className="card-metrics">
                 <div className={`metric-box ${cpuHigh ? 'metric-box-danger' : ''}`}>
                     <div className="metric-label">CPU</div>
@@ -91,41 +108,52 @@ export default function MachineStatusCard({
                     </div>
                 </div>
                 <div className={`metric-box ${ramHigh ? 'metric-box-danger' : ''}`}>
-                    <div className="metric-label">RAM</div>
+                    <div className="metric-label metric-label-ram">RAM</div>
                     <div className={`metric-value ${ramHigh ? 'metric-danger' : 'metric-ram'}`}>
                         {ramVal !== null ? `${ramVal.toFixed(0)}%` : '-'}
                     </div>
                 </div>
-                <div className={`metric-box ${gpuHigh ? 'metric-box-danger' : ''}`}>
-                    <div className="metric-label">GPU</div>
-                    <div className={`metric-value ${gpuHigh ? 'metric-danger' : 'metric-gpu'}`}>
-                        {gpuVal !== null ? `${gpuVal.toFixed(0)}%` : '-'}
-                    </div>
+                <div className="metric-box">
+                    <div className="metric-label">Ping</div>
+                    <div className="metric-value metric-ping">{item.data.ping ?? '-'}</div>
                 </div>
             </div>
 
-            {/* Metrics Row 2: Networking */}
             <div className="card-metrics">
                 <div className="metric-box">
-                    <div className="metric-label">PING</div>
-                    <div className="metric-value metric-ping">{item.data.ping ?? '0'}<span className="metric-unit">ms</span></div>
+                    <div className="metric-label">APP</div>
+                    <div className={`metric-value ${appOn ? 'metric-ping' : 'metric-warn'}`}>{onOff(appOn)}</div>
                 </div>
                 <div className="metric-box">
-                    <div className="metric-label">SENDER</div>
-                    <div className="metric-value metric-sender">
-                        {senderVal.toFixed(2)}<span className="metric-unit">Mbps</span>
-                    </div>
+                    <div className="metric-label">Timeout</div>
+                    <div className="metric-value metric-cpu">{item.data.ping_timeouts ?? 0}</div>
                 </div>
                 <div className="metric-box">
-                    <div className="metric-label">RECV</div>
-                    <div className="metric-value metric-receiver">
-                        {receiverVal.toFixed(2)}<span className="metric-unit">Mbps</span>
-                    </div>
+                    <div className="metric-label">EXT</div>
+                    <div className={`metric-value ${extOn ? 'metric-ping' : 'metric-cpu'}`}>{onOff(extOn)}</div>
                 </div>
             </div>
 
-            {/* Metrics Row 3: App Status (VITAL) */}
             <div className="card-metrics">
+                <div className="metric-box">
+                    <div className="metric-label metric-label-gpu">GPU</div>
+                    <div className="metric-value metric-warn">{gpuVal !== null ? `${gpuVal.toFixed(0)}%` : '-'}</div>
+                </div>
+                <div className="metric-box">
+                    <div className="metric-label">Sender</div>
+                    <div className="metric-value metric-ping">{fmtMbps(senderVal)} Mbps</div>
+                </div>
+                <div className="metric-box">
+                    <div className="metric-label">Receiver</div>
+                    <div className="metric-value metric-ping">{fmtMbps(receiverVal)} Mbps</div>
+                </div>
+            </div>
+
+            <div className="card-metrics">
+                <div className="metric-box">
+                    <div className="metric-label">PID VMIX</div>
+                    <div className="metric-value mono">{pidVmix}</div>
+                </div>
                 <div className="metric-box">
                     <div className="metric-label">REC</div>
                     <div className={`metric-value ${recOn ? 'metric-ping' : 'metric-warn'}`}>{onOff(recOn)}</div>
@@ -136,66 +164,108 @@ export default function MachineStatusCard({
                 </div>
             </div>
 
-            {/* Mini SRT Table */}
-            {srtList.length > 0 && (
-                <div className="mini-srt-table-wrap">
-                    <table className="mini-srt-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Port</th>
-                                <th>Quality</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {srtList.map((s, i) => {
-                                const st = toOnOff(s.status)
-                                return (
-                                    <tr 
-                                        key={`srt-${item.data.ip || 'ip'}-${index}-${i}-${s.nameSRT || s.port || i}`}
-                                        className={hasHighUsage ? 'row-overload' : ''}
-                                    >
-                                        <td>{s.nameSRT || `SRT ${i + 1}`}</td>
-                                        <td className="mono">{s.port || '-'}</td>
-                                        <td>{s.quality || '-'}</td>
-                                        <td>
-                                            <span className={`mini-srt-tag ${st === 'ON' ? 'mini-srt-tag-on' : 'mini-srt-tag-off'}`}>
-                                                {st}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                )
-                            })}
-                        </tbody>
-                    </table>
+            {/* Extra info */}
+            <div className="card-extra">
+                <div className="info-row">
+                    <span className="info-label">Resolution</span>
+                    <span className="info-value">{item.data.resolution || '-'}</span>
                 </div>
-            )}
+            </div>
 
-            {/* Stream Detail Action */}
-            {streamList.length > 0 && (
-                <div className="card-stream-action">
+            <div className="card-footer">
+                <div className="card-footer-actions">
                     <button
-                        className="btn-stream-full"
-                        onClick={() => setIsStreamOpen(true)}
+                        type="button"
+                        className="card-footer-btn"
+                        onClick={() => setSrtOpen(true)}
+                        disabled={srtList.length === 0}
                     >
-                        Stream Full ({streamList.length})
+                        SRT ({srtOnlineCount}/{srtList.length})
+                    </button>
+                    <button
+                        type="button"
+                        className="card-footer-btn"
+                        onClick={() => setStreamOpen(true)}
+                        disabled={streamList.length === 0}
+                    >
+                        Stream ({streamActiveCount}/{streamList.length})
+                    </button>
+                    <button
+                        type="button"
+                        className="card-footer-btn"
+                        onClick={() => setFfmpegOpen(true)}
+                        disabled={ffmpegList.length === 0}
+                    >
+                        FFMPEG ({ffmpegList.length})
                     </button>
                 </div>
-            )}
+                <span className="card-timestamp">{timeText}</span>
+            </div>
 
-            <div className="card-timestamp">{timeText}</div>
-
-            {/* Stream Dialog */}
             <Dialog
-                open={isStreamOpen}
-                onClose={() => setIsStreamOpen(false)}
-                title={`Vmix Stream - ${item.data.name || 'Unknown'}`}
+                open={srtOpen}
+                onClose={() => setSrtOpen(false)}
+                title={`SRT · ${item.data.name || 'Unknown'}`}
             >
-                <div className="dialog-detail-grid">
-                    {streamList.map((s, i) => renderStreamCard(s, i))}
-                </div>
+                {srtList.length > 0 ? (
+                    <div className="dialog-detail-grid">
+                        {srtList.map(renderSrtCard)}
+                    </div>
+                ) : (
+                    <div className="dialog-empty-state">Không có dữ liệu SRT.</div>
+                )}
             </Dialog>
+
+            <Dialog
+                open={streamOpen}
+                onClose={() => setStreamOpen(false)}
+                title={`Stream · ${item.data.name || 'Unknown'}`}
+            >
+                {streamList.length > 0 ? (
+                    <div className="dialog-detail-grid">
+                        {streamList.map(renderStreamCard)}
+                    </div>
+                ) : (
+                    <div className="dialog-empty-state">Không có dữ liệu stream.</div>
+                )}
+            </Dialog>
+
+            <Dialog
+                open={ffmpegOpen}
+                onClose={() => setFfmpegOpen(false)}
+                title={`FFmpeg · ${item.data.name || 'Unknown'}`}
+            >
+                {ffmpegItems.length > 0 ? (
+                    <div className="dialog-detail-grid">
+                        {ffmpegItems.map((ffmpegItem, ffmpegIndex) => (
+                            <div key={ffmpegItem._key} className="dialog-detail-card">
+                                <div className="dialog-detail-card-header">
+                                    <span className="dialog-detail-card-title">FFmpeg {ffmpegIndex + 1}</span>
+                                </div>
+                                <div className="dialog-detail-row">
+                                    <span className="dialog-detail-key">Name</span>
+                                    <span className="dialog-detail-value">{String((ffmpegItem as BackendFfmpegItem).name ?? '-')}</span>
+                                </div>
+                                <div className="dialog-detail-row">
+                                    <span className="dialog-detail-key">PID</span>
+                                    <span className="dialog-detail-value mono">{String((ffmpegItem as BackendFfmpegItem).pid ?? '-')}</span>
+                                </div>
+                                <div className="dialog-detail-row">
+                                    <span className="dialog-detail-key">Send</span>
+                                    <span className="dialog-detail-value">{String((ffmpegItem as BackendFfmpegItem).send ?? '-')}</span>
+                                </div>
+                                <div className="dialog-detail-row">
+                                    <span className="dialog-detail-key">Recv</span>
+                                    <span className="dialog-detail-value">{String((ffmpegItem as BackendFfmpegItem).recv ?? '-')}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="dialog-empty-state">Không có dữ liệu FFmpeg.</div>
+                )}
+            </Dialog>
+
         </div>
     )
 }

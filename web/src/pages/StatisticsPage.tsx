@@ -14,6 +14,10 @@ export default function StatisticsPage() {
         loadData,
     } = useDashboardContext()
 
+    const onlineMachines = filteredMachines.filter(
+        (machine) => Number(machine.latestItem?.data.statusapp ?? 0) === 1,
+    )
+
     return (
         <>
             <div className="page-header">
@@ -46,10 +50,11 @@ export default function StatisticsPage() {
                     />
                 </div>
                 <ChartSection
-                    machines={filteredMachines}
+                    machines={onlineMachines}
                     chartLoading={currentLoading}
                     totalMachines={onlineMachineOptions.length}
                     timeFilter={activeView}
+                    showXAxisLabels={false}
                 />
             </div>
         </>

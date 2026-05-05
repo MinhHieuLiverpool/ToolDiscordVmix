@@ -1,229 +1,184 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
-import { buildPath, buildAreaPath } from '../types'
-import type { MachineMetrics, MetricPoint, TimeFilter } from '../types'
+import { useMemo, useRef, useEffect } from 'react'
+import * as echarts from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import {
+    GridComponent,
+    TooltipComponent,
+    LegendComponent,
+} from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+import type { MachineMetrics, TimeFilter } from '../types'
+
+// Register ECharts modules
+echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const COLORS = {
-    cpu: { stroke: '#818cf8', fill: 'rgba(129,140,248,0.13)' },
-    ram: { stroke: '#38bdf8', fill: 'rgba(56,189,248,0.13)' },
+    cpu: { line: '#818cf8', area: 'rgba(129,140,248,0.18)' },
+    ram: { line: '#38bdf8', area: 'rgba(56,189,248,0.18)' },
 }
 
-const CHART_W = 640
-const PLOT_H = 120
-
-/* ─── Tooltip component ──────────────────────────────── */
-function ChartTooltip({
-    point,
-    x,
-    y,
-    containerRect,
-}: {
-    point: MetricPoint
-    x: number
-    y: number
-    containerRect: DOMRect | null
-}) {
-    if (!containerRect) return null
-
-    // Position tooltip
-    const tooltipStyle: React.CSSProperties = {
-        position: 'absolute',
-        left: x,
-        top: y - 8,
-        transform: 'translate(-50%, -100%)',
-        pointerEvents: 'none',
-        zIndex: 100,
-    }
-
-    // If tooltip would go off left edge, align left
-    if (x < 100) {
-        tooltipStyle.left = x
-        tooltipStyle.transform = 'translate(0, -100%)'
-    }
-    // If tooltip would go off right edge, align right
-    if (containerRect && x > containerRect.width - 100) {
-        tooltipStyle.left = x
-        tooltipStyle.transform = 'translate(-100%, -100%)'
-    }
-
-    return (
-        <div className="chart-tooltip" style={tooltipStyle}>
-            <div className="chart-tooltip-title">{point.timeLabel}</div>
-            <div className="chart-tooltip-row">
-                <span className="chart-tooltip-label">CPU:</span>
-                <span className="chart-tooltip-val val-cpu">{point.cpu.toFixed(1)}%</span>
-            </div>
-            <div className="chart-tooltip-row">
-                <span className="chart-tooltip-label">RAM:</span>
-                <span className="chart-tooltip-val val-ram">{point.ram.toFixed(1)}%</span>
-            </div>
-
-        </div>
-    )
-}
-
-/* ─── MiniChart ──────────────────────────────────────── */
-function MiniChart({
-    title,
-    icon,
-    values,
-    maxVal,
+function EChartsLine({
     labels,
-    color,
-    lastVal,
-    unit,
-    accentClass,
+    cpuValues,
+    ramValues,
     isDaily,
-    points,
+    showXAxisLabels,
 }: {
-    title: string
-    icon: string
-    values: number[]
-    maxVal: number
     labels: string[]
-    color: { stroke: string; fill: string }
-    lastVal: number
-    unit: string
-    accentClass: string
+    cpuValues: number[]
+    ramValues: number[]
     isDaily: boolean
-    points: MetricPoint[]
+    showXAxisLabels: boolean
 }) {
-    const svgRef = useRef<SVGSVGElement>(null)
-    const containerRef = useRef<HTMLDivElement>(null)
-    const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
-    const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
-    const [containerRect, setContainerRect] = useState<DOMRect | null>(null)
+    const chartRef = useRef<HTMLDivElement>(null)
+    const chartInstanceRef = useRef<echarts.ECharts | null>(null)
 
-    const xTickIndices = useMemo(() => {
-        if (labels.length === 0) return [] as number[]
-        if (isDaily) {
-            // Daily: chỉ hiện đầu và cuối
-            if (labels.length === 1) return [0]
-            return [0, labels.length - 1]
+    // Build option
+    const option = useMemo(() => {
+        return {
+            animation: false,
+            grid: {
+                top: 8,
+                right: 12,
+                bottom: showXAxisLabels ? 28 : 10,
+                left: 36,
+            },
+            tooltip: {
+                trigger: 'axis' as const,
+                backgroundColor: 'rgba(15,23,42,0.92)',
+                borderColor: 'rgba(99,102,241,0.3)',
+                borderWidth: 1,
+                textStyle: {
+                    color: '#e2e8f0',
+                    fontSize: 11,
+                    fontFamily: 'Inter, sans-serif',
+                },
+                formatter: (params: Array<{ seriesName: string; value: number; axisValueLabel: string; color: string }>) => {
+                    if (!Array.isArray(params) || params.length === 0) return ''
+                    const time = params[0].axisValueLabel || ''
+                    let html = `<div style="font-weight:700;margin-bottom:4px;font-size:11px">${time}</div>`
+                    params.forEach((p) => {
+                        html += `<div style="display:flex;align-items:center;gap:6px;font-size:11px">
+                            <span style="width:8px;height:8px;border-radius:50%;background:${p.color};display:inline-block"></span>
+                            <span style="font-weight:600">${p.seriesName}:</span>
+                            <span style="font-weight:800">${(p.value ?? 0).toFixed(1)}%</span>
+                        </div>`
+                    })
+                    return html
+                },
+            },
+            xAxis: {
+                type: 'category' as const,
+                data: labels,
+                axisLine: { show: false },
+                axisTick: { show: false },
+                axisLabel: {
+                    show: showXAxisLabels,
+                    color: '#94a3b8',
+                    fontSize: 9,
+                    fontWeight: 700,
+                    fontFamily: 'Inter, sans-serif',
+                    interval: isDaily
+                        ? (labels.length <= 2 ? 0 : Math.floor(labels.length / 2))
+                        : Math.max(0, Math.floor(labels.length / 5) - 1),
+                },
+                splitLine: { show: false },
+            },
+            yAxis: {
+                type: 'value' as const,
+                min: 0,
+                max: 100,
+                splitNumber: 3,
+                axisLine: { show: false },
+                axisTick: { show: false },
+                axisLabel: {
+                    color: '#94a3b8',
+                    fontSize: 9,
+                    fontWeight: 600,
+                    formatter: '{value}%',
+                },
+                splitLine: {
+                    lineStyle: { color: '#e2e8f0', width: 1, type: 'dashed' as const },
+                },
+            },
+            series: [
+                {
+                    name: 'CPU',
+                    type: 'line',
+                    data: cpuValues,
+                    smooth: true,
+                    symbol: isDaily ? 'circle' : 'none',
+                    symbolSize: isDaily ? 6 : 0,
+                    lineStyle: { color: COLORS.cpu.line, width: 2 },
+                    itemStyle: { color: COLORS.cpu.line },
+                    areaStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: COLORS.cpu.area },
+                            { offset: 1, color: 'rgba(129,140,248,0.02)' },
+                        ]),
+                    },
+                },
+                {
+                    name: 'RAM',
+                    type: 'line',
+                    data: ramValues,
+                    smooth: true,
+                    symbol: isDaily ? 'circle' : 'none',
+                    symbolSize: isDaily ? 6 : 0,
+                    lineStyle: { color: COLORS.ram.line, width: 2 },
+                    itemStyle: { color: COLORS.ram.line },
+                    areaStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: COLORS.ram.area },
+                            { offset: 1, color: 'rgba(56,189,248,0.02)' },
+                        ]),
+                    },
+                },
+            ],
         }
-        const desired = Math.min(6, labels.length)
-        if (desired <= 1) return [0]
-        const indices = Array.from({ length: desired }, (_, i) =>
-            Math.round((i * (labels.length - 1)) / (desired - 1)),
-        )
-        return Array.from(new Set(indices))
-    }, [labels, isDaily])
+    }, [labels, cpuValues, ramValues, isDaily, showXAxisLabels])
 
-    const stepX = labels.length > 1 ? CHART_W / (labels.length - 1) : 0
-    const linePath = buildPath(values, CHART_W, PLOT_H, maxVal)
-    const areaPath = buildAreaPath(values, CHART_W, PLOT_H, maxVal)
+    // Init chart
+    useEffect(() => {
+        if (!chartRef.current) return
+        const chart = echarts.init(chartRef.current, undefined, { renderer: 'canvas' })
+        chartInstanceRef.current = chart
 
-    const handleDotHover = useCallback((index: number) => {
-        setHoveredIndex(index)
-        if (svgRef.current && containerRef.current) {
-            const svg = svgRef.current
-            const container = containerRef.current
-            const rect = container.getBoundingClientRect()
-            setContainerRect(rect)
+        const resizeObserver = new ResizeObserver(() => {
+            chart.resize()
+        })
+        resizeObserver.observe(chartRef.current)
 
-            // Convert SVG coords to screen coords
-            const svgRect = svg.getBoundingClientRect()
-            const scaleX = svgRect.width / CHART_W
-            const scaleY = svgRect.height / (PLOT_H + 22)
-            const dotX = stepX * index
-            const dotY = PLOT_H - (values[index] / maxVal) * PLOT_H
-            const screenX = svgRect.left - rect.left + dotX * scaleX
-            const screenY = svgRect.top - rect.top + dotY * scaleY
-            setTooltipPos({ x: screenX, y: screenY })
+        return () => {
+            resizeObserver.disconnect()
+            chart.dispose()
+            chartInstanceRef.current = null
         }
-    }, [stepX, values, maxVal])
+    }, [])
 
-    return (
-        <div className="mini-chart" ref={containerRef} style={{ position: 'relative' }}>
-            <div className="mini-chart-header">
-                <span className="mini-chart-title">
-                    {icon} {title}
-                </span>
-                <span className={`mini-chart-value ${accentClass}`}>
-                    {lastVal.toFixed(1)}{unit}
-                </span>
-            </div>
-            <svg
-                ref={svgRef}
-                className="mini-chart-svg"
-                viewBox={`0 0 ${CHART_W} ${PLOT_H + 22}`}
-                preserveAspectRatio="none"
-            >
-                {[0, 0.5, 1].map((ratio) => {
-                    const y = PLOT_H * (1 - ratio)
-                    return (
-                        <line
-                            key={`g-${ratio}`}
-                            x1="0" y1={y} x2={CHART_W} y2={y}
-                            className="chart-grid-line"
-                        />
-                    )
-                })}
-                {areaPath && <path d={areaPath} style={{ fill: color.fill }} />}
-                {linePath && (
-                    <path d={linePath} fill="none" style={{ stroke: color.stroke, strokeWidth: 2 }} />
-                )}
-                {/* Daily dots */}
-                {isDaily && values.map((v, i) => {
-                    const cx = stepX * i
-                    const cy = PLOT_H - (v / maxVal) * PLOT_H
-                    const isHovered = hoveredIndex === i
-                    return (
-                        <circle
-                            key={`dot-${i}`}
-                            cx={cx}
-                            cy={cy}
-                            r={isHovered ? 6 : 3.5}
-                            fill={isHovered ? '#fff' : color.stroke}
-                            stroke={color.stroke}
-                            strokeWidth={isHovered ? 2.5 : 1.5}
-                            className="chart-dot"
-                            onMouseEnter={() => handleDotHover(i)}
-                            onMouseLeave={() => setHoveredIndex(null)}
-                            style={{ cursor: 'pointer' }}
-                        />
-                    )
-                })}
-                {xTickIndices.map((index, i) => {
-                    const x = stepX * index
-                    const isFirst = i === 0
-                    const isLast = i === xTickIndices.length - 1
-                    const anchor = isFirst ? 'start' : isLast ? 'end' : 'middle'
-                    return (
-                        <text
-                            key={`t-${index}`}
-                            x={x} y={PLOT_H + 14}
-                            textAnchor={anchor}
-                            className="chart-tick-label"
-                            style={{ fontWeight: 700 }}
-                        >
-                            {labels[index]}
-                        </text>
-                    )
-                })}
-            </svg>
-            {/* Tooltip */}
-            {isDaily && hoveredIndex !== null && points[hoveredIndex] && (
-                <ChartTooltip
-                    point={points[hoveredIndex]}
-                    x={tooltipPos.x}
-                    y={tooltipPos.y}
-                    containerRect={containerRect}
-                />
-            )}
-        </div>
-    )
+    // Update option
+    useEffect(() => {
+        if (chartInstanceRef.current) {
+            chartInstanceRef.current.setOption(option, { notMerge: false, lazyUpdate: true })
+        }
+    }, [option])
+
+    return <div ref={chartRef} style={{ width: '100%', height: 180 }} />
 }
 
-export default function MachineChartCard({ machine, timeFilter }: { machine: MachineMetrics; timeFilter: TimeFilter }) {
+export default function MachineChartCard({
+    machine,
+    timeFilter,
+    showXAxisLabels = true,
+}: {
+    machine: MachineMetrics
+    timeFilter: TimeFilter
+    showXAxisLabels?: boolean
+}) {
     const cpuValues = machine.history.map((p) => p.cpu)
     const ramValues = machine.history.map((p) => p.ram)
     const labels = machine.history.map((p) => p.timeLabel)
     const isDaily = timeFilter === 'daily'
-
-    const ramMax = useMemo(() => {
-        const max = ramValues.length > 0 ? Math.max(...ramValues) : 100
-        return Math.max(100, Math.ceil(max / 10) * 10)
-    }, [ramValues])
 
     const lastCpu = cpuValues.length > 0 ? cpuValues[cpuValues.length - 1] : 0
     const lastRam = ramValues.length > 0 ? ramValues[ramValues.length - 1] : 0
@@ -238,17 +193,12 @@ export default function MachineChartCard({ machine, timeFilter }: { machine: Mac
                 </div>
             </div>
 
-            <MiniChart
-                title="CPU" icon="🔥"
-                values={cpuValues} maxVal={100} labels={labels}
-                color={COLORS.cpu} lastVal={lastCpu} unit="%" accentClass="val-cpu"
-                isDaily={isDaily} points={machine.history}
-            />
-            <MiniChart
-                title="RAM" icon="💾"
-                values={ramValues} maxVal={ramMax} labels={labels}
-                color={COLORS.ram} lastVal={lastRam} unit="%" accentClass="val-ram"
-                isDaily={isDaily} points={machine.history}
+            <EChartsLine
+                labels={labels}
+                cpuValues={cpuValues}
+                ramValues={ramValues}
+                isDaily={isDaily}
+                showXAxisLabels={showXAxisLabels}
             />
         </div>
     )

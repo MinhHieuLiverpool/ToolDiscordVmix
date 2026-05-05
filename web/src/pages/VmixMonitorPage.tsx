@@ -9,9 +9,16 @@ function checkOn(value: unknown): boolean {
 }
 
 function MetricBadge({ label, value, unit, isHigh }: { label: string; value: string; unit?: string; isHigh?: boolean }) {
+    const labelKey = label.trim().toUpperCase()
+    const labelClass = labelKey === 'RAM'
+        ? 'vmix-metric-label vmix-metric-label-ram'
+        : labelKey === 'GPU'
+            ? 'vmix-metric-label vmix-metric-label-gpu'
+            : 'vmix-metric-label'
+
     return (
         <div className={`vmix-metric-box ${isHigh ? 'vmix-metric-danger' : ''}`}>
-            <div className="vmix-metric-label">{label}</div>
+            <div className={labelClass}>{label}</div>
             <div className={`vmix-metric-value ${isHigh ? 'text-danger' : ''}`}>
                 {value}{unit && <span className="vmix-metric-unit">{unit}</span>}
             </div>

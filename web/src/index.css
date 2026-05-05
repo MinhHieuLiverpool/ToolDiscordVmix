@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Roboto:wght@700;800;900&family=Syne:wght@600;700;800&display=swap');
 @import './layout.css';
 
 @tailwind base;
@@ -800,7 +800,7 @@
 
   /* ═══════════════════ CHARTS SECTION ═══════════════════ */
   .charts-section {
-    margin-bottom: 2.5rem;
+    margin-bottom: 1.5rem;
   }
 
   .charts-grid {
@@ -823,10 +823,10 @@
 
   /* ── Machine Chart Card: 1 máy = 1 card ── */
   .machine-chart-card {
-    padding: 1.25rem 1.5rem;
+    padding: 1rem 1.1rem;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.6rem;
     overflow: visible;
   }
 
@@ -834,11 +834,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.35rem;
   }
 
   .machine-chart-name {
-    font-size: 0.85rem;
+    font-size: 0.75rem;
     font-weight: 800;
     color: #1e293b;
     margin: 0;
@@ -855,7 +855,7 @@
   }
 
   .live-stat {
-    font-size: 0.6rem;
+    font-size: 0.55rem;
     font-weight: 700;
     padding: 0.2rem 0.5rem;
     border-radius: 999px;
@@ -872,6 +872,255 @@
     background: rgba(56, 189, 248, 0.1);
     border-color: rgba(56, 189, 248, 0.25);
     color: #38bdf8;
+  }
+
+  /* ── Account page ── */
+  .account-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+  }
+
+  @media (min-width: 1200px) {
+    .account-grid {
+      grid-template-columns: 1.15fr 0.85fr;
+    }
+  }
+
+  .account-card {
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .account-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .account-card-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 800;
+    color: #0f172a;
+  }
+
+  .account-card-subtitle {
+    margin: 0.15rem 0 0;
+    font-size: 0.75rem;
+    color: #94a3b8;
+    font-weight: 500;
+  }
+
+  .account-action-btn {
+    border: 1px solid #c7d2fe;
+    background: #eef2ff;
+    color: #4338ca;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.4rem 0.8rem;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .account-action-btn:hover {
+    background: #e0e7ff;
+    border-color: #a5b4fc;
+  }
+
+  .account-empty {
+    padding: 1.25rem;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.8rem;
+    background: #f8fafc;
+    border: 1px dashed #e2e8f0;
+    border-radius: 12px;
+  }
+
+  .account-table-wrap {
+    overflow-x: auto;
+  }
+
+  .account-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.78rem;
+    table-layout: fixed;
+  }
+
+  .account-table th {
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #6366f1;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+  }
+
+  .account-table td {
+    padding: 0.65rem 0.75rem;
+    border-bottom: 1px solid #f1f5f9;
+    color: #334155;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .account-password-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .account-password-text {
+    display: inline-block;
+    min-width: 90px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.7rem;
+    color: #475569;
+  }
+
+  .account-password-btn {
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.2rem 0.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    min-width: 48px;
+    transition: all 0.2s ease;
+  }
+
+  .account-password-btn:hover:not(:disabled) {
+    background: #eef2ff;
+    color: #4f46e5;
+    border-color: #c7d2fe;
+  }
+
+  .account-password-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .account-user-name {
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .account-user-sub {
+    font-size: 0.65rem;
+    color: #94a3b8;
+  }
+
+  .account-role {
+    display: inline-flex;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.1);
+    color: #4f46e5;
+    font-weight: 700;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .account-status {
+    display: inline-flex;
+    padding: 0.2rem 0.45rem;
+    border-radius: 6px;
+    font-size: 0.6rem;
+    font-weight: 700;
+  }
+
+  .account-status-on {
+    background: rgba(16, 185, 129, 0.12);
+    color: #059669;
+  }
+
+  .account-status-off {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+  }
+
+  .role-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .role-item {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 0.75rem;
+    background: #f8fafc;
+  }
+
+  .role-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .role-name {
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: #0f172a;
+  }
+
+  .role-meta {
+    font-size: 0.65rem;
+    color: #94a3b8;
+    margin-top: 0.15rem;
+  }
+
+  .role-status {
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 0.2rem 0.45rem;
+    border-radius: 6px;
+  }
+
+  .role-status-on {
+    background: rgba(16, 185, 129, 0.12);
+    color: #059669;
+  }
+
+  .role-status-off {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+  }
+
+  .role-perms {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+  }
+
+  .role-perm-chip {
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.1);
+    color: #4f46e5;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 
   /* ── Mini chart (CPU or RAM inside a machine card) ── */
@@ -1289,6 +1538,24 @@
     margin-bottom: 0.15rem;
   }
 
+  .metric-label-ram,
+  .metric-label-gpu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.1rem 0.35rem;
+    border-radius: 6px;
+    color: #ffffff;
+  }
+
+  .metric-label-ram {
+    background: #38bdf8;
+  }
+
+  .metric-label-gpu {
+    background: #a78bfa;
+  }
+
   .metric-value {
     font-size: 0.8rem;
     font-weight: 800;
@@ -1344,6 +1611,99 @@
     gap: 0.2rem;
   }
 
+  .srt-mini {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .srt-mini-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .srt-mini-count {
+    font-size: 0.6rem;
+    font-weight: 800;
+  }
+
+  .srt-mini-table {
+    display: grid;
+    gap: 0.25rem;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 0.4rem 0.5rem;
+  }
+
+  .srt-mini-row {
+    display: grid;
+    grid-template-columns: 1.2fr 0.6fr 0.7fr;
+    gap: 0.35rem;
+    align-items: center;
+    font-size: 0.6rem;
+    color: #475569;
+  }
+
+  .srt-mini-row span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .srt-mini-head {
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .srt-mini-empty {
+    color: #94a3b8;
+  }
+
+  .card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .card-footer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .card-footer-btn {
+    border: 1px solid #c7d2fe;
+    background: #eef2ff;
+    color: #4338ca;
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.3rem 0.6rem;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .card-footer-btn:hover:not(:disabled) {
+    background: #e0e7ff;
+    border-color: #a5b4fc;
+  }
+
+  .card-footer-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
   .srt-good {
     color: #34d399 !important;
     font-weight: 700 !important;
@@ -1358,7 +1718,6 @@
     font-size: 0.55rem;
     color: #94a3b8;
     text-align: right;
-    margin-top: auto;
   }
 
   /* ═══════════════════ STATUS TABLE (table view) ═══════════════════ */

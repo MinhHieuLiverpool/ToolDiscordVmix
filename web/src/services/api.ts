@@ -28,6 +28,19 @@ export interface BackendStreamItem {
   file?: string
 }
 
+export interface BackendStreamKeyItem {
+  stream?: string
+  url?: string
+  key?: string
+}
+
+export interface BackendFfmpegItem {
+  name?: string
+  pid?: number
+  send?: number
+  recv?: number
+}
+
 export interface BackendLogItem {
   timestamp: string
   data: {
@@ -46,12 +59,15 @@ export interface BackendLogItem {
     gpu?: number | string | null
     sender_mbps?: number | string | null
     receiver_mbps?: number | string | null
+    PIDVMIX?: string | number | null
     vmix_recording: boolean
     vmix_streaming: boolean
     vmix_external: boolean
     resolution: string
     SRT?: BackendSrtItem[] | BackendSrtItem
     stream?: BackendStreamItem[] | BackendStreamItem
+    stream_keys?: BackendStreamKeyItem[] | BackendStreamKeyItem
+    ffmpeg?: BackendFfmpegItem[] | BackendFfmpegItem
     srt_quality?: string
     srt_off_time?: string
   }
@@ -77,16 +93,34 @@ export function normalizeStreamList(rawValue: BackendLogItem['data']['stream']):
   return []
 }
 
+export function normalizeStreamKeysList(rawValue: BackendLogItem['data']['stream_keys']): BackendStreamKeyItem[] {
+  if (Array.isArray(rawValue)) {
+    return rawValue.filter((item): item is BackendStreamKeyItem => typeof item === 'object' && item !== null)
+  }
+  if (rawValue && typeof rawValue === 'object') {
+    return [rawValue]
+  }
+  return []
+}
+
+export function normalizeFfmpegList(rawValue: BackendLogItem['data']['ffmpeg']): BackendFfmpegItem[] {
+  if (Array.isArray(rawValue)) {
+    return rawValue.filter((item): item is BackendFfmpegItem => typeof item === 'object' && item !== null)
+  }
+  if (rawValue && typeof rawValue === 'object') {
+    return [rawValue]
+  }
+  return []
+}
+
 export function getMachineStatisticsId(item: BackendLogItem): string {
   const ip = String(item.data.ip || '').trim()
-  const explicitPort = String(item.data.port || '').trim()
-  const srtPort = String(normalizeSrtList(item.data.SRT)[0]?.port || '').trim()
-  const selectedPort = explicitPort || srtPort
+  const name = String(item.data.name || '').trim()
 
-  if (ip || selectedPort) {
-    return `${ip}:${selectedPort}`
+  if (ip) {
+    return `${ip}:${name}`
   }
-  return String(item.data.name || '').trim()
+  return name
 }
 
 export interface StatisticsPoint {
@@ -124,6 +158,12 @@ export interface LoginResponse {
   message?: string
 }
 
+export interface BackendAccountItem {
+  username?: string
+  password?: string
+  created_at?: string
+}
+
 const apiClient = axios.create({
   baseURL: BACKEND_BASE_URL,
   timeout: REQUEST_TIMEOUT_MS,
@@ -136,6 +176,11 @@ export async function fetchAllLogs(): Promise<BackendLogItem[]> {
 
 export async function loginAccount(username: string, password: string): Promise<LoginResponse> {
   const response = await apiClient.post<LoginResponse>(API_ENDPOINTS.login, { username, password })
+  return response.data
+}
+
+export async function fetchAccounts(): Promise<BackendAccountItem[]> {
+  const response = await apiClient.get<BackendAccountItem[]>(API_ENDPOINTS.accounts)
   return response.data
 }
 

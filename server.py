@@ -308,7 +308,7 @@ async def receive_data(data: dict):
         _data_cache[machine_name] = document
 
         ip_val = data.get('ip', '')
-        statistics_id = f"{ip_val}:{machine_name}" if ip_val else machine_name
+        statistics_id = _build_statistics_id(ip_val, data.get('port', ''), machine_name)
 
         # Compare SRT status changes for Discord notifications
         prev_srt_list = _normalize_payload_list(prev.get('SRT', []))
