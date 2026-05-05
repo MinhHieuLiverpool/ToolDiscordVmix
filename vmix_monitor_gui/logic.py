@@ -11,6 +11,7 @@ import tkinter as tk
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from tkinter import messagebox
+import urllib.parse
 
 try:
     from .shared import SERVER_URL, VIETNAM_TZ
@@ -251,22 +252,7 @@ class VmixMonitorLogicMixin:
                                         tk.END,
                                         values=(
                                             name,
-                                            current_ip,
-                                            ipwan,
                                             port,
-                                            "—",
-                                            "0",
-                                            "—",
-                                            "—",
-                                            "—",
-                                            "—",
-                                            "—",
-                                            "—",
-                                            "—",
-                                            "—",
-                                            "—",
-                                            "—",
-                                            "—",
                                             "—",
                                             "—",
                                         ),
@@ -453,29 +439,16 @@ class VmixMonitorLogicMixin:
                                 "srt": "—",
                             }
                         )
+                        srt_quality = srt_item.get("quality", "—")
+                        srt_status = srt_item.get("status", "—")
                         self.tree.insert(
                             "",
                             tk.END,
                             values=(
                                 name,
-                                entry_ip,
-                                ipwan,
                                 port,
-                                f"{ping:.0f}" if ping is not None else "—",
-                                "0",
-                                f"{cpu:.1f}" if cpu is not None else "—",
-                                f"{memory:.1f}" if memory is not None else "—",
-                                f"{gpu:.1f}" if gpu is not None else "—",
-                                self._format_mbps_text(self._to_float_or_none(sender_mbps)),
-                                self._format_mbps_text(self._to_float_or_none(receiver_mbps)),
-                                self._format_mbps_text(self._to_float_or_none(vmixsend_mbps)),
-                                self._format_mbps_text(self._to_float_or_none(vmixreceive_mbps)),
-                                pid_vmix if pid_vmix else "—",
-                                "—",
-                                "—",
-                                "—",
-                                "—",
-                                "—",
+                                srt_quality,
+                                srt_status,
                             ),
                         )
                         loaded_count += 1
@@ -582,7 +555,7 @@ class VmixMonitorLogicMixin:
                 "srt": "—",
             }
         )
-        self.tree.insert("", tk.END, values=(name, ip, "loading...", port, "—", "0", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—"))
+        self.tree.insert("", tk.END, values=(name, port, "—", "—"))
 
         self.name_var.set("")
         self.port_var.set("")
@@ -961,6 +934,82 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
         self._vmix_bw_cache_send = send_mbps
         self._vmix_bw_cache_recv = recv_mbps
         return pid_text, send_mbps, recv_mbps
+
+    def measure_ffmpeg_bandwidth_list(self) -> list[dict]:
+        """Return list of dicts: {name, pid, send, recv} for all ffmpeg processes."""
+        try:
+            import psutil
+        except ImportError:
+            return []
+
+        ffmpeg_pids = []
+        pid_to_name = {}
+        try:
+            for proc in psutil.process_iter(["pid", "name"]):
+                try:
+                    name = str(proc.info.get("name") or "")
+                    if name.lower().startswith("ffmpeg"):
+                        pid = int(proc.info.get("pid") or 0)
+                        if pid > 0:
+                            ffmpeg_pids.append(pid)
+                            pid_to_name[pid] = name
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        except Exception:
+            return []
+
+        if not ffmpeg_pids:
+            return []
+
+        raw = self._run_powershell_json(
+            r"""
+Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
+  Where-Object { $_.IDProcess -gt 0 -and $_.Name -ne '_Total' -and $_.Name -ne 'Idle' } |
+  Select-Object IDProcess,IOReadBytesPersec,IOWriteBytesPersec |
+  ConvertTo-Json -Compress
+"""
+        )
+        if not raw:
+            return [{"name": pid_to_name[p], "pid": p, "send": 0.0, "recv": 0.0} for p in ffmpeg_pids]
+
+        rows = raw if isinstance(raw, list) else [raw]
+        pid_stats = {}
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            try:
+                pid = int(item.get("IDProcess", 0))
+                if pid in pid_to_name:
+                    send_mbps = (float(item.get("IOWriteBytesPersec", 0) or 0) * 8) / 1_000_000
+                    recv_mbps = (float(item.get("IOReadBytesPersec", 0) or 0) * 8) / 1_000_000
+                    pid_stats[pid] = {"send": send_mbps, "recv": recv_mbps}
+            except Exception:
+                continue
+
+        results = []
+        for pid in sorted(ffmpeg_pids):
+            stats = pid_stats.get(pid, {"send": 0.0, "recv": 0.0})
+            results.append({
+                "name": pid_to_name[pid],
+                "pid": pid,
+                "send": stats["send"],
+                "recv": stats["recv"]
+            })
+        return results
+
+    def update_ffmpeg_table(self, ffmpeg_list: list[dict]):
+        if not hasattr(self, "ffmpeg_tree"):
+            return
+        tree = self.ffmpeg_tree
+        for item in tree.get_children():
+            tree.delete(item)
+        for entry in ffmpeg_list:
+            tree.insert("", tk.END, values=(
+                entry["name"],
+                entry["pid"],
+                f"{entry['send']:.3f} Mbps",
+                f"{entry['recv']:.3f} Mbps"
+            ))
 
     @staticmethod
     def _vmix_data_dir() -> str:
@@ -1533,6 +1582,154 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
             "keyframe_aligned": keyframe_aligned,
         }
 
+    def _compose_stream_endpoint(self, info: dict | None) -> tuple[str, str]:
+        """Compose stream URL và key từ config dict (port full logic từ test_stream4_quality.py)."""
+        if not info:
+            return "-", ""
+
+        host = (info.get("host") or "").strip()
+        port = (info.get("port") or "").strip()
+        key = (info.get("path") or "").strip().lstrip("/")
+        kind = (info.get("kind") or "").strip()
+
+        # SRT
+        if kind == "SRT":
+            endpoint = ""
+            if host:
+                endpoint = f"srt://{host}"
+            if port:
+                endpoint = f"{endpoint}:{port}" if endpoint else f":{port}"
+            return endpoint or "(trong)", key
+
+        # RTMP / HTTP (vMix kind field là "RTMP/HTTP")
+        endpoint = ""
+        if host:
+            raw_url = host if "://" in host else f"rtmp://{host}"
+            parsed = urllib.parse.urlparse(raw_url)
+            scheme = parsed.scheme or "rtmp"
+            netloc = parsed.netloc
+            path_parts = [p for p in (parsed.path or "").split("/") if p]
+
+            # Nếu URL đang chứa luôn key (ví dụ: .../live2/<key>) và config key trống,
+            # tự tách key ra để hiển thị riêng.
+            if not key and len(path_parts) >= 2:
+                key = path_parts[-1]
+                path_parts = path_parts[:-1]
+
+            base_path = "/".join(path_parts)
+            endpoint = f"{scheme}://{netloc}" if netloc else ""
+            if base_path:
+                endpoint = f"{endpoint}/{base_path}" if endpoint else f"/{base_path}"
+
+        if port:
+            if endpoint:
+                parsed_endpoint = urllib.parse.urlparse(endpoint)
+                if parsed_endpoint.port is None and parsed_endpoint.hostname:
+                    netloc = f"{parsed_endpoint.hostname}:{port}"
+                    path = parsed_endpoint.path or ""
+                    endpoint = f"{parsed_endpoint.scheme}://{netloc}{path}"
+            else:
+                endpoint = f":{port}"
+
+        return endpoint or "(trong)", key
+
+    def _compose_stream_endpoint_from_log(self, raw_content: str) -> tuple[str, str]:
+        """Tách URL và stream key từ ffmpeg command line trong log (full logic từ test_stream4_quality.py)."""
+        m = re.search(r"Command line:\s*(.*?)ffmpeg version", raw_content, re.DOTALL)
+        if not m:
+            return "(trong)", ""
+        cmd = re.sub(r"\s+", " ", m.group(1)).strip()
+
+        urls = re.findall(r"((?:srt|rtmp|rtmps|http|https)://[^\s\"']+)", cmd, re.IGNORECASE)
+        if not urls:
+            return "(trong)", ""
+
+        raw_url = urls[-1].strip()
+        parsed = urllib.parse.urlparse(raw_url)
+        scheme = (parsed.scheme or "").lower()
+
+        if scheme in {"rtmp", "rtmps", "http", "https"}:
+            segments = [s for s in (parsed.path or "").split("/") if s]
+            key = segments[-1] if segments else ""
+            base_segments = segments[:-1] if len(segments) >= 2 else segments
+
+            endpoint = ""
+            if parsed.netloc:
+                endpoint = f"{scheme}://{parsed.netloc}"
+                if base_segments:
+                    endpoint = f"{endpoint}/{'/'.join(base_segments)}"
+
+            key_from_query = ""
+            if parsed.query:
+                q = urllib.parse.parse_qs(parsed.query)
+                for k in ("key", "streamkey", "name", "streamid", "stream_id"):
+                    vals = q.get(k)
+                    if vals:
+                        key_from_query = vals[0].strip()
+                        break
+
+            if key_from_query:
+                key = key_from_query
+            elif key and parsed.query:
+                # TikTok-style: /game/<stream-key>?<auth-params>
+                key = f"{key}?{parsed.query}"
+
+            return endpoint or raw_url, key
+
+        if scheme == "srt":
+            endpoint = f"srt://{parsed.netloc}" if parsed.netloc else raw_url
+            key = ""
+            if parsed.query:
+                q = urllib.parse.parse_qs(parsed.query)
+                stream_ids = q.get("streamid") or q.get("r")
+                if stream_ids:
+                    key = stream_ids[0].strip()
+            return endpoint, key
+
+        return raw_url, ""
+
+    def _handle_stream_selection(self):
+        """Update URL and Key panel based on selected stream in quality tree."""
+        selection = self.stream_quality_tree.selection()
+        if not selection:
+            return
+
+        item_id = selection[0]
+        stream_name = self.stream_quality_tree.item(item_id, "values")[0]
+
+        # Get data from cache
+        if not self._stream_quality_cache:
+            return
+
+        streams = self._stream_quality_cache.get("streams", [])
+        entry = next((s for s in streams if s.get("stream") == stream_name), None)
+        if not entry:
+            return
+
+        info = entry.get("config")
+        runtime = entry.get("runtime") or {}
+        latest_log = runtime.get("raw_content", "")
+
+        # Lấy endpoint + key từ config trước
+        endpoint_cfg, key_cfg = self._compose_stream_endpoint(info)
+        endpoint = endpoint_cfg
+        key = key_cfg
+        source = "config"
+
+        # Fallback: bổ sung/thay thế bằng log nếu config trống
+        if latest_log:
+            endpoint_log, key_log = self._compose_stream_endpoint_from_log(latest_log)
+            if endpoint in ("", "-", "(trong)", "(khong xac dinh)") and endpoint_log and endpoint_log != "(trong)":
+                endpoint = endpoint_log
+                source = "log"
+            if (not key) and key_log:
+                key = key_log
+                source = "log"
+
+        self.sel_stream_name_var.set(stream_name)
+        self.sel_stream_url_var.set(endpoint or "-")
+        self.sel_stream_key_var.set(key or "(trong)")
+
     @staticmethod
     def _parse_k_to_kbps(raw: str) -> float:
         m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*k", (raw or "").lower())
@@ -1624,6 +1821,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                 "last_write": last_write_iso,
                 "latest_log_file": latest_log_file,
                 "quality_line": quality_line,
+                "raw_content": latest.get("raw_content", "") if latest else "",
             },
             "ui_snapshot": ui,
             "health": health,
@@ -1708,6 +1906,46 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
 
         return rows
 
+    def _build_stream_keys_for_db(self, snapshot: dict | None) -> list[dict]:
+        """Tạo array riêng chứa URL + stream key cho từng stream.
+
+        Format: [{"stream": "streaming1", "url": "rtmps://...", "key": "FB-..."}, ...]
+        """
+        if not isinstance(snapshot, dict):
+            return []
+
+        streams = snapshot.get("streams", [])
+        if not isinstance(streams, list):
+            return []
+
+        result: list[dict] = []
+        for entry in sorted(streams, key=lambda s: self._stream_sort_key(str((s or {}).get("stream", "")))):
+            if not isinstance(entry, dict):
+                continue
+
+            stream_name = str(entry.get("stream", "") or "")
+            info        = entry.get("config") or {}
+            runtime     = entry.get("runtime") or {}
+            raw_content = runtime.get("raw_content", "")
+
+            # Config trước → fallback log
+            endpoint, key = self._compose_stream_endpoint(info)
+
+            if raw_content:
+                ep_log, key_log = self._compose_stream_endpoint_from_log(raw_content)
+                if endpoint in ("", "-", "(trong)", "(khong xac dinh)") and ep_log and ep_log != "(trong)":
+                    endpoint = ep_log
+                if not key and key_log:
+                    key = key_log
+
+            result.append({
+                "stream": stream_name,
+                "url":    endpoint or "-",
+                "key":    key or "",
+            })
+
+        return result
+
     def monitor_loop(self):
         import requests
 
@@ -1757,6 +1995,8 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
             gpu_pct = self.measure_gpu()
             sender_mbps, receiver_mbps = self.measure_network_sender_receiver_mbps()
             pid_vmix, vmix_send_mbps, vmix_receive_mbps = self.measure_vmix_pid_and_bandwidth_mbps()
+            ffmpeg_list = self.measure_ffmpeg_bandwidth_list()
+            self.root.after(0, lambda fl=ffmpeg_list: self.update_ffmpeg_table(fl))
 
             vmix_stats = self.get_vmix_stats()
             ping_str = f"{ping_ms:.0f}" if ping_ms is not None else "—"
@@ -1819,7 +2059,13 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
 
             quality_snapshot = self.get_stream_quality_snapshot()
             stream_rows = self._build_stream_rows_for_db(quality_snapshot)
+            try:
+                stream_keys = self._build_stream_keys_for_db(quality_snapshot)
+            except Exception as _sk_err:
+                self.log(f"[ERROR stream_keys] {_sk_err}")
+                stream_keys = []
             self.root.after(0, lambda qs=quality_snapshot: self.update_stream_quality_table(qs))
+            self.root.after(0, lambda qs=quality_snapshot: self.update_stream_url_key_panel(qs))
 
             # Send ONE request with all SRT streams
             try:
@@ -1845,7 +2091,9 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                     "resolution": res_str,
                     "SRT": srt_list,
                     "stream": stream_rows,
+                    "stream_keys": stream_keys,
                     "stream_quality": quality_snapshot,
+                    "ffmpeg": ffmpeg_list,
                 }
                 headers = {"Content-Type": "application/json"}
                 response = self.http_session.post(self.get_server_url(), json=data, headers=headers, timeout=5)

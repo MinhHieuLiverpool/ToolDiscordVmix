@@ -14,7 +14,7 @@ App runs at local Vite URL and reads backend from `.env`.
 Create `.env` from `.env.example` and set:
 
 ```dotenv
-VITE_BACKEND_BASE_URL=https://tooldiscordvmix.onrender.com
+VITE_BACKEND_BASE_URL=http://localhost:8000
 VITE_REQUEST_TIMEOUT_MS=30000
 # VITE_BACKEND_WS_URL=wss://tooldiscordvmix.onrender.com/ws
 ```
@@ -44,7 +44,7 @@ Quick deploy steps:
 4. Build Command: `pnpm build`
 5. Output Directory: `dist`
 6. Add env vars:
-   - `VITE_BACKEND_BASE_URL=https://tooldiscordvmix.onrender.com`
+   - `VITE_BACKEND_BASE_URL=http://localhost:8000`
    - `VITE_REQUEST_TIMEOUT_MS=30000`
    - optional `VITE_BACKEND_WS_URL=wss://tooldiscordvmix.onrender.com/ws`
 7. Deploy.

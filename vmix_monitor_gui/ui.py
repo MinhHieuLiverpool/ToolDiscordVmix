@@ -19,387 +19,368 @@ except ImportError:
 
 class VmixMonitorUIMixin:
     def setup_ui(self):
-        win_w, win_h = 1400, 900
+        win_w, win_h = 1450, 920
         self.root.geometry(f"{win_w}x{win_h}")
-        self.root.resizable(True, False)
+        self.root.resizable(True, True)
         self.root.update_idletasks()
         x = (self.root.winfo_screenwidth() // 2) - (win_w // 2)
         y = (self.root.winfo_screenheight() // 2) - (win_h // 2)
         self.root.geometry(f"{win_w}x{win_h}+{x}+{y}")
 
-        main_frame = ttk.Frame(self.root, padding=15)
-        main_frame.pack(fill=BOTH, expand=YES)
+        style = ttk.Style()
+        style.configure("Treeview", font=("Segoe UI", 10), rowheight=28)
+        style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
+        style.configure("Header.TLabel", font=("Segoe UI", 20, "bold"))
+        style.configure("Metric.TLabel", font=("Segoe UI", 14, "bold"))
+        style.configure("MetricTitle.TLabel", font=("Segoe UI", 9), foreground="#cccccc")
 
-        header_frame = ttk.Frame(main_frame)
-        header_frame.pack(fill=X, pady=(0, 15))
+        # -- Main Scrollable Canvas --
+        canvas = tk.Canvas(self.root, highlightthickness=0, bg="#1a1a1a")
+        main_scroll = ttk.Scrollbar(self.root, orient=VERTICAL, command=canvas.yview, bootstyle="secondary-round")
+        canvas.configure(yscrollcommand=main_scroll.set)
+        main_scroll.pack(side=RIGHT, fill=Y)
+        canvas.pack(side=LEFT, fill=BOTH, expand=YES)
 
-        ttk.Label(
-            header_frame,
-            text="🎥 vMix Monitor Pro",
-            font=("Segoe UI", 18, "bold"),
-            bootstyle="primary",
-        ).pack(side=LEFT)
+        main_container = ttk.Frame(canvas, padding=20)
+        main_container_id = canvas.create_window((0, 0), window=main_container, anchor=NW)
 
-        right_header = ttk.Frame(header_frame)
-        right_header.pack(side=RIGHT)
+        def _on_configure(e):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.itemconfig(main_container_id, width=canvas.winfo_width())
 
-        ip_frame = ttk.Frame(right_header)
-        ip_frame.pack(side=TOP, anchor=E)
+        main_container.bind("<Configure>", _on_configure)
+        canvas.bind("<Configure>", _on_configure)
+        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
 
-        ttk.Label(
-            ip_frame,
-            text="IP Local:",
-            font=("Segoe UI", 10, "bold"),
-            bootstyle="secondary",
-        ).pack(side=LEFT, padx=(0, 5))
+        # ========== HEADER SECTION ==========
+        header_card = ttk.Frame(main_container, padding=10)
+        header_card.pack(fill=X, pady=(0, 20))
 
-        self.ip_entry = ttk.Entry(
-            ip_frame,
-            textvariable=self.ip_var,
-            width=18,
-            state="readonly",
-            font=("Segoe UI", 10),
-            bootstyle="info",
-        )
-        self.ip_entry.pack(side=LEFT, padx=(0, 5))
+        title_frame = ttk.Frame(header_card)
+        title_frame.pack(side=LEFT)
+        ttk.Label(title_frame, text="🎥", font=("Segoe UI", 24)).pack(side=LEFT, padx=(0, 10))
+        ttk.Label(title_frame, text="vMix Monitor", font=("Segoe UI", 20, "bold"), bootstyle="primary").pack(side=LEFT)
+        ttk.Label(title_frame, text="PRO", font=("Segoe UI", 10, "bold"), bootstyle="inverse-primary", padding=(4, 2)).pack(side=LEFT, padx=8, pady=(8, 0))
 
-        server_frame = ttk.Frame(right_header)
-        server_frame.pack(side=TOP, anchor=E, pady=(6, 0))
+        # Right Header Info
+        info_frame = ttk.Frame(header_card)
+        info_frame.pack(side=RIGHT)
 
-        ttk.Label(
-            server_frame,
-            text="Server:",
-            font=("Segoe UI", 10, "bold"),
-            bootstyle="secondary",
-        ).pack(side=LEFT, padx=(0, 5))
+        top_info = ttk.Frame(info_frame)
+        top_info.pack(anchor=E)
+        
+        ttk.Label(top_info, text="Local IP:", font=("Segoe UI", 9, "bold"), bootstyle="secondary").pack(side=LEFT, padx=(10, 5))
+        self.ip_entry = ttk.Entry(top_info, textvariable=self.ip_var, width=15, state="readonly", font=("Consolas", 10), bootstyle="dark", justify=CENTER)
+        self.ip_entry.pack(side=LEFT)
 
-        self.server_entry = ttk.Entry(
-            server_frame,
-            textvariable=self.server_url_var,
-            width=28,
-            font=("Segoe UI", 10),
-            bootstyle="info",
-        )
+        ttk.Label(top_info, text="Server URL:", font=("Segoe UI", 9, "bold"), bootstyle="secondary").pack(side=LEFT, padx=(20, 5))
+        self.server_entry = ttk.Entry(top_info, textvariable=self.server_url_var, width=35, font=("Segoe UI", 10), bootstyle="info")
         self.server_entry.pack(side=LEFT, padx=(0, 5))
         self.server_entry.bind("<Return>", lambda _e: self.apply_server_url())
+        ttk.Button(top_info, text="Apply", command=self.apply_server_url, bootstyle="info-outline", width=8).pack(side=LEFT)
 
-        ttk.Button(
-            server_frame,
-            text="Áp dụng",
-            command=self.apply_server_url,
-            bootstyle="info-outline",
-            width=9,
-        ).pack(side=LEFT)
+        # ========== QUICK ACTIONS & STATUS ==========
+        action_row = ttk.Frame(main_container)
+        action_row.pack(fill=X, pady=(0, 20))
 
-        add_frame = ttk.Labelframe(
-            main_frame,
-            text="➕ Thêm Port Mới",
-            padding=15,
-            bootstyle="primary",
-        )
-        add_frame.pack(fill=X, pady=(0, 15))
+        # LEFT: Add Port Card
+        add_card = ttk.Labelframe(action_row, text=" ➕ Add New Port ", padding=15, bootstyle="primary")
+        add_card.pack(side=LEFT, fill=Y, expand=YES, padx=(0, 10))
 
-        input_grid = ttk.Frame(add_frame)
-        input_grid.pack(fill=X)
+        ttk.Label(add_card, text="Machine Name:").grid(row=0, column=0, sticky=W, padx=5)
+        self.name_entry = ttk.Entry(add_card, textvariable=self.name_var, width=25)
+        self.name_entry.grid(row=1, column=0, padx=5, pady=(2, 0), sticky=EW)
 
-        ttk.Label(input_grid, text="Tên máy:", font=("Segoe UI", 10), width=12).grid(
-            row=0, column=0, padx=5, pady=5, sticky=E
-        )
+        ttk.Label(add_card, text="Port:").grid(row=0, column=1, sticky=W, padx=5)
+        self.port_entry = ttk.Entry(add_card, textvariable=self.port_var, width=12)
+        self.port_entry.grid(row=1, column=1, padx=5, pady=(2, 0), sticky=EW)
 
-        self.name_entry = ttk.Entry(
-            input_grid,
-            textvariable=self.name_var,
-            width=30,
-            font=("Segoe UI", 10),
-        )
-        self.name_entry.grid(row=0, column=1, padx=5, pady=5, sticky=EW)
+        self.add_btn = ttk.Button(add_card, text="Add Port", command=self.add_port_entry, bootstyle="success", width=12)
+        self.add_btn.grid(row=1, column=2, padx=10, pady=(2, 0))
+        add_card.columnconfigure(0, weight=2)
+        add_card.columnconfigure(1, weight=1)
 
-        ttk.Label(input_grid, text="Port:", font=("Segoe UI", 10), width=12).grid(
-            row=0, column=2, padx=5, pady=5, sticky=E
-        )
+        # RIGHT: Control Card
+        ctrl_card = ttk.Labelframe(action_row, text=" ⚙️ Monitoring Controls ", padding=15, bootstyle="info")
+        ctrl_card.pack(side=LEFT, fill=Y, padx=(10, 0))
 
-        self.port_entry = ttk.Entry(
-            input_grid,
-            textvariable=self.port_var,
-            width=15,
-            font=("Segoe UI", 10),
-        )
-        self.port_entry.grid(row=0, column=3, padx=5, pady=5)
+        v_cfg = ttk.Frame(ctrl_card)
+        v_cfg.pack(fill=X, pady=(0, 10))
+        ttk.Label(v_cfg, text="vMix Port:").pack(side=LEFT)
+        ttk.Entry(v_cfg, textvariable=self.vmix_api_port_var, width=8, justify=CENTER).pack(side=LEFT, padx=5)
+        ttk.Button(v_cfg, text="Test API", command=self.test_vmix_api, bootstyle="warning-outline", width=10).pack(side=LEFT, padx=5)
 
-        self.add_btn = ttk.Button(
-            input_grid,
-            text="➕ Thêm",
-            command=self.add_port_entry,
-            bootstyle="success",
-            width=12,
-        )
-        self.add_btn.grid(row=0, column=4, padx=10, pady=5)
+        btn_box = ttk.Frame(ctrl_card)
+        btn_box.pack(fill=X)
+        self.start_btn = ttk.Button(btn_box, text="▶ START MONITORING", command=self.toggle_monitoring, bootstyle="success", width=22)
+        self.start_btn.pack(side=LEFT, padx=(0, 5))
+        ttk.Button(btn_box, text="Check Server", command=self.check_server_status, bootstyle="info", width=15).pack(side=LEFT)
 
-        input_grid.columnconfigure(1, weight=1)
+        self.status_label = ttk.Label(ctrl_card, text="● Stopped", font=("Segoe UI", 10, "bold"), bootstyle="secondary")
+        self.status_label.pack(side=BOTTOM, pady=(10, 0))
 
-        table_frame = ttk.Labelframe(
-            main_frame,
-            text="📋 Danh Sách Port",
-            padding=10,
-            bootstyle="info",
-        )
-        table_frame.pack(fill=BOTH, expand=YES, pady=(0, 15))
+        # ========== METRICS DASHBOARD ==========
+        metrics_frame = ttk.Labelframe(main_container, text=" 📊 System Performance ", padding=15, bootstyle="secondary")
+        metrics_frame.pack(fill=X, pady=(0, 20))
 
-        table_container = ttk.Frame(table_frame)
-        table_container.pack(fill=BOTH, expand=YES)
+        self._machine_labels = {}
+        metrics_data = [
+            ("Ping", "ping", "⏱️", "warning"),
+            ("Timeout", "timeout", "⚠️", "danger"),
+            ("CPU Load", "cpu", "🖥️", "info"),
+            ("RAM Usage", "memory", "💾", "info"),
+            ("GPU Load", "gpu", "🎮", "success"),
+            ("Network UP", "sender_bw", "📤", "primary"),
+            ("Network DL", "receiver_bw", "📥", "primary"),
+            ("vMix Send", "vmixsend", "🔼", "warning"),
+            ("vMix Recv", "vmixreceive", "🔽", "warning"),
+            ("vMix PID", "pid_vmix", "🔧", "secondary"),
+            ("Recording", "rec", "🔴", "danger"),
+            ("Streaming", "live", "📡", "danger"),
+            ("External", "ext", "🟢", "success"),
+            ("Resolution", "resolution", "📐", "secondary"),
+        ]
 
-        style = ttk.Style()
-        style.configure("Treeview", font=("Segoe UI", 8), rowheight=22)
-        style.configure("Treeview.Heading", font=("Segoe UI", 8, "bold"))
+        m_cols = 7
+        for idx, (label, key, icon, bstyle) in enumerate(metrics_data):
+            r, c = divmod(idx, m_cols)
+            m_card = ttk.Frame(metrics_frame, padding=5)
+            m_card.grid(row=r, column=c, padx=10, pady=8, sticky=NSEW)
+            
+            ttk.Label(m_card, text=f"{icon} {label}", style="MetricTitle.TLabel").pack(anchor=W)
+            val_lbl = ttk.Label(m_card, text="—", style="Metric.TLabel", bootstyle=bstyle)
+            val_lbl.pack(anchor=W)
+            self._machine_labels[key] = val_lbl
 
-        columns = (
-            "name",
-            "ip",
-            "ipwan",
-            "port",
-            "ping",
-            "timeout",
-            "cpu",
-            "memory",
-            "gpu",
-            "sender_bw",
-            "receiver_bw",
-            "vmixsend",
-            "vmixreceive",
-            "pid_vmix",
-            "rec",
-            "live",
-            "ext",
-            "resolution",
-            "srt",
-        )
-        self.tree = ttk.Treeview(
-            table_container,
-            columns=columns,
-            show="headings",
-            height=8,
-            bootstyle="info",
-        )
+        for c in range(m_cols):
+            metrics_frame.columnconfigure(c, weight=1)
 
-        self.tree.heading("name", text="Ten may", anchor=CENTER)
-        self.tree.heading("ip", text="IP Local", anchor=CENTER)
-        self.tree.heading("ipwan", text="IP WAN", anchor=CENTER)
-        self.tree.heading("port", text="Port", anchor=CENTER)
-        self.tree.heading("ping", text="Ping", anchor=CENTER)
-        self.tree.heading("timeout", text="Timeout", anchor=CENTER)
-        self.tree.heading("cpu", text="CPU%", anchor=CENTER)
-        self.tree.heading("memory", text="RAM%", anchor=CENTER)
-        self.tree.heading("gpu", text="GPU%", anchor=CENTER)
-        self.tree.heading("sender_bw", text="Sender", anchor=CENTER)
-        self.tree.heading("receiver_bw", text="Receiver", anchor=CENTER)
-        self.tree.heading("vmixsend", text="vMix Send", anchor=CENTER)
-        self.tree.heading("vmixreceive", text="vMix Receive", anchor=CENTER)
-        self.tree.heading("pid_vmix", text="PID vMix", anchor=CENTER)
-        self.tree.heading("rec", text="REC", anchor=CENTER)
-        self.tree.heading("live", text="LIVE", anchor=CENTER)
-        self.tree.heading("ext", text="EXT", anchor=CENTER)
-        self.tree.heading("resolution", text="Resolution", anchor=CENTER)
-        self.tree.heading("srt", text="SRT Quality", anchor=CENTER)
+        # ========== TABLES SECTION ==========
+        tables_row = ttk.Frame(main_container)
+        tables_row.pack(fill=BOTH, expand=YES, pady=(0, 20))
 
-        self.tree.column("name", width=150, anchor=CENTER)
-        self.tree.column("ip", width=110, anchor=CENTER)
-        self.tree.column("ipwan", width=110, anchor=CENTER)
-        self.tree.column("port", width=70, anchor=CENTER)
-        self.tree.column("ping", width=75, anchor=CENTER)
-        self.tree.column("timeout", width=85, anchor=CENTER)
-        self.tree.column("cpu", width=70, anchor=CENTER)
-        self.tree.column("memory", width=70, anchor=CENTER)
-        self.tree.column("gpu", width=70, anchor=CENTER)
-        self.tree.column("sender_bw", width=110, anchor=CENTER)
-        self.tree.column("receiver_bw", width=110, anchor=CENTER)
-        self.tree.column("vmixsend", width=110, anchor=CENTER)
-        self.tree.column("vmixreceive", width=110, anchor=CENTER)
-        self.tree.column("pid_vmix", width=95, anchor=CENTER)
-        self.tree.column("rec", width=55, anchor=CENTER)
-        self.tree.column("live", width=55, anchor=CENTER)
-        self.tree.column("ext", width=55, anchor=CENTER)
-        self.tree.column("resolution", width=100, anchor=CENTER)
-        self.tree.column("srt", width=220, anchor=CENTER)
+        # SRT Streams
+        srt_wrap = ttk.Labelframe(tables_row, text=" 📡 SRT Streams ", padding=10, bootstyle="success")
+        srt_wrap.pack(side=LEFT, fill=BOTH, expand=YES, padx=(0, 10))
+        
+        srt_inner = ttk.Frame(srt_wrap)
+        srt_inner.pack(fill=BOTH, expand=YES)
+        
+        self.tree = ttk.Treeview(srt_inner, columns=("name", "port", "quality", "status"), show="headings", height=8, bootstyle="success")
+        for col, title, width in [("name", "Name", 140), ("port", "Port", 80), ("quality", "Quality", 220), ("status", "Status", 90)]:
+            self.tree.heading(col, text=title)
+            self.tree.column(col, width=width, anchor=CENTER)
 
-        scrollbar = ttk.Scrollbar(
-            table_container,
-            orient=VERTICAL,
-            command=self.tree.yview,
-            bootstyle="info-round",
-        )
-        x_scrollbar = ttk.Scrollbar(
-            table_container,
-            orient="horizontal",
-            command=self.tree.xview,
-            bootstyle="info-round",
-        )
-        self.tree.configure(yscrollcommand=scrollbar.set, xscrollcommand=x_scrollbar.set)
-        scrollbar.pack(side=RIGHT, fill=Y)
-        x_scrollbar.pack(side="bottom", fill="x")
+        srt_sb = ttk.Scrollbar(srt_inner, orient=VERTICAL, command=self.tree.yview, bootstyle="success-round")
+        self.tree.configure(yscrollcommand=srt_sb.set)
+        srt_sb.pack(side=RIGHT, fill=Y)
         self.tree.pack(side=LEFT, fill=BOTH, expand=YES)
 
-        btn_frame = ttk.Frame(table_frame)
-        btn_frame.pack(fill=X, pady=(10, 0))
+        self.delete_btn = ttk.Button(srt_wrap, text="🗑 Delete Selected", command=self.delete_selected, bootstyle="danger-outline", width=20)
+        self.delete_btn.pack(pady=(10, 0))
 
-        self.delete_btn = ttk.Button(
-            btn_frame,
-            text="🗑️ Xóa mục đã chọn",
-            command=self.delete_selected,
-            bootstyle="danger",
-            width=20,
-        )
-        self.delete_btn.pack()
+        # FFmpeg Processes
+        ff_wrap = ttk.Labelframe(tables_row, text=" 🎞️ FFmpeg Processes ", padding=10, bootstyle="warning")
+        ff_wrap.pack(side=LEFT, fill=BOTH, expand=YES, padx=(10, 0))
 
-        vmix_cfg_frame = ttk.Frame(main_frame)
-        vmix_cfg_frame.pack(fill=X, pady=(0, 10))
-        ttk.Label(
-            vmix_cfg_frame,
-            text="vMix HTTP Port:",
-            font=("Segoe UI", 9),
-            bootstyle="secondary",
-        ).pack(side=LEFT, padx=(0, 4))
-        ttk.Entry(
-            vmix_cfg_frame,
-            textvariable=self.vmix_api_port_var,
-            width=7,
-            font=("Segoe UI", 9),
-        ).pack(side=LEFT)
-        ttk.Label(
-            vmix_cfg_frame,
-            text="(mặc định: 8088)",
-            font=("Segoe UI", 8),
-            bootstyle="secondary",
-        ).pack(side=LEFT, padx=(6, 0))
-        ttk.Button(
-            vmix_cfg_frame,
-            text="🔍 Test API",
-            command=self.test_vmix_api,
-            bootstyle="warning-outline",
-            width=10,
-        ).pack(side=LEFT, padx=(10, 0))
+        ff_inner = ttk.Frame(ff_wrap)
+        ff_inner.pack(fill=BOTH, expand=YES)
 
-        control_frame = ttk.Frame(main_frame)
-        control_frame.pack(fill=X, pady=(0, 15))
+        self.ffmpeg_tree = ttk.Treeview(ff_inner, columns=("name", "pid", "sender", "receiver"), show="headings", height=8, bootstyle="warning")
+        for col, title, width in [("name", "Name", 160), ("pid", "PID", 80), ("sender", "Sent", 110), ("receiver", "Recv", 110)]:
+            self.ffmpeg_tree.heading(col, text=title)
+            self.ffmpeg_tree.column(col, width=width, anchor=CENTER)
 
-        btn_container = ttk.Frame(control_frame)
-        btn_container.pack()
+        ff_sb = ttk.Scrollbar(ff_inner, orient=VERTICAL, command=self.ffmpeg_tree.yview, bootstyle="warning-round")
+        self.ffmpeg_tree.configure(yscrollcommand=ff_sb.set)
+        ff_sb.pack(side=RIGHT, fill=Y)
+        self.ffmpeg_tree.pack(side=LEFT, fill=BOTH, expand=YES)
 
-        self.start_btn = ttk.Button(
-            btn_container,
-            text="▶️ START MONITORING",
-            command=self.toggle_monitoring,
-            bootstyle="success",
-            width=30,
-        )
-        self.start_btn.pack(side=LEFT, padx=5)
+        # ========== STREAM QUALITY SNAPSHOT ==========
+        quality_wrap = ttk.Labelframe(main_container, text=" 📋 Stream Quality Health ", padding=10, bootstyle="secondary")
+        quality_wrap.pack(fill=X, pady=(0, 20))
 
-        ttk.Button(
-            btn_container,
-            text="🔍 Kiểm tra Server",
-            command=self.check_server_status,
-            bootstyle="info",
-            width=20,
-        ).pack(side=LEFT, padx=5)
-
-        self.status_label = ttk.Label(
-            control_frame,
-            text="● Stopped",
-            font=("Segoe UI", 10, "bold"),
-            bootstyle="secondary",
-        )
-        self.status_label.pack(pady=(5, 0))
-
-        quality_frame = ttk.Labelframe(
-            main_frame,
-            text="📡 Stream Quality Snapshot",
-            padding=10,
-            bootstyle="secondary",
-        )
-        quality_frame.pack(fill=BOTH, expand=YES, pady=(0, 15))
-
-        q_columns = (
-            "stream",
-            "runtime",
-            "health",
-            "vbit",
-            "size",
-            "abit",
-            "level",
-            "preset",
-            "aformat",
-            "channels",
-            "keyframe",
-            "actual",
-            "target",
-            "ratio",
-            "speed",
-            "dropped",
-            "file",
-        )
-        self.stream_quality_tree = ttk.Treeview(
-            quality_frame,
-            columns=q_columns,
-            show="headings",
-            height=6,
-            bootstyle="secondary",
-        )
+        q_cols = ("stream", "runtime", "health", "vbit", "size", "abit", "level", "preset", "aformat", "channels", "keyframe", "actual", "target", "ratio", "speed", "dropped", "file")
+        self.stream_quality_tree = ttk.Treeview(quality_wrap, columns=q_cols, show="headings", height=8, bootstyle="secondary")
         for col, label, width in (
-            ("stream", "Stream", 90),
-            ("runtime", "Runtime", 70),
-            ("health", "Health", 70),
-            ("vbit", "Video", 90),
-            ("size", "Size", 110),
-            ("abit", "Audio", 80),
-            ("level", "Level", 70),
-            ("preset", "Preset", 90),
-            ("aformat", "AudioFmt", 80),
-            ("channels", "Channels", 80),
-            ("keyframe", "Keyframe", 210),
-            ("actual", "Actual kbps", 90),
-            ("target", "Target kbps", 90),
-            ("ratio", "Ratio", 70),
-            ("speed", "Speed", 70),
-            ("dropped", "Dropped", 80),
-            ("file", "LatestFile", 200),
+            ("stream", "Stream", 100), ("runtime", "Runtime", 80), ("health", "Health", 70),
+            ("vbit", "Video", 100), ("size", "Size", 120), ("abit", "Audio", 90),
+            ("level", "Level", 80), ("preset", "Preset", 100), ("aformat", "AudioFmt", 90),
+            ("channels", "Ch", 60), ("keyframe", "Keyframe", 180), ("actual", "Act kbps", 90),
+            ("target", "Tgt kbps", 90), ("ratio", "Ratio", 70), ("speed", "Speed", 70),
+            ("dropped", "Drops", 80), ("file", "Log File", 250),
         ):
-            self.stream_quality_tree.heading(col, text=label, anchor=CENTER)
+            self.stream_quality_tree.heading(col, text=label)
             self.stream_quality_tree.column(col, width=width, anchor=CENTER)
 
-        q_scrollbar = ttk.Scrollbar(
-            quality_frame,
-            orient=VERTICAL,
-            command=self.stream_quality_tree.yview,
-            bootstyle="info-round",
-        )
-        q_xscrollbar = ttk.Scrollbar(
-            quality_frame,
-            orient="horizontal",
-            command=self.stream_quality_tree.xview,
-            bootstyle="info-round",
-        )
-        self.stream_quality_tree.configure(yscrollcommand=q_scrollbar.set, xscrollcommand=q_xscrollbar.set)
-        q_scrollbar.pack(side=RIGHT, fill=Y)
-        q_xscrollbar.pack(side="bottom", fill="x")
+        q_sb_v = ttk.Scrollbar(quality_wrap, orient=VERTICAL, command=self.stream_quality_tree.yview, bootstyle="secondary-round")
+        q_sb_h = ttk.Scrollbar(quality_wrap, orient=HORIZONTAL, command=self.stream_quality_tree.xview, bootstyle="secondary-round")
+        self.stream_quality_tree.configure(yscrollcommand=q_sb_v.set, xscrollcommand=q_sb_h.set)
+        q_sb_v.pack(side=RIGHT, fill=Y)
+        q_sb_h.pack(side=BOTTOM, fill=X)
         self.stream_quality_tree.pack(side=LEFT, fill=BOTH, expand=YES)
+        
+        self.stream_quality_tree.bind("<<TreeviewSelect>>", self.on_stream_selected)
 
-        log_frame = ttk.Labelframe(
-            main_frame,
-            text="📝 Activity Logs",
-            padding=10,
-            bootstyle="dark",
+        # ========== STREAM URL & KEY SCANNER PANEL ==========
+        self.stream_url_key_frame = ttk.Labelframe(
+            main_container,
+            text=" 🔗 Stream URL & Key (Auto-Scan) ",
+            padding=15,
+            bootstyle="info",
         )
-        log_frame.pack(fill=BOTH, expand=YES)
+        self.stream_url_key_frame.pack(fill=X, pady=(0, 20))
 
-        self.log_text = scrolledtext.ScrolledText(
-            log_frame,
-            height=6,
-            bg="#1e1e1e",
-            fg="#00ff88",
-            font=("Consolas", 9),
-            state=tk.DISABLED,
-            wrap=tk.WORD,
+        # Header row
+        hdr = ttk.Frame(self.stream_url_key_frame)
+        hdr.pack(fill=X, pady=(0, 6))
+        ttk.Label(hdr, text="Stream",    width=14, font=("Segoe UI", 9, "bold"), bootstyle="secondary").pack(side=LEFT, padx=2)
+        ttk.Label(hdr, text="URL",       width=1,  font=("Segoe UI", 9, "bold"), bootstyle="secondary").pack(side=LEFT, fill=X, expand=YES, padx=2)
+        ttk.Label(hdr, text="      ",    width=8,  font=("Segoe UI", 9)).pack(side=LEFT)  # Copy btn spacer
+        ttk.Label(hdr, text="Key",       width=1,  font=("Segoe UI", 9, "bold"), bootstyle="secondary").pack(side=LEFT, fill=X, expand=YES, padx=2)
+        ttk.Label(hdr, text="      ",    width=8,  font=("Segoe UI", 9)).pack(side=LEFT)  # Copy btn spacer
+        ttk.Separator(self.stream_url_key_frame, orient=HORIZONTAL).pack(fill=X, pady=(0, 8))
+
+        # Scrollable inner area for stream rows
+        self._stream_url_key_rows_frame = ttk.Frame(self.stream_url_key_frame)
+        self._stream_url_key_rows_frame.pack(fill=X)
+        self._stream_url_key_row_widgets = []  # list of (url_var, key_var)
+
+        # Placeholder label shown when no data yet
+        self._stream_url_key_placeholder = ttk.Label(
+            self._stream_url_key_rows_frame,
+            text="⏳ Chờ scan lần đầu...",
+            font=("Segoe UI", 9),
+            bootstyle="secondary",
         )
+        self._stream_url_key_placeholder.pack(anchor=W)
+
+        # Compat aliases for _handle_stream_selection (still used on tree click)
+        self.sel_stream_name_var = tk.StringVar(value="")
+        self.sel_stream_url_var  = tk.StringVar(value="")
+        self.sel_stream_key_var  = tk.StringVar(value="")
+
+        # ========== LOGS SECTION ==========
+        log_card = ttk.Labelframe(main_container, text=" 📝 Activity System Logs ", padding=10, bootstyle="dark")
+        log_card.pack(fill=X)
+
+        self.log_text = scrolledtext.ScrolledText(log_card, height=6, bg="#121212", fg="#00ffcc", font=("Consolas", 10), state=tk.DISABLED, wrap=tk.WORD, border=0)
         self.log_text.pack(fill=BOTH, expand=YES)
+
+    def _update_machine_cards(self, entry: dict):
+        """Update the machine status info cards from a port_list entry."""
+        if not hasattr(self, "_machine_labels"):
+            return
+        mapping = {
+            "ping": entry.get("ping", "—"),
+            "timeout": entry.get("timeout", "0"),
+            "cpu": entry.get("cpu", "—"),
+            "memory": entry.get("memory", "—"),
+            "gpu": entry.get("gpu", "—"),
+            "sender_bw": entry.get("sender_bw", "—"),
+            "receiver_bw": entry.get("receiver_bw", "—"),
+            "vmixsend": entry.get("vmixsend", "—"),
+            "vmixreceive": entry.get("vmixreceive", "—"),
+            "pid_vmix": entry.get("pid_vmix", "—"),
+            "rec": entry.get("rec", "—"),
+            "live": entry.get("live", "—"),
+            "ext": entry.get("ext", "—"),
+            "resolution": entry.get("resolution", "—"),
+        }
+        for key, val in mapping.items():
+            lbl = self._machine_labels.get(key)
+            if lbl:
+                lbl.config(text=str(val))
+
+    def update_stream_url_key_panel(self, snapshot: dict | None):
+        """Auto-populate the Stream URL & Key panel from a fresh quality snapshot.
+
+        Rebuilds one row per stream showing [stream-name | URL (readonly) | Copy | Key (readonly) | Copy].
+        Called automatically every time update_stream_quality_table receives new data.
+        """
+        if not hasattr(self, "_stream_url_key_rows_frame"):
+            return
+
+        container = self._stream_url_key_rows_frame
+
+        # Remove old stream rows (keep placeholder)
+        for w in container.winfo_children():
+            w.destroy()
+        self._stream_url_key_row_widgets = []
+
+        streams = (snapshot or {}).get("streams", []) if isinstance(snapshot, dict) else []
+
+        # Sort helper — reuse logic mixin if available
+        def _sort_key(entry):
+            return self._stream_sort_key(entry.get("stream", "")) if hasattr(self, "_stream_sort_key") else entry.get("stream", "")
+
+        if not streams:
+            placeholder = ttk.Label(container, text="⏳ Chờ scan lần đầu...", font=("Segoe UI", 9), bootstyle="secondary")
+            placeholder.pack(anchor=W)
+            return
+
+        for entry in sorted(streams, key=_sort_key):
+            stream_name = entry.get("stream", "")
+            info        = entry.get("config") or {}
+            runtime     = entry.get("runtime") or {}
+            raw_content = runtime.get("raw_content", "")
+
+            # ── Compose endpoint + key (same logic as _handle_stream_selection) ──
+            if hasattr(self, "_compose_stream_endpoint"):
+                endpoint, key = self._compose_stream_endpoint(info)
+            else:
+                endpoint, key = "-", ""
+
+            if hasattr(self, "_compose_stream_endpoint_from_log") and raw_content:
+                ep_log, key_log = self._compose_stream_endpoint_from_log(raw_content)
+                if endpoint in ("", "-", "(trong)", "(khong xac dinh)") and ep_log and ep_log != "(trong)":
+                    endpoint = ep_log
+                if not key and key_log:
+                    key = key_log
+
+            endpoint = endpoint or "-"
+            key      = key      or "(trong)"
+
+            # Enabled badge color
+            enabled = info.get("enabled")
+            if enabled is True:
+                badge_style = "success"
+                badge_text  = f"✅ {stream_name}"
+            elif enabled is False:
+                badge_style = "secondary"
+                badge_text  = f"⬜ {stream_name}"
+            else:
+                badge_style = "warning"
+                badge_text  = f"❓ {stream_name}"
+
+            # ── Build row ──────────────────────────────────────────────────────
+            row = ttk.Frame(container)
+            row.pack(fill=X, pady=3)
+
+            # Stream name label
+            ttk.Label(row, text=badge_text, width=16, font=("Segoe UI", 9, "bold"), bootstyle=badge_style, anchor=W).pack(side=LEFT, padx=(0, 6))
+
+            # URL field
+            url_var = tk.StringVar(value=endpoint)
+            url_entry = ttk.Entry(row, textvariable=url_var, font=("Consolas", 9), state="readonly", bootstyle="dark")
+            url_entry.pack(side=LEFT, fill=X, expand=YES, padx=(0, 4))
+            ttk.Button(
+                row, text="Copy URL",
+                command=lambda v=url_var: self.copy_to_clipboard(v.get()),
+                bootstyle="info-outline", width=10,
+            ).pack(side=LEFT, padx=(0, 10))
+
+            # Key field
+            key_var = tk.StringVar(value=key)
+            key_entry = ttk.Entry(row, textvariable=key_var, font=("Consolas", 9), state="readonly", bootstyle="dark")
+            key_entry.pack(side=LEFT, fill=X, expand=YES, padx=(0, 4))
+            ttk.Button(
+                row, text="Copy Key",
+                command=lambda v=key_var: self.copy_to_clipboard(v.get()),
+                bootstyle="warning-outline", width=10,
+            ).pack(side=LEFT)
+
+            self._stream_url_key_row_widgets.append((url_var, key_var))
 
     def update_stream_quality_table(self, snapshot: dict | None):
         if not hasattr(self, "stream_quality_tree"):
@@ -550,23 +531,14 @@ class VmixMonitorUIMixin:
         frame = ttk.Frame(dialog, padding=20)
         frame.pack(fill=BOTH, expand=YES)
 
-        ttk.Label(
-            frame,
-            text="Nhập IP cũ để import data:",
-            font=("Segoe UI", 11, "bold"),
-        ).pack(pady=(0, 10))
+        ttk.Label(frame, text="Nhập IP cũ để import data:", font=("Segoe UI", 11, "bold")).pack(pady=(0, 10))
 
         old_ip_var = tk.StringVar()
         ip_entry = ttk.Entry(frame, textvariable=old_ip_var, width=30, font=("Segoe UI", 10))
         ip_entry.pack(pady=10)
         ip_entry.focus()
 
-        ttk.Label(
-            frame,
-            text="Ví dụ: 192.168.1.86",
-            font=("Segoe UI", 9),
-            bootstyle="secondary",
-        ).pack(pady=(0, 15))
+        ttk.Label(frame, text="Ví dụ: 192.168.1.86", font=("Segoe UI", 9), bootstyle="secondary").pack(pady=(0, 15))
 
         btn_frame = ttk.Frame(frame)
         btn_frame.pack()
@@ -579,22 +551,8 @@ class VmixMonitorUIMixin:
             dialog.destroy()
             threading.Thread(target=lambda: self.import_from_old_ip(old_ip), daemon=True).start()
 
-        ttk.Button(
-            btn_frame,
-            text="📥 Import",
-            command=do_import,
-            bootstyle="success",
-            width=15,
-        ).pack(side=LEFT, padx=5)
-
-        ttk.Button(
-            btn_frame,
-            text="Hủy",
-            command=dialog.destroy,
-            bootstyle="secondary",
-            width=15,
-        ).pack(side=LEFT, padx=5)
-
+        ttk.Button(btn_frame, text="📥 Import", command=do_import, bootstyle="success", width=15).pack(side=LEFT, padx=5)
+        ttk.Button(btn_frame, text="Hủy", command=dialog.destroy, bootstyle="secondary", width=15).pack(side=LEFT, padx=5)
         ip_entry.bind("<Return>", lambda e: do_import())
 
     def log(self, message):
@@ -622,46 +580,32 @@ class VmixMonitorUIMixin:
 
         for entry in self.port_list:
             name = entry["name"]
-            ip = entry["ip"]
-            ipwan = entry["ipwan"]
             port = entry["port"]
-            ping = entry.get("ping", "—")
-            timeout = entry.get("timeout", "0")
-            cpu = entry.get("cpu", "—")
-            memory = entry.get("memory", "—")
-            gpu = entry.get("gpu", "—")
-            sender_bw = entry.get("sender_bw", "—")
-            receiver_bw = entry.get("receiver_bw", "—")
-            vmixsend = entry.get("vmixsend", "—")
-            vmixreceive = entry.get("vmixreceive", "—")
-            pid_vmix = entry.get("pid_vmix", "—")
-            rec = entry.get("rec", "—")
-            live = entry.get("live", "—")
-            ext = entry.get("ext", "—")
-            resolution = entry.get("resolution", "—")
             srt = entry.get("srt", "—")
+
+            # Determine status from srt quality or other info
+            status = entry.get("srt_status", "—")
+
             self.tree.insert(
                 "",
                 tk.END,
-                values=(
-                    name,
-                    ip,
-                    ipwan,
-                    port,
-                    ping,
-                    timeout,
-                    cpu,
-                    memory,
-                    gpu,
-                    sender_bw,
-                    receiver_bw,
-                    vmixsend,
-                    vmixreceive,
-                    pid_vmix,
-                    rec,
-                    live,
-                    ext,
-                    resolution,
-                    srt,
-                ),
+                values=(name, port, srt, status),
             )
+
+        # Update machine info cards from first entry (all entries share same machine stats)
+        if self.port_list:
+            self._update_machine_cards(self.port_list[0])
+
+    def copy_to_clipboard(self, text):
+        if not text:
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.log(f"📋 Copied to clipboard: {text[:50]}...")
+        messagebox.showinfo("Clipboard", "Đã copy vào bộ nhớ tạm!")
+
+    def on_stream_selected(self, event=None):
+        """Handler when a stream is selected in the quality tree."""
+        # This will be implemented in LogicMixin to have access to full snapshot
+        if hasattr(self, "_handle_stream_selection"):
+            self._handle_stream_selection()

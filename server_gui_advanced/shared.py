@@ -3,7 +3,7 @@ from datetime import datetime
 import pytz
 
 VIETNAM_TZ = pytz.timezone("Asia/Ho_Chi_Minh")
-DEFAULT_SERVER_URL = "https://tooldiscordvmix.onrender.com"
+DEFAULT_SERVER_URL = "http://localhost:8000"
 
 
 def get_first_srt(d: dict) -> dict:

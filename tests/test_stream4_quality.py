@@ -29,6 +29,7 @@ import os
 import re
 import sys
 import time
+import urllib.parse
 from datetime import datetime
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -365,36 +366,57 @@ def _parse_stream4_from_config() -> Tuple[Optional[StreamInfo], str]:
 
 def _parse_all_streams_from_config() -> Tuple[Dict[str, StreamInfo], str, Optional[str]]:
     vmix_dir = _vmix_data_dir()
-    cfg = os.path.join(vmix_dir, "settingbackups", "current.config")
-    if not os.path.isfile(cfg):
-        return {}, cfg, f"Không tìm thấy file: {cfg}"
+    candidate_paths: List[str] = []
+    candidate_paths.append(os.path.join(vmix_dir, "settingbackups", "current.config"))
+    candidate_paths.append(os.path.join(vmix_dir, "current.config"))
 
-    try:
-        raw = _read_file_shared(cfg)
-    except Exception as ex:
-        return {}, cfg, f"Lỗi đọc current.config: {ex}"
+    settings_dir = os.path.join(vmix_dir, "settingbackups")
+    candidate_paths.extend(sorted(glob.glob(os.path.join(settings_dir, "*.config"))))
 
-    blocks = _find_all_streaming_blocks(raw)
-    src_path = cfg
+    for root_dir, _dirs, _files in os.walk(vmix_dir):
+        for pat in ("*.config", "*.vmix", "*.xml", "*.settings"):
+            candidate_paths.extend(sorted(glob.glob(os.path.join(root_dir, pat))))
 
-    if not blocks:
-        settings_dir = os.path.join(vmix_dir, "settingbackups")
-        pattern = os.path.join(settings_dir, "*.config")
-        for other in sorted(glob.glob(pattern)):
-            if os.path.abspath(other) == os.path.abspath(cfg):
-                continue
+    seen: set[str] = set()
+    dedup_candidates: List[str] = []
+    for path in candidate_paths:
+        ap = os.path.abspath(path)
+        if ap in seen:
+            continue
+        seen.add(ap)
+        dedup_candidates.append(path)
+
+    blocks: Dict[str, str] = {}
+    src_path = os.path.join(vmix_dir, "settingbackups", "current.config")
+    first_read_error: Optional[str] = None
+
+    for path in dedup_candidates:
+        if not os.path.isfile(path):
+            continue
+
+        try:
+            raw = _read_file_shared(path)
+        except Exception as ex:
+            if first_read_error is None:
+                first_read_error = f"Lỗi đọc file: {path} ({ex})"
             try:
-                raw_other = _read_file_shared(other)
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    raw = f.read()
             except Exception:
                 continue
-            blocks = _find_all_streaming_blocks(raw_other)
-            if blocks:
-                src_path = other
-                break
+
+        found = _find_all_streaming_blocks(raw)
+        if found:
+            blocks = found
+            src_path = path
+            break
 
     if not blocks:
         _debug_scan_vmix_for_streaming(vmix_dir)
-        return {}, src_path, "Không tìm thấy block Streaming* trong current.config hoặc file backup"
+        msg = "Không tìm thấy block Streaming* trong current.config, backup, hoặc file config/preset khác"
+        if first_read_error:
+            msg = f"{msg}. {first_read_error}"
+        return {}, src_path, msg
 
     streams: Dict[str, StreamInfo] = {}
     parsed_names: List[str] = []
@@ -574,6 +596,110 @@ def _build_monitor_rows(
     return rows
 
 
+def _compose_stream_endpoint(info: Optional[StreamInfo]) -> Tuple[str, str]:
+    if info is None:
+        return "-", ""
+
+    host = (info.host or "").strip()
+    port = (info.port or "").strip()
+    key = (info.path or "").strip().lstrip("/")
+
+    if info.kind == "SRT":
+        endpoint = ""
+        if host:
+            endpoint = f"srt://{host}"
+        if port:
+            endpoint = f"{endpoint}:{port}" if endpoint else f":{port}"
+        return endpoint or "(trong)", key
+
+    endpoint = ""
+    if host:
+        raw_url = host if "://" in host else f"rtmp://{host}"
+        parsed = urllib.parse.urlparse(raw_url)
+        scheme = parsed.scheme or "rtmp"
+        netloc = parsed.netloc
+        path_parts = [p for p in (parsed.path or "").split("/") if p]
+
+        # Nếu URL đang chứa luôn key (ví dụ: .../live2/<key>) và config key trống,
+        # tự tách key ra để hiển thị riêng.
+        if not key and len(path_parts) >= 2:
+            key = path_parts[-1]
+            path_parts = path_parts[:-1]
+
+        base_path = "/".join(path_parts)
+        endpoint = f"{scheme}://{netloc}" if netloc else ""
+        if base_path:
+            endpoint = f"{endpoint}/{base_path}" if endpoint else f"/{base_path}"
+
+    if port:
+        if endpoint:
+            parsed_endpoint = urllib.parse.urlparse(endpoint)
+            if parsed_endpoint.port is None and parsed_endpoint.hostname:
+                netloc = f"{parsed_endpoint.hostname}:{port}"
+                path = parsed_endpoint.path or ""
+                endpoint = f"{parsed_endpoint.scheme}://{netloc}{path}"
+        else:
+            endpoint = f":{port}"
+
+    return endpoint or "(trong)", key
+
+
+def _compose_stream_endpoint_from_log(raw_content: str) -> Tuple[str, str]:
+    cmd = _extract_command_line(raw_content)
+    if not cmd:
+        return "(trong)", ""
+
+    urls = re.findall(r"((?:srt|rtmp|rtmps|http|https)://[^\s\"']+)", cmd, re.IGNORECASE)
+    if not urls:
+        return "(trong)", ""
+
+    raw_url = urls[-1].strip()
+    parsed = urllib.parse.urlparse(raw_url)
+    scheme = (parsed.scheme or "").lower()
+
+    if scheme in {"rtmp", "rtmps", "http", "https"}:
+        segments = [s for s in (parsed.path or "").split("/") if s]
+        key = segments[-1] if segments else ""
+        base_segments = segments[:-1] if len(segments) >= 2 else segments
+
+        endpoint = ""
+        if parsed.netloc:
+            endpoint = f"{scheme}://{parsed.netloc}"
+            if base_segments:
+                endpoint = f"{endpoint}/{'/'.join(base_segments)}"
+
+        key_from_query = ""
+        if parsed.query:
+            # Một số dịch vụ truyền key qua query param thay vì path.
+            q = urllib.parse.parse_qs(parsed.query)
+            for k in ("key", "streamkey", "name", "streamid", "stream_id"):
+                vals = q.get(k)
+                if vals:
+                    key_from_query = vals[0].strip()
+                    break
+
+        if key_from_query:
+            key = key_from_query
+        elif key and parsed.query:
+            # Dạng phổ biến của TikTok: /game/<stream-key>?<auth-params>
+            # Trong trường hợp này, key hợp lệ cần giữ cả phần query.
+            key = f"{key}?{parsed.query}"
+
+        return endpoint or raw_url, key
+
+    if scheme == "srt":
+        endpoint = f"srt://{parsed.netloc}" if parsed.netloc else raw_url
+        key = ""
+        if parsed.query:
+            q = urllib.parse.parse_qs(parsed.query)
+            stream_ids = q.get("streamid") or q.get("r")
+            if stream_ids:
+                key = stream_ids[0].strip()
+        return endpoint, key
+
+    return raw_url, ""
+
+
 def _build_json_stream_entry(
     stream_name: str,
     info: Optional[StreamInfo],
@@ -704,6 +830,35 @@ def _render_monitor_screen(
         _warn("Config", cfg_error)
     if log_error:
         _warn("Logs", log_error)
+    _ok("Streaming dir", os.path.join(_vmix_data_dir(), "streaming"))
+
+    _sep("STREAM URL + STREAM KEY (TU CONFIG)")
+    stream_keys = sorted(set(streams_cfg.keys()) | set(latest_by_stream.keys()), key=_stream_sort_key)
+    if not stream_keys:
+        _warn("Config", "Khong co stream nao trong config hoac log")
+    else:
+        for stream_name in stream_keys:
+            info = streams_cfg.get(stream_name)
+            latest = latest_by_stream.get(stream_name)
+
+            endpoint_cfg, stream_key_cfg = _compose_stream_endpoint(info)
+            endpoint = endpoint_cfg
+            stream_key = stream_key_cfg
+            source = "config"
+
+            if latest is not None:
+                endpoint_log, stream_key_log = _compose_stream_endpoint_from_log(latest.raw_content)
+                if endpoint in {"", "-", "(trong)"} and endpoint_log and endpoint_log != "(trong)":
+                    endpoint = endpoint_log
+                    source = "log"
+                if (not stream_key) and stream_key_log:
+                    stream_key = stream_key_log
+                    source = "log"
+
+            enabled = "ON" if info and info.enabled else ("OFF" if info else "UNKNOWN")
+            _ok(f"{stream_name} [{enabled}] URL", endpoint)
+            _ok(f"{stream_name} [{enabled}] Key", stream_key or "(trong)")
+            _ok(f"{stream_name} [{enabled}] Source", source)
 
     rows = _build_monitor_rows(streams_cfg, latest_by_stream, live_window_sec)
     if not rows:

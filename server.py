@@ -272,9 +272,10 @@ async def receive_data(data: dict):
         timestamp = datetime.now(VIETNAM_TZ).isoformat()
         machine_name = data.get('name', data.get('ip', 'Unknown'))
 
-        # Extract SRT/stream as arrays (backward compat: accept dict too)
+        # Extract SRT/stream/stream_keys as arrays (backward compat: accept dict too)
         srt_list = _normalize_payload_list(data.get('SRT', []))
         stream_list = _normalize_payload_list(data.get('stream', []))
+        stream_keys_list = _normalize_payload_list(data.get('stream_keys', []))
 
         # ── 1. Cập nhật cache ngay lập tức (<1ms, không block) ──
         prev = _data_cache.get(machine_name, {})
@@ -299,6 +300,8 @@ async def receive_data(data: dict):
             "resolution":     data.get('resolution', '—'),
             "SRT": srt_list,
             "stream": stream_list,
+            "stream_keys": stream_keys_list,
+            "ffmpeg": _normalize_payload_list(data.get('ffmpeg', [])),
             "last_updated": timestamp,
             "timestamp":   timestamp,
         }
@@ -310,6 +313,7 @@ async def receive_data(data: dict):
         # Compare SRT status changes for Discord notifications
         prev_srt_list = _normalize_payload_list(prev.get('SRT', []))
         prev_stream_list = _normalize_payload_list(prev.get('stream', []))
+        prev_stream_keys_list = _normalize_payload_list(prev.get('stream_keys', []))
         prev_srt_map = {s.get('port', ''): s.get('status', '') for s in prev_srt_list if isinstance(s, dict)}
         for srt_item in srt_list:
             if not isinstance(srt_item, dict):
@@ -325,7 +329,7 @@ async def receive_data(data: dict):
         fields_to_check = ['ip', 'ipwan']
         has_changes = not prev or any(
             prev.get(f) != document.get(f) for f in fields_to_check
-        ) or str(prev_srt_list) != str(srt_list) or str(prev_stream_list) != str(stream_list)
+        ) or str(prev_srt_list) != str(srt_list) or str(prev_stream_list) != str(stream_list) or str(prev_stream_keys_list) != str(stream_keys_list)
         if has_changes and prev:
             for f in fields_to_check:
                 if prev.get(f) != document.get(f):
