@@ -69,14 +69,32 @@ export default function SpeedtestPage() {
                     <div className="speedtest-tag">Network Lab</div>
                     <h2 className="speedtest-title">Speedtest</h2>
                 </div>
-                <div className="speedtest-actions">
-                    <button className="speedtest-btn" type="button" onClick={handleRun} disabled={loading}>
-                        <span className="speedtest-btn-label">{loading ? 'Dang do' : 'Bat dau do'}</span>
-                    </button>
-                    <div className={`speedtest-status ${statusTone}`}>
-                        <span className="speedtest-status-dot" />
-                        <span>{statusText}</span>
+            </div>
+            <div className="speedtest-actions">
+                <div className="speedtest-action-center">
+                    <div
+                        className={`speedtest-btn ${loading ? 'is-disabled' : ''}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={handleRun}
+                        onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                handleRun()
+                            }
+                        }}
+                        aria-disabled={loading}
+                    >
+                        <svg className="speedtest-ring" viewBox="0 0 120 120" aria-hidden="true">
+                            <circle className="speedtest-ring-base" cx="60" cy="60" r="50" />
+                            <circle className="speedtest-ring-active" cx="60" cy="60" r="50" />
+                        </svg>
+                        <span className="speedtest-btn-label">{loading ? 'Dang do' : 'Start'}</span>
                     </div>
+                </div>
+                <div className={`speedtest-status ${statusTone}`}>
+                    <span className="speedtest-status-dot" />
+                    <span>{statusText}</span>
                 </div>
             </div>
 

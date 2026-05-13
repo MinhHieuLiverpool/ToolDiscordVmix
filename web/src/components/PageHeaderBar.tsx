@@ -44,8 +44,15 @@ export default function PageHeaderBar() {
                 <h1 className="app-header-title">{title}</h1>
                 <div className="app-header-right">
                     <span className="account-pill">
-                        <span className="account-dot" />
-                        {username}
+                        <span className="account-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" role="img" aria-hidden="true">
+                                <path
+                                    fill="currentColor"
+                                    d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4.41 0-8 2.24-8 5v1h16v-1c0-2.76-3.59-5-8-5Z"
+                                />
+                            </svg>
+                        </span>
+                        <span className="account-name">{username}</span>
                     </span>
                     <button className="header-logout-btn" type="button" onClick={handleLogout}>
                         LOGOUT
