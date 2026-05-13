@@ -102,7 +102,7 @@ export default function MachineStatusCard({
             {/* Metrics */}
             <div className="card-metrics">
                 <div className={`metric-box ${cpuHigh ? 'metric-box-danger' : ''}`}>
-                    <div className="metric-label">CPU</div>
+                    <div className="metric-label metric-label-cpu">CPU</div>
                     <div className={`metric-value ${cpuHigh ? 'metric-danger' : 'metric-cpu'}`}>
                         {cpuVal !== null ? `${cpuVal.toFixed(0)}%` : '-'}
                     </div>
@@ -169,6 +169,14 @@ export default function MachineStatusCard({
                 <div className="info-row">
                     <span className="info-label">Resolution</span>
                     <span className="info-value">{item.data.resolution || '-'}</span>
+                </div>
+                <div className="info-row">
+                    <span className="info-label">MAC Address</span>
+                    <span className="info-value mono">{item.data.mac_address || '-'}</span>
+                </div>
+                <div className="info-row">
+                    <span className="info-label">Network Speed</span>
+                    <span className="info-value">{item.data.network_speed || '-'}</span>
                 </div>
             </div>
 

@@ -1923,6 +1923,7 @@
     margin-bottom: 0.15rem;
   }
 
+  .metric-label-cpu,
   .metric-label-ram,
   .metric-label-gpu {
     display: inline-flex;
@@ -1933,12 +1934,16 @@
     color: #ffffff;
   }
 
+  .metric-label-cpu {
+    background: #7c3aed;
+  }
+
   .metric-label-ram {
     background: #38bdf8;
   }
 
   .metric-label-gpu {
-    background: #a78bfa;
+    background: #f97316;
   }
 
   .metric-value {

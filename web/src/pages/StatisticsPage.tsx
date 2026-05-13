@@ -14,15 +14,11 @@ export default function StatisticsPage() {
         loadData,
     } = useDashboardContext()
 
-    const onlineMachines = filteredMachines.filter(
-        (machine) => Number(machine.latestItem?.data.statusapp ?? 0) === 1,
-    )
-
     return (
         <>
             <div className="page-header">
                 <h2 className="page-title">Thống kê</h2>
-                <p className="page-description">Biểu đồ hiệu suất CPU & RAM theo thời gian thực và lịch sử.</p>
+                <p className="page-description">Biểu đồ hiệu suất CPU, RAM và GPU theo thời gian thực và lịch sử.</p>
             </div>
 
             <div className="page-section">
@@ -50,7 +46,7 @@ export default function StatisticsPage() {
                     />
                 </div>
                 <ChartSection
-                    machines={onlineMachines}
+                    machines={filteredMachines}
                     chartLoading={currentLoading}
                     totalMachines={onlineMachineOptions.length}
                     timeFilter={activeView}

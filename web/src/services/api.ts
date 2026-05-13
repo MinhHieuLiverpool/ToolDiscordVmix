@@ -59,6 +59,8 @@ export interface BackendLogItem {
     gpu?: number | string | null
     sender_mbps?: number | string | null
     receiver_mbps?: number | string | null
+    mac_address?: string
+    network_speed?: string
     PIDVMIX?: string | number | null
     vmix_recording: boolean
     vmix_streaming: boolean
@@ -126,6 +128,7 @@ export function getMachineStatisticsId(item: BackendLogItem): string {
 export interface StatisticsPoint {
   cpu: number | string | null
   ram: number | string | null
+  gpu?: number | string | null
   time: string
 }
 
@@ -140,9 +143,11 @@ export interface StatisticHoursPoint {
   window_end: string
   avg_cpu: number | null
   avg_ram: number | null
+  avg_gpu?: number | null
   samples: number
   cpu_points: number
   ram_points: number
+  gpu_points?: number
   calculated_at: string
 }
 

@@ -151,7 +151,7 @@ _TIER_RAW_WINDOW_SEC = int(os.getenv("TIER_RAW_WINDOW_SEC", "180"))    # 3 minut
 _TIER_1M_MAX_AGE_SEC = int(os.getenv("TIER_1M_MAX_AGE_SEC", "300"))    # keep 1-min avgs for 5 min
 _TIER_5M_MAX_AGE_SEC = int(os.getenv("TIER_5M_MAX_AGE_SEC", "900"))    # keep 5-min avgs for 15 min
 _TIERED_ROLLUP_INTERVAL_SEC = int(os.getenv("TIERED_ROLLUP_INTERVAL_SEC", "15"))
-# {statistics_id: [{window_start, window_end, avg_cpu, avg_ram, samples, cpu_points, ram_points, calculated_at}, ...]}
+# {statistics_id: [{window_start, window_end, avg_cpu, avg_ram, avg_gpu, samples, cpu_points, ram_points, gpu_points, calculated_at}, ...]}
 _stats_1m_buffer: dict = {}
 _stats_5m_buffer: dict = {}
 _app_started_at_utc = datetime.now(pytz.UTC)
@@ -293,6 +293,8 @@ async def receive_data(data: dict):
             "gpu":         data.get('gpu', data.get('gpu_percent')),
             "sender_mbps": data.get('sender_mbps'),
             "receiver_mbps": data.get('receiver_mbps'),
+            "mac_address": data.get('mac_address'),
+            "network_speed": data.get('network_speed'),
             "vmixsend": data.get('vmixsend'),
             "vmixreceive": data.get('vmixreceive'),
             "PIDVMIX": data.get('PIDVMIX', ''),
@@ -370,11 +372,12 @@ async def _mongo_upsert(name: str, document: dict):
     except Exception as e:
         print(f"✗ MongoDB upsert error ({name}): {e}")
 
-async def _mongo_append_statistics(statistics_id: str, cpu_value, ram_value, timestamp: str):
-    """Append CPU/RAM sample to statistics collection and keep a bounded history."""
+async def _mongo_append_statistics(statistics_id: str, cpu_value, ram_value, gpu_value, timestamp: str):
+    """Append CPU/RAM/GPU sample to statistics collection and keep a bounded history."""
     sample = {
         "cpu": cpu_value,
         "ram": ram_value,
+        "gpu": gpu_value,
         "time": timestamp,
     }
 
@@ -395,8 +398,8 @@ async def _mongo_append_statistics(statistics_id: str, cpu_value, ram_value, tim
         print(f"✗ MongoDB statistics append error ({statistics_id}): {e}")
 
 
-async def _mongo_insert_statistics_ts(statistics_id: str, cpu_value, ram_value, timestamp: str):
-    """Insert one CPU/RAM sample into MongoDB time series collection."""
+async def _mongo_insert_statistics_ts(statistics_id: str, cpu_value, ram_value, gpu_value, timestamp: str):
+    """Insert one CPU/RAM/GPU sample into MongoDB time series collection."""
     if not USE_TIMESERIES_STATS or not _timeseries_available:
         return
 
@@ -411,6 +414,7 @@ async def _mongo_insert_statistics_ts(statistics_id: str, cpu_value, ram_value, 
         "time": timestamp,
         "cpu": cpu_value,
         "ram": ram_value,
+        "gpu": gpu_value,
     }
 
     loop = asyncio.get_event_loop()
@@ -435,7 +439,7 @@ async def _mongo_get_statistics_ts(statistics_id: str, limit: int):
             statistics_ts_collection
             .find(
                 {"meta.id": statistics_id},
-                {"_id": 0, "cpu": 1, "ram": 1, "time": 1, "ts": 1},
+                {"_id": 0, "cpu": 1, "ram": 1, "gpu": 1, "time": 1, "ts": 1},
             )
             .sort("ts", DESCENDING)
             .limit(limit)
@@ -458,6 +462,7 @@ async def _mongo_get_statistics_ts(statistics_id: str, limit: int):
             data.append({
                 "cpu": row.get("cpu"),
                 "ram": row.get("ram"),
+                "gpu": row.get("gpu"),
                 "time": time_text,
             })
 
@@ -802,6 +807,7 @@ async def _tiered_rollup():
                 bucket = minute_buckets.setdefault(bucket_start, {
                     "cpu_sum": 0.0, "cpu_count": 0,
                     "ram_sum": 0.0, "ram_count": 0,
+                    "gpu_sum": 0.0, "gpu_count": 0,
                     "sample_count": 0,
                 })
                 cpu = _to_float(sample.get("cpu"))
@@ -812,6 +818,10 @@ async def _tiered_rollup():
                 if ram is not None:
                     bucket["ram_sum"] += ram
                     bucket["ram_count"] += 1
+                gpu = _to_float(sample.get("gpu"))
+                if gpu is not None:
+                    bucket["gpu_sum"] += gpu
+                    bucket["gpu_count"] += 1
                 bucket["sample_count"] += 1
 
             # Append to 1-min buffer
@@ -825,9 +835,11 @@ async def _tiered_rollup():
                     "window_end": (bucket_start + timedelta(minutes=1)).isoformat(),
                     "avg_cpu": round(agg["cpu_sum"] / agg["cpu_count"], 2) if agg["cpu_count"] else None,
                     "avg_ram": round(agg["ram_sum"] / agg["ram_count"], 2) if agg["ram_count"] else None,
+                    "avg_gpu": round(agg["gpu_sum"] / agg["gpu_count"], 2) if agg["gpu_count"] else None,
                     "samples": agg["sample_count"],
                     "cpu_points": agg["cpu_count"],
                     "ram_points": agg["ram_count"],
+                    "gpu_points": agg["gpu_count"],
                     "calculated_at": run_stamp,
                 }
                 _stats_1m_buffer[statistics_id].append(entry)
@@ -880,6 +892,7 @@ async def _tiered_rollup():
                 bucket = five_min_buckets.setdefault(bucket_start, {
                     "cpu_sum": 0.0, "cpu_count": 0,
                     "ram_sum": 0.0, "ram_count": 0,
+                    "gpu_sum": 0.0, "gpu_count": 0,
                     "total_samples": 0,
                 })
                 if entry.get("avg_cpu") is not None:
@@ -890,6 +903,10 @@ async def _tiered_rollup():
                     rp = entry.get("ram_points", 1) or 1
                     bucket["ram_sum"] += entry["avg_ram"] * rp
                     bucket["ram_count"] += rp
+                if entry.get("avg_gpu") is not None:
+                    gp = entry.get("gpu_points", 1) or 1
+                    bucket["gpu_sum"] += entry["avg_gpu"] * gp
+                    bucket["gpu_count"] += gp
                 bucket["total_samples"] += entry.get("samples", 0)
 
             if statistics_id not in _stats_5m_buffer:
@@ -902,9 +919,11 @@ async def _tiered_rollup():
                     "window_end": (bucket_start + timedelta(minutes=5)).isoformat(),
                     "avg_cpu": round(agg["cpu_sum"] / agg["cpu_count"], 2) if agg["cpu_count"] else None,
                     "avg_ram": round(agg["ram_sum"] / agg["ram_count"], 2) if agg["ram_count"] else None,
+                    "avg_gpu": round(agg["gpu_sum"] / agg["gpu_count"], 2) if agg["gpu_count"] else None,
                     "samples": agg["total_samples"],
                     "cpu_points": agg["cpu_count"],
                     "ram_points": agg["ram_count"],
+                    "gpu_points": agg["gpu_count"],
                     "calculated_at": run_stamp,
                 }
                 _stats_5m_buffer[statistics_id].append(fentry)
@@ -941,6 +960,7 @@ async def _tiered_rollup():
                 bucket = fifteen_min_buckets.setdefault(bucket_start, {
                     "cpu_sum": 0.0, "cpu_count": 0,
                     "ram_sum": 0.0, "ram_count": 0,
+                    "gpu_sum": 0.0, "gpu_count": 0,
                     "total_samples": 0,
                 })
                 if entry.get("avg_cpu") is not None:
@@ -951,6 +971,10 @@ async def _tiered_rollup():
                     rp = entry.get("ram_points", 1) or 1
                     bucket["ram_sum"] += entry["avg_ram"] * rp
                     bucket["ram_count"] += rp
+                if entry.get("avg_gpu") is not None:
+                    gp = entry.get("gpu_points", 1) or 1
+                    bucket["gpu_sum"] += entry["avg_gpu"] * gp
+                    bucket["gpu_count"] += gp
                 bucket["total_samples"] += entry.get("samples", 0)
 
             new_hours_rows = []
@@ -961,9 +985,11 @@ async def _tiered_rollup():
                     "window_end": (bucket_start + timedelta(minutes=15)).isoformat(),
                     "avg_cpu": round(agg["cpu_sum"] / agg["cpu_count"], 2) if agg["cpu_count"] else None,
                     "avg_ram": round(agg["ram_sum"] / agg["ram_count"], 2) if agg["ram_count"] else None,
+                    "avg_gpu": round(agg["gpu_sum"] / agg["gpu_count"], 2) if agg["gpu_count"] else None,
                     "samples": agg["total_samples"],
                     "cpu_points": agg["cpu_count"],
                     "ram_points": agg["ram_count"],
+                    "gpu_points": agg["gpu_count"],
                     "calculated_at": run_stamp,
                 }
                 new_hours_rows.append(row)
@@ -1392,6 +1418,7 @@ async def get_statistics(statistics_id: str, limit: int = _stats_default_limit):
                             "_id": 0,
                             "temperature": 1,
                             "memory": 1,
+                            "gpu": 1,
                             "cpu": 1,
                             "ram": 1,
                             "last_updated": 1,
@@ -1404,9 +1431,11 @@ async def get_statistics(statistics_id: str, limit: int = _stats_default_limit):
                 latest_time = str(latest_doc.get("last_updated", "") or "")
                 latest_cpu = latest_doc.get("temperature", latest_doc.get("cpu"))
                 latest_ram = latest_doc.get("memory", latest_doc.get("ram"))
+                latest_gpu = latest_doc.get("gpu")
                 latest_sample = {
                     "cpu": latest_cpu,
                     "ram": latest_ram,
+                    "gpu": latest_gpu,
                     "time": latest_time,
                 }
 
@@ -1601,10 +1630,12 @@ async def flush_statistics_from_cache():
                 statistics_id = _build_statistics_id(doc.get("ip"), srt_doc.get("port", ""), machine_name)
                 cpu_value = doc.get("temperature", doc.get("cpu"))
                 ram_value = doc.get("memory", doc.get("ram"))
+                gpu_value = doc.get("gpu")
 
                 sample = {
                     "cpu": cpu_value,
                     "ram": ram_value,
+                    "gpu": gpu_value,
                     "time": timestamp,
                 }
 
@@ -1615,8 +1646,8 @@ async def flush_statistics_from_cache():
                 bucket.append(sample)
                 _realtime_stats_updated[statistics_id] = timestamp
 
-                asyncio.create_task(_mongo_append_statistics(statistics_id, cpu_value, ram_value, timestamp))
-                asyncio.create_task(_mongo_insert_statistics_ts(statistics_id, cpu_value, ram_value, timestamp))
+                asyncio.create_task(_mongo_append_statistics(statistics_id, cpu_value, ram_value, gpu_value, timestamp))
+                asyncio.create_task(_mongo_insert_statistics_ts(statistics_id, cpu_value, ram_value, gpu_value, timestamp))
                 asyncio.create_task(_redis_append_statistics_sample(statistics_id, sample, timestamp))
         except Exception as e:
             print(f"✗ Error in flush_statistics_from_cache: {e}")

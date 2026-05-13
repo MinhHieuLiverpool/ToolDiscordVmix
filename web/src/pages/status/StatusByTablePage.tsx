@@ -1,133 +1,25 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useState } from 'react'
 import { toNumber } from '../../types'
 import {
   normalizeSrtList,
   normalizeStreamList,
+  normalizeFfmpegList,
   type BackendLogItem,
-  type BackendSrtItem,
-  type BackendStreamItem,
 } from '../../services/api'
 import Dialog from '../../components/ui/Dialog'
-import { renderSrtCard, renderStreamCard, toOnOff } from '../../components/DialogHelpers'
+import { renderSrtCard, renderStreamCard } from '../../components/DialogHelpers'
 
-/* ─── Helpers ─── */
-
-/** Determine if a value looks boolean-ish for pill display */
-function isBooleanish(value: unknown): boolean {
-  const text = String(value ?? '').toUpperCase()
-  return ['ONLINE', 'OFFLINE', 'ON', 'OFF', '1', '0', 'TRUE', 'FALSE',
-    'RUNNING', 'STOPPED', 'LIVE', 'ACTIVE', 'INACTIVE'].includes(text)
+function toOnOff(value: unknown): string {
+  const text = String(value || '').toUpperCase()
+  if (['ONLINE', 'ON', '1', 'TRUE', 'RUNNING', 'LIVE', 'ACTIVE'].includes(text)) return 'ON'
+  if (['OFFLINE', 'OFF', '0', 'FALSE', 'STOPPED', 'INACTIVE', 'BAD', 'ERROR'].includes(text)) return 'OFF'
+  return text || '-'
 }
 
 function formatNumber(value: unknown, decimals = 2): string {
   const parsed = toNumber(value)
   return parsed === null ? '-' : parsed.toFixed(decimals)
 }
-
-/* ─── Dynamic column builder ─── */
-
-const PRIORITY_KEYS = [
-  'name', 'ip', 'ipwan', 'status', 'port', 'statusapp',
-  'ping', 'ping_timeouts', 'cpu', 'temperature', 'memory', 'ram', 'gpu',
-  'sender_mbps', 'receiver_mbps',
-  'vmix_recording', 'vmix_streaming', 'vmix_external',
-  'resolution', 'srt_quality', 'srt_off_time',
-]
-
-/** Keys to exclude from table columns (shown in dialog instead) */
-const DIALOG_ONLY_KEYS = new Set(['SRT', 'stream'])
-
-interface ColumnDef {
-  key: string
-  label: string
-  isNested: boolean
-}
-
-function buildColumns(rows: BackendLogItem[]): ColumnDef[] {
-  const seenKeys = new Set<string>()
-  for (const row of rows) {
-    if (row.data && typeof row.data === 'object') {
-      for (const key of Object.keys(row.data)) {
-        seenKeys.add(key)
-      }
-    }
-  }
-
-  const columns: ColumnDef[] = []
-  const added = new Set<string>()
-
-  for (const key of PRIORITY_KEYS) {
-    if (seenKeys.has(key) && !DIALOG_ONLY_KEYS.has(key)) {
-      columns.push({ key, label: key, isNested: false })
-      added.add(key)
-    }
-  }
-
-  const remaining = Array.from(seenKeys)
-    .filter((k) => !added.has(k) && !DIALOG_ONLY_KEYS.has(k))
-    .sort()
-
-  for (const key of remaining) {
-    const dataRecord = rows.find((row) => (row.data as Record<string, unknown>)[key] !== undefined)?.data as Record<string, unknown> | undefined
-    const val = dataRecord?.[key]
-    const isNested = val !== null && typeof val === 'object'
-    columns.push({ key, label: key, isNested })
-    added.add(key)
-  }
-
-  return columns
-}
-
-function renderCellValue(col: ColumnDef, item: BackendLogItem) {
-  const raw = (item.data as Record<string, unknown>)[col.key]
-
-  if (col.isNested && raw !== null && typeof raw === 'object') {
-    return (
-      <span className="mono" style={{ fontSize: '0.65rem', color: '#64748b' }}>
-        {JSON.stringify(raw).slice(0, 60)}…
-      </span>
-    )
-  }
-
-  if (col.key === 'statusapp') {
-    const on = Number(raw ?? 0) === 1
-    return <span className={`status-pill ${on ? 'pill-on' : 'pill-off'}`}>{on ? 'ON' : 'OFF'}</span>
-  }
-
-  if (isBooleanish(raw)) {
-    const text = toOnOff(raw)
-    return <span className={`status-pill ${text === 'ON' ? 'pill-on' : 'pill-off'}`}>{text}</span>
-  }
-
-  const metricKeys = ['cpu', 'temperature', 'memory', 'ram', 'gpu']
-  if (metricKeys.includes(col.key)) {
-    const val = toNumber(raw)
-    const isHigh = val !== null && val > 50
-    return <span className={isHigh ? 'metric-danger bold' : ''}>{formatNumber(raw)}%</span>
-  }
-
-  if (col.key === 'sender_mbps' || col.key === 'receiver_mbps') {
-    const v = toNumber(raw)
-    if (v === null) return '-'
-    const showV = (v > 0.02) ? v : 0
-    return <>{showV.toFixed(2)} Mbps</>
-  }
-
-  if (col.key === 'ping') {
-    return <>{String(raw ?? '-')}</>
-  }
-
-  const text = String(raw ?? '').trim() || '-'
-  const monoKeys = ['ip', 'ipwan', 'port', 'srt_off_time']
-  return <span className={monoKeys.includes(col.key) ? 'mono' : ''}>{text}</span>
-}
-
-/* ─── Dialog content types ─── */
-type DialogInfo =
-  | { type: 'srt'; machineName: string; srtList: BackendSrtItem[] }
-  | { type: 'stream'; machineName: string; streamList: BackendStreamItem[] }
-
-/* ─── Component ─── */
 
 export default function StatusByTablePage({
   rows,
@@ -138,31 +30,10 @@ export default function StatusByTablePage({
   loading: boolean
   error: string
 }) {
-  const columns = useMemo(() => buildColumns(rows), [rows])
-  const [dialogInfo, setDialogInfo] = useState<DialogInfo | null>(null)
-
-  const openSrt = useCallback((item: BackendLogItem) => {
-    setDialogInfo({
-      type: 'srt',
-      machineName: item.data.name || 'Unknown',
-      srtList: normalizeSrtList(item.data.SRT),
-    })
-  }, [])
-
-  const openStream = useCallback((item: BackendLogItem) => {
-    setDialogInfo({
-      type: 'stream',
-      machineName: item.data.name || 'Unknown',
-      streamList: normalizeStreamList(item.data.stream),
-    })
-  }, [])
-
-  const closeDialog = useCallback(() => setDialogInfo(null), [])
-
-  // Check if any row has SRT or stream data
-  const hasSrt = rows.some((r) => normalizeSrtList(r.data.SRT).length > 0)
-  const hasStream = rows.some((r) => normalizeStreamList(r.data.stream).length > 0)
-  const hasActions = hasSrt || hasStream || true // always show actions column
+  const [dialogState, setDialogState] = useState<{
+    type: 'srt' | 'stream' | 'ffmpeg' | null
+    machineIndex: number
+  }>({ type: null, machineIndex: -1 })
 
   if (loading) {
     return (
@@ -182,109 +53,198 @@ export default function StatusByTablePage({
     return <div className="glass-card empty-card">Chưa có dữ liệu từ backend.</div>
   }
 
+  const currentItem = dialogState.machineIndex >= 0 ? rows[dialogState.machineIndex] : null
+  const currentSrtList = currentItem ? normalizeSrtList(currentItem.data.SRT) : []
+  const currentStreamList = currentItem ? normalizeStreamList(currentItem.data.stream) : []
+  const currentFfmpegList = currentItem ? normalizeFfmpegList(currentItem.data.ffmpeg) : []
+
   return (
     <>
       <div className="status-table-wrap glass-card">
         <div className="status-table-toolbar">
-          <div className="status-table-title">Full Response Table</div>
+          <div className="status-table-title">Bảng tổng hợp</div>
+          <div className="status-table-meta">{rows.length} máy</div>
         </div>
+        <div className="status-table-scroll-hint">Cuộn ngang để xem đầy đủ cột · giữ Shift + lăn chuột để cuộn nhanh</div>
         <div className="status-table-scroll-shell">
           <div className="status-table-scroll">
             <table className="status-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>timestamp</th>
-                {columns.map((col) => (
-                  <th key={col.key}>{col.label}</th>
-                ))}
-                {hasActions && <th>Thao tác</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((item, index) => {
-                const srtList = normalizeSrtList(item.data.SRT)
-                const streamList = normalizeStreamList(item.data.stream)
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Máy</th>
+                  <th>timestamp</th>
+                  <th>IP</th>
+                  <th>WAN</th>
+                  <th>status</th>
+                  <th>port</th>
+                  <th>APP</th>
+                  <th>ping</th>
+                  <th>ping_timeouts</th>
+                  <th>CPU</th>
+                  <th>RAM</th>
+                  <th>GPU</th>
+                  <th>Sender</th>
+                  <th>Receiver</th>
+                  <th>MAC</th>
+                  <th>Net Speed</th>
+                  <th>REC</th>
+                  <th>LIVE</th>
+                  <th>EXT</th>
+                  <th>Resolution</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((item, index) => {
+                  const srtList = normalizeSrtList(item.data.SRT)
+                  const streamList = normalizeStreamList(item.data.stream)
+                  const ffmpegList = normalizeFfmpegList(item.data.ffmpeg)
+                  const primaryPort = String(item.data.port || srtList[0]?.port || '-')
 
-                const c = toNumber(item.data.temperature) ?? 0
-                const r = toNumber(item.data.memory) ?? 0
-                const g = toNumber(item.data.gpu) ?? 0
-                const isOverload = (c > 50 || r > 50 || g > 50)
-
-                return (
-                  <tr
-                    key={`${item.data.name || 'machine'}-${item.data.ip || 'ip'}-${index}`}
-                    className={isOverload ? 'row-overload' : ''}
-                  >
-                    <td className="status-table-index">{index + 1}</td>
-                    <td className="mono" style={{ whiteSpace: 'nowrap' }}>{item.timestamp || '-'}</td>
-                    {columns.map((col) => (
-                      <td key={col.key}>
-                        {renderCellValue(col, item)}
+                  return (
+                    <tr key={`row-${index}-${item.timestamp || 'no-ts'}`}>
+                      <td className="status-table-index">{index + 1}</td>
+                      <td className="status-table-main-cell">
+                        <div className="status-table-machine">{item.data.name || 'Unknown'}</div>
                       </td>
-                    ))}
-                    {hasActions && (
+                      <td className="mono">{item.timestamp || '-'}</td>
+                      <td className="mono">{item.data.ip || '-'}</td>
+                      <td className="mono">{item.data.ipwan || '-'}</td>
+                      <td>{toOnOff(item.data.status)}</td>
+                      <td className="mono">{primaryPort}</td>
                       <td>
-                        <div className="table-actions">
-                          <button
-                            type="button"
-                            className="table-action-btn table-action-srt"
-                            onClick={() => openSrt(item)}
-                            title="Xem chi tiết SRT"
-                          >
-                            SRT FULL ({srtList.length})
-                          </button>
-                          <button
-                            type="button"
-                            className="table-action-btn table-action-stream"
-                            onClick={() => openStream(item)}
-                            title="Xem chi tiết Stream"
-                          >
-                            STREAM FULL ({streamList.length})
-                          </button>
-                        </div>
+                        <span className={`status-pill ${Number(item.data.statusapp ?? 0) === 1 ? 'pill-on' : 'pill-off'}`}>
+                          {Number(item.data.statusapp ?? 0) === 1 ? 'ON' : 'OFF'}
+                        </span>
                       </td>
-                    )}
-                  </tr>
-                )
-              })}
-            </tbody>
+                      <td>{String(item.data.ping ?? '-')}</td>
+                      <td>{String(item.data.ping_timeouts ?? 0)}</td>
+                      <td>{formatNumber(item.data.temperature ?? item.data.cpu)}%</td>
+                      <td>{formatNumber(item.data.memory ?? item.data.ram)}%</td>
+                      <td>{formatNumber(item.data.gpu)}%</td>
+                      <td>{formatNumber(item.data.sender_mbps, 3)} Mbps</td>
+                      <td>{formatNumber(item.data.receiver_mbps, 3)} Mbps</td>
+                      <td className="mono">{item.data.mac_address || '-'}</td>
+                      <td>{item.data.network_speed || '-'}</td>
+                      <td>
+                        <span className={`status-pill ${toOnOff(item.data.vmix_recording) === 'ON' ? 'pill-on' : 'pill-off'}`}>
+                          {toOnOff(item.data.vmix_recording)}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`status-pill ${toOnOff(item.data.vmix_streaming) === 'ON' ? 'pill-on' : 'pill-off'}`}>
+                          {toOnOff(item.data.vmix_streaming)}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`status-pill ${toOnOff(item.data.vmix_external) === 'ON' ? 'pill-on' : 'pill-off'}`}>
+                          {toOnOff(item.data.vmix_external)}
+                        </span>
+                      </td>
+                      <td>{item.data.resolution || '-'}</td>
+                      <td className="status-table-actions">
+                        <button
+                          type="button"
+                          className="card-footer-btn"
+                          onClick={() => setDialogState({ type: 'srt', machineIndex: index })}
+                          disabled={srtList.length === 0}
+                          title={srtList.length === 0 ? 'No SRT data' : 'View SRT details'}
+                        >
+                          SRT ({srtList.length})
+                        </button>
+                        <button
+                          type="button"
+                          className="card-footer-btn"
+                          onClick={() => setDialogState({ type: 'stream', machineIndex: index })}
+                          disabled={streamList.length === 0}
+                          title={streamList.length === 0 ? 'No Stream data' : 'View Stream details'}
+                        >
+                          Stream ({streamList.length})
+                        </button>
+                        <button
+                          type="button"
+                          className="card-footer-btn"
+                          onClick={() => setDialogState({ type: 'ffmpeg', machineIndex: index })}
+                          disabled={ffmpegList.length === 0}
+                          title={ffmpegList.length === 0 ? 'No FFmpeg data' : 'View FFmpeg details'}
+                        >
+                          FFmpeg ({ffmpegList.length})
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
             </table>
           </div>
         </div>
       </div>
 
-      {/* SRT Detail Dialog */}
+      {/* SRT Dialog */}
       <Dialog
-        open={dialogInfo?.type === 'srt'}
-        onClose={closeDialog}
-        title={`SRT — ${dialogInfo?.type === 'srt' ? dialogInfo.machineName : ''}`}
+        open={dialogState.type === 'srt' && currentItem !== null}
+        onClose={() => setDialogState({ type: null, machineIndex: -1 })}
+        title={`SRT · ${currentItem?.data.name || 'Unknown'}`}
       >
-        {dialogInfo?.type === 'srt' && (
-          dialogInfo.srtList.length > 0 ? (
-            <div className="dialog-detail-grid">
-              {dialogInfo.srtList.map(renderSrtCard)}
-            </div>
-          ) : (
-            <div className="dialog-empty-state">Không có dữ liệu SRT cho máy này.</div>
-          )
+        {currentSrtList.length > 0 ? (
+          <div className="dialog-detail-grid">
+            {currentSrtList.map(renderSrtCard)}
+          </div>
+        ) : (
+          <div className="dialog-empty-state">Không có dữ liệu SRT.</div>
         )}
       </Dialog>
 
-      {/* Stream Detail Dialog */}
+      {/* Stream Dialog */}
       <Dialog
-        open={dialogInfo?.type === 'stream'}
-        onClose={closeDialog}
-        title={`Stream — ${dialogInfo?.type === 'stream' ? dialogInfo.machineName : ''}`}
+        open={dialogState.type === 'stream' && currentItem !== null}
+        onClose={() => setDialogState({ type: null, machineIndex: -1 })}
+        title={`Stream · ${currentItem?.data.name || 'Unknown'}`}
       >
-        {dialogInfo?.type === 'stream' && (
-          dialogInfo.streamList.length > 0 ? (
-            <div className="dialog-detail-grid">
-              {dialogInfo.streamList.map(renderStreamCard)}
-            </div>
-          ) : (
-            <div className="dialog-empty-state">Không có dữ liệu Stream cho máy này.</div>
-          )
+        {currentStreamList.length > 0 ? (
+          <div className="dialog-detail-grid">
+            {currentStreamList.map(renderStreamCard)}
+          </div>
+        ) : (
+          <div className="dialog-empty-state">Không có dữ liệu stream.</div>
+        )}
+      </Dialog>
+
+      {/* FFmpeg Dialog */}
+      <Dialog
+        open={dialogState.type === 'ffmpeg' && currentItem !== null}
+        onClose={() => setDialogState({ type: null, machineIndex: -1 })}
+        title={`FFmpeg · ${currentItem?.data.name || 'Unknown'}`}
+      >
+        {currentFfmpegList.length > 0 ? (
+          <div className="dialog-detail-grid">
+            {currentFfmpegList.map((ffmpegItem, idx) => (
+              <div key={`ffmpeg-${idx}`} className="dialog-detail-card">
+                <div className="dialog-detail-card-header">
+                  <span className="dialog-detail-card-title">FFmpeg {idx + 1}</span>
+                </div>
+                <div className="dialog-detail-row">
+                  <span className="dialog-detail-key">Name</span>
+                  <span className="dialog-detail-value">{String(ffmpegItem.name ?? '-')}</span>
+                </div>
+                <div className="dialog-detail-row">
+                  <span className="dialog-detail-key">PID</span>
+                  <span className="dialog-detail-value mono">{String(ffmpegItem.pid ?? '-')}</span>
+                </div>
+                <div className="dialog-detail-row">
+                  <span className="dialog-detail-key">Send</span>
+                  <span className="dialog-detail-value">{String(ffmpegItem.send ?? '-')}</span>
+                </div>
+                <div className="dialog-detail-row">
+                  <span className="dialog-detail-key">Recv</span>
+                  <span className="dialog-detail-value">{String(ffmpegItem.recv ?? '-')}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="dialog-empty-state">Không có dữ liệu FFmpeg.</div>
         )}
       </Dialog>
     </>

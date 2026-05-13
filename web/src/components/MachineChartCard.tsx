@@ -15,18 +15,21 @@ echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, Canvas
 const COLORS = {
     cpu: { line: '#818cf8', area: 'rgba(129,140,248,0.18)' },
     ram: { line: '#38bdf8', area: 'rgba(56,189,248,0.18)' },
+    gpu: { line: '#f97316', area: 'rgba(249,115,22,0.18)' },
 }
 
 function EChartsLine({
     labels,
     cpuValues,
     ramValues,
+    gpuValues,
     isDaily,
     showXAxisLabels,
 }: {
     labels: string[]
     cpuValues: number[]
     ramValues: number[]
+    gpuValues: number[]
     isDaily: boolean
     showXAxisLabels: boolean
 }) {
@@ -134,9 +137,25 @@ function EChartsLine({
                         ]),
                     },
                 },
+                {
+                    name: 'GPU',
+                    type: 'line',
+                    data: gpuValues,
+                    smooth: true,
+                    symbol: isDaily ? 'circle' : 'none',
+                    symbolSize: isDaily ? 6 : 0,
+                    lineStyle: { color: COLORS.gpu.line, width: 2 },
+                    itemStyle: { color: COLORS.gpu.line },
+                    areaStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: COLORS.gpu.area },
+                            { offset: 1, color: 'rgba(249,115,22,0.02)' },
+                        ]),
+                    },
+                },
             ],
         }
-    }, [labels, cpuValues, ramValues, isDaily, showXAxisLabels])
+    }, [labels, cpuValues, ramValues, gpuValues, isDaily, showXAxisLabels])
 
     // Init chart
     useEffect(() => {
@@ -177,6 +196,7 @@ export default function MachineChartCard({
 }) {
     const cpuValues = machine.history.map((p) => p.cpu)
     const ramValues = machine.history.map((p) => p.ram)
+    const gpuValues = machine.history.map((p) => p.gpu ?? 0)
     const labels = machine.history.map((p) => p.timeLabel)
     const isDaily = timeFilter === 'daily'
 
@@ -190,6 +210,7 @@ export default function MachineChartCard({
                 <div className="machine-chart-stats">
                     <span className="live-stat stat-cpu-live">CPU: {lastCpu.toFixed(1)}%</span>
                     <span className="live-stat stat-ram-live">RAM: {lastRam.toFixed(1)}%</span>
+                    <span className="live-stat stat-gpu-live">GPU: {(machine.history[machine.history.length - 1]?.gpu ?? 0).toFixed(1)}%</span>
                 </div>
             </div>
 
@@ -197,6 +218,7 @@ export default function MachineChartCard({
                 labels={labels}
                 cpuValues={cpuValues}
                 ramValues={ramValues}
+                gpuValues={gpuValues}
                 isDaily={isDaily}
                 showXAxisLabels={showXAxisLabels}
             />

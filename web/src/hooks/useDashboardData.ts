@@ -107,9 +107,10 @@ export function useDashboardData() {
         const row = latestRowByMachineId.get(id)
         const cpu = toNumber(row?.data.temperature ?? row?.data.cpu) ?? 0
         const ram = toNumber(row?.data.memory) ?? 0
+        const gpu = toNumber(row?.data.gpu) ?? 0
         const timeMs = Date.now()
         const nowLabel = new Date().toLocaleTimeString('vi-VN', { hour12: false })
-        return { id, label, history: [{ timeLabel: nowLabel, cpu, ram, timeMs }] }
+        return { id, label, history: [{ timeLabel: nowLabel, cpu, ram, gpu, timeMs }] }
     }, [latestRowByMachineId])
 
     const totalOnline = useMemo(
@@ -199,12 +200,13 @@ export function useDashboardData() {
                         .map((p) => {
                             const cpu = toNumber(p.cpu) ?? 0
                             const ram = toNumber(p.ram) ?? 0
+                            const gpu = toNumber(p.gpu) ?? 0
                             const d = new Date(p.time)
                             const timeMs = Number.isNaN(d.getTime()) ? Date.now() : d.getTime()
                             const timeLabel = Number.isNaN(d.getTime())
                                 ? String(p.time || '').slice(11, 19)
                                 : d.toLocaleTimeString('vi-VN', { hour12: false })
-                            return { timeLabel, cpu, ram, timeMs }
+                            return { timeLabel, cpu, ram, gpu, timeMs }
                         })
                         .slice(-INITIAL_HISTORY_LIMIT)
                     const nowMs = Date.now()
@@ -291,7 +293,8 @@ export function useDashboardData() {
 
                 const cpu = toNumber(item.data.temperature ?? item.data.cpu) ?? 0
                 const ram = toNumber(item.data.memory) ?? 0
-                const newPoint: MetricPoint = { timeLabel: nowLabel, cpu, ram, timeMs: nowMs }
+                const gpu = toNumber(item.data.gpu) ?? 0
+                const newPoint: MetricPoint = { timeLabel: nowLabel, cpu, ram, gpu, timeMs: nowMs }
 
                 const existing = next.get(id)
                 if (existing) {
@@ -357,7 +360,7 @@ export function useDashboardData() {
                     const timeLabel = Number.isNaN(d.getTime())
                         ? String(p.window_start || '').slice(11, 16)
                         : d.toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit' })
-                    return { timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0 }
+                        return { timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0, gpu: p.avg_gpu ?? 0 }
                 })
                 const metric = history.length > 0
                     ? { id: doc.id, label, history }
@@ -374,7 +377,7 @@ export function useDashboardData() {
                         const timeLabel = Number.isNaN(d.getTime())
                             ? String(p.window_start || '').slice(11, 16)
                             : d.toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit' })
-                        return { timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0 }
+                            return { timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0, gpu: p.avg_gpu ?? 0 }
                     })
                     const metric = history.length > 0
                         ? { id: doc.id, label, history }

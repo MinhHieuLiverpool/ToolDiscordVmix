@@ -121,6 +121,68 @@ class VmixMonitorLogicMixin:
         except (TypeError, ValueError):
             return "?"
 
+    @staticmethod
+    def _fmt_link_speed_mbps(speed_mbps) -> str:
+        try:
+            speed = float(speed_mbps or 0)
+        except (TypeError, ValueError):
+            return "—"
+
+        if speed <= 0:
+            return "—"
+        if speed >= 1000:
+            return f"{speed / 1000:.2f} Gbps"
+        return f"{speed:.0f} Mbps"
+
+    def _get_primary_network_info(self) -> tuple[str, str]:
+        try:
+            import psutil
+        except Exception:
+            return "—", "—"
+
+        local_ip = str(getattr(self, "ip_var", None).get() if getattr(self, "ip_var", None) else "").strip()
+        stats_map = psutil.net_if_stats()
+        addrs_map = psutil.net_if_addrs()
+
+        def _extract_mac(addrs) -> str:
+            for addr in addrs:
+                fam = addr.family
+                fam_text = str(fam)
+                if fam_text in {"17", "18", "-1"} or "AF_LINK" in fam_text:
+                    mac = str(getattr(addr, "address", "") or "").strip()
+                    if mac:
+                        return mac.upper()
+            return ""
+
+        preferred = None
+        fallback = None
+        for name, stat in stats_map.items():
+            addrs = addrs_map.get(name, [])
+            mac = _extract_mac(addrs)
+            ipv4s = []
+            for addr in addrs:
+                if str(addr.family) in {"2"} or "AF_INET" in str(addr.family):
+                    ipv4s.append(str(getattr(addr, "address", "") or "").strip())
+
+            item = {
+                "name": name,
+                "mac": mac or "—",
+                "speed": self._fmt_link_speed_mbps(getattr(stat, "speed", 0)),
+                "ipv4s": ipv4s,
+            }
+
+            if not fallback:
+                fallback = item
+            if local_ip and local_ip in ipv4s:
+                preferred = item
+                break
+
+        chosen = preferred or fallback
+        if not chosen:
+            return "—", "—"
+
+        return chosen["mac"], chosen["speed"]
+
     def _parse_resolution_and_srt_from_preset(self, preset_path: str) -> tuple[str, dict]:
         if not preset_path or not os.path.isfile(preset_path):
             return "—", {}
@@ -543,6 +605,8 @@ class VmixMonitorLogicMixin:
                 "cpu": "—",
                 "memory": "—",
                 "gpu": "—",
+                "mac_address": "—",
+                "network_speed": "—",
                 "sender_bw": "—",
                 "receiver_bw": "—",
                 "vmixsend": "—",
@@ -553,6 +617,7 @@ class VmixMonitorLogicMixin:
                 "ext": "—",
                 "resolution": "—",
                 "srt": "—",
+                "srt_status": "OFF",
             }
         )
         self.tree.insert("", tk.END, values=(name, port, "—", "—"))
@@ -814,6 +879,13 @@ class VmixMonitorLogicMixin:
             return round(sender_mbps, 3), round(receiver_mbps, 3)
         except Exception:
             return None, None
+
+    def get_network_card_summary(self) -> tuple[str, str]:
+        """Return MAC address and link speed for the primary network interface."""
+        try:
+            return self._get_primary_network_info()
+        except Exception:
+            return "—", "—"
 
     def _run_powershell_json(self, command: str):
         try:
@@ -1994,6 +2066,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
             mem_pct = self.measure_memory()
             gpu_pct = self.measure_gpu()
             sender_mbps, receiver_mbps = self.measure_network_sender_receiver_mbps()
+            mac_addr, net_speed = self.get_network_card_summary()
             pid_vmix, vmix_send_mbps, vmix_receive_mbps = self.measure_vmix_pid_and_bandwidth_mbps()
             ffmpeg_list = self.measure_ffmpeg_bandwidth_list()
             self.root.after(0, lambda fl=ffmpeg_list: self.update_ffmpeg_table(fl))
@@ -2033,6 +2106,8 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                 entry["gpu"] = gpu_str
                 entry["sender_bw"] = sender_bw_str
                 entry["receiver_bw"] = receiver_bw_str
+                entry["mac_address"] = mac_addr
+                entry["network_speed"] = net_speed
                 entry["vmixsend"] = vmix_send_bw_str
                 entry["vmixreceive"] = vmix_receive_bw_str
                 entry["pid_vmix"] = pid_vmix_str
@@ -2044,6 +2119,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
 
                 vmix_running = self.is_vmix_on_port(port)
                 current_status = "ON" if vmix_running else "OFF"
+                entry["srt_status"] = current_status
 
                 if prev_status.get(port) != current_status:
                     icon = "🟢" if current_status == "ON" else "🔴"
@@ -2082,6 +2158,8 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                     "gpu": gpu_pct,
                     "sender_mbps": sender_mbps,
                     "receiver_mbps": receiver_mbps,
+                    "mac_address": mac_addr,
+                    "network_speed": net_speed,
                     "vmixsend": vmix_send_mbps,
                     "vmixreceive": vmix_receive_mbps,
                     "PIDVMIX": pid_vmix,

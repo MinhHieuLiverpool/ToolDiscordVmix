@@ -13,6 +13,7 @@ export type MetricPoint = {
     timeLabel: string
     cpu: number
     ram: number
+    gpu?: number
     timeMs?: number
     extras?: DailyExtras
 }

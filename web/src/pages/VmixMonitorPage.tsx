@@ -10,7 +10,9 @@ function checkOn(value: unknown): boolean {
 
 function MetricBadge({ label, value, unit, isHigh }: { label: string; value: string; unit?: string; isHigh?: boolean }) {
     const labelKey = label.trim().toUpperCase()
-    const labelClass = labelKey === 'RAM'
+    const labelClass = labelKey === 'CPU'
+        ? 'vmix-metric-label vmix-metric-label-cpu'
+        : labelKey === 'RAM'
         ? 'vmix-metric-label vmix-metric-label-ram'
         : labelKey === 'GPU'
             ? 'vmix-metric-label vmix-metric-label-gpu'
@@ -114,6 +116,14 @@ function MachineMonitorCard({ item, index }: { item: BackendLogItem; index: numb
             <div className="vmix-extra-row">
                 <span className="vmix-extra-label">Resolution:</span>
                 <span className="vmix-extra-value mono">{item.data.resolution || '-'}</span>
+            </div>
+            <div className="vmix-extra-row">
+                <span className="vmix-extra-label">MAC Address:</span>
+                <span className="vmix-extra-value mono">{item.data.mac_address || '-'}</span>
+            </div>
+            <div className="vmix-extra-row">
+                <span className="vmix-extra-label">Network Speed:</span>
+                <span className="vmix-extra-value">{item.data.network_speed || '-'}</span>
             </div>
             <div className="vmix-extra-row">
                 <span className="vmix-extra-label">WAN IP:</span>
