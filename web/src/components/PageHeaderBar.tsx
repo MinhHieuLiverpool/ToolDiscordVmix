@@ -16,6 +16,8 @@ const ROUTE_TITLES: RouteTitle[] = [
     { match: /^\/ffmpeg\b/, title: 'FFmpeg' },
     { match: /^\/statistics\b/, title: 'Thống kê' },
     { match: /^\/vmix-monitor\b/, title: 'Vmix Monitor' },
+    { match: /^\/viewsync\b/, title: 'ViewSync' },
+    { match: /^\/viewsync\/multi\b/, title: 'ViewSync Multiview' },
     { match: /^\/speedtest\b/, title: 'Speedtest' },
     { match: /^\/account\/roles\b/, title: 'Phân quyền' },
     { match: /^\/account\b/, title: 'Tài khoản' },

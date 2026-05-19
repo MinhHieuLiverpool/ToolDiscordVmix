@@ -96,6 +96,18 @@ const NAV_ITEMS = [
         ),
     },
     {
+        to: '/viewsync',
+        label: 'ViewSync',
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 3" />
+                <path d="M6 16l-2 2" />
+                <path d="M18 16l2 2" />
+            </svg>
+        ),
+    },
+    {
         to: '/speedtest',
         label: 'Speedtest',
         icon: (

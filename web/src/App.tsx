@@ -11,6 +11,8 @@ import VmixMonitorPage from './pages/VmixMonitorPage'
 import SpeedtestPage from './pages/SpeedtestPage'
 import AccountPage from './pages/AccountPage'
 import RolePage from './pages/RolePage'
+import ViewSyncPage from './pages/ViewSync'
+import ViewSyncMultiPage from './pages/ViewSyncMulti'
 import LoginPage from './pages/Login'
 import { isAuthenticated } from './services/auth'
 
@@ -25,6 +27,7 @@ function App() {
     <BrowserRouter>
       <ToastContainer />
       <Routes>
+        <Route path="/viewsync/multi" element={<ViewSyncMultiPage />} />
         {/* Protected routes with sidebar layout */}
         <Route element={<ProtectedLayout />}>
           <Route path="/dashboard" element={<OverviewPage />} />
@@ -34,6 +37,7 @@ function App() {
           <Route path="/ffmpeg" element={<FfmpegPage />} />
           <Route path="/statistics" element={<StatisticsPage />} />
           <Route path="/vmix-monitor" element={<VmixMonitorPage />} />
+          <Route path="/viewsync" element={<ViewSyncPage />} />
           <Route path="/speedtest" element={<SpeedtestPage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/account/roles" element={<RolePage />} />
