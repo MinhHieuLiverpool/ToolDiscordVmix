@@ -65,7 +65,7 @@ export default function ViewSyncPage() {
     const [videos, setVideos] = useState<VideoItem[]>([])
     const [newVideoUrl, setNewVideoUrl] = useState('')
     const [shareUrl, setShareUrl] = useState('')
-    const [currentTime, setCurrentTime] = useState(0)
+    const [currentTime] = useState(0)
     const [layoutId, setLayoutId] = useState<string>('auto')
 
     useEffect(() => {

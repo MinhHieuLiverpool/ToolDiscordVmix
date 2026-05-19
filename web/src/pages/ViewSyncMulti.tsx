@@ -154,7 +154,7 @@ function YouTubePlayer({
 
 export default function ViewSyncMultiPage() {
     const [videos, setVideos] = useState<VideoItem[]>([])
-    const [currentTime, setCurrentTime] = useState(0)
+    const [, setCurrentTime] = useState(0)
     const playersRef = useRef<Record<string, any>>({})
     const [layoutId, setLayoutId] = useState<string>('auto')
 

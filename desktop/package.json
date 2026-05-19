@@ -1,0 +1,34 @@
+{
+  "name": "vmixmonitor-desktop",
+  "version": "0.1.0",
+  "description": "Minimal Electron wrapper that opens https://vmixmonitor.vercel.app/",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^26.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "com.example.vmixmonitor",
+    "productName": "VmixMonitor Desktop",
+    "directories": {
+      "buildResources": "assets",
+      "output": "dist"
+    },
+    "files": [
+      "**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icon.ico"
+    }
+  }
+}

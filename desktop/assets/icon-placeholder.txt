@@ -1,0 +1,12 @@
+This is a placeholder for the app icon.
+
+Replace this file with a real Windows icon at `assets/icon.ico` (ICO format, 256x256 recommended).
+
+For macOS builds add an `icons.icns` file named `assets/icon.icns`.
+
+Then run:
+
+npm install
+npm run dist:win
+
+The produced installer will appear in the `desktop/dist` folder.

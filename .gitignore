@@ -15,3 +15,8 @@ ENV/
 config.py
 *.log
 .DS_Store
+
+# Electron desktop wrapper artifacts
+/desktop/node_modules/
+/desktop/dist/
+
