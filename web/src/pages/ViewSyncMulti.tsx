@@ -67,6 +67,7 @@ function YouTubePlayer({
     const readyRef = useRef(false)
     const origin = window.location.origin
     const widgetReferrer = window.location.href
+    const youtubeHost = 'https://www.youtube-nocookie.com'
 
     useEffect(() => {
         let initTimeout: ReturnType<typeof setTimeout> | null = null
@@ -100,7 +101,7 @@ function YouTubePlayer({
                         enablejsapi: 1,
                         origin,
                         widget_referrer: widgetReferrer,
-                        host: 'https://www.youtube.com',
+                        host: youtubeHost,
                     },
                     events: {
                         onReady: (event: PlayerEvent) => {
@@ -147,7 +148,7 @@ function YouTubePlayer({
                 <iframe
                     title={`YouTube ${videoId}`}
                     className="viewsync-iframe"
-                    src={`https://www.youtube.com/embed/${videoId}?${new URLSearchParams({
+                    src={`${youtubeHost}/embed/${videoId}?${new URLSearchParams({
                         enablejsapi: '1',
                         origin,
                         start: String(startTime),
