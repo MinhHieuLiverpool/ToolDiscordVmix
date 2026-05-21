@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 type VideoItem = {
     id: string
@@ -164,7 +164,6 @@ function YouTubePlayer({
 
 export default function ViewSyncMultiPage() {
     const [videos, setVideos] = useState<VideoItem[]>([])
-    const [, setCurrentTime] = useState(0)
     const playersRef = useRef<Record<string, any>>({})
     const [layoutId, setLayoutId] = useState<string>('auto')
 
@@ -212,21 +211,9 @@ export default function ViewSyncMultiPage() {
         setLayoutId(requestedLayout)
     }, [])
 
-    useEffect(() => {
-        if (videos.length === 0) return
-        const masterId = videos[0].id
-        const timer = setInterval(() => {
-            const master = playersRef.current[masterId]
-            if (master && typeof master.getCurrentTime === 'function') {
-                setCurrentTime(master.getCurrentTime())
-            }
-        }, 1000)
-        return () => clearInterval(timer)
-    }, [videos])
-
-    const onPlayerReady = (videoId: string, event: PlayerEvent) => {
+    const onPlayerReady = useCallback((videoId: string, event: PlayerEvent) => {
         playersRef.current[videoId] = event.target
-    }
+    }, [])
 
     const activeLayout = useMemo(() => {
         if (layoutId !== 'auto') {
