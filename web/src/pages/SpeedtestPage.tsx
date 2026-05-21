@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { type SpeedtestResponse } from '../services/api'
 
 const SPEEDTEST_HOST = 'https://speed.cloudflare.com'
-const DOWNLOAD_BYTES = 25_000_000
-const UPLOAD_BYTES = 5_000_000
-const PING_ATTEMPTS = 3
+const DOWNLOAD_BYTES = 50_000_000
+const UPLOAD_BYTES = 10_000_000
+const PING_ATTEMPTS = 5
+const RING_CIRCUMFERENCE = 339.3
 
 type BrowserSpeedtestResult = SpeedtestResponse
 
@@ -111,16 +112,22 @@ const measureUpload = async () => {
     return (UPLOAD_BYTES * 8) / seconds
 }
 
-const runBrowserSpeedtest = async (): Promise<BrowserSpeedtestResult> => {
+const runBrowserSpeedtest = async (
+    onProgress: (value: number, stage?: string) => void,
+): Promise<BrowserSpeedtestResult> => {
+    onProgress(0.05, 'Ping')
     const [traceIp, ping_ms, ipInfo] = await Promise.all([
         fetchTraceIp(),
         measurePing(),
         fetchIpInfo(),
     ])
+    onProgress(0.3, 'Download')
     const ipwan = ipInfo?.ip || traceIp
     const isp = ipInfo?.isp || null
     const download_bps = await measureDownload()
+    onProgress(0.75, 'Upload')
     const upload_bps = await measureUpload()
+    onProgress(1, 'Hoan tat')
     return {
         success: true,
         timestamp: new Date().toISOString(),
@@ -138,6 +145,25 @@ export default function SpeedtestPage() {
     const [result, setResult] = useState<SpeedtestResponse | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
+    const [progress, setProgress] = useState(0)
+    const [progressLabel, setProgressLabel] = useState('')
+    const [displayProgress, setDisplayProgress] = useState(0)
+
+    useEffect(() => {
+        let frameId: number
+
+        const tick = () => {
+            setDisplayProgress((current) => {
+                const diff = progress - current
+                if (Math.abs(diff) < 0.001) return progress
+                return current + diff * 0.15
+            })
+            frameId = requestAnimationFrame(tick)
+        }
+
+        frameId = requestAnimationFrame(tick)
+        return () => cancelAnimationFrame(frameId)
+    }, [progress])
 
     const formatNumber = (value?: number | null) => {
         if (value === null || value === undefined) return '--'
@@ -170,8 +196,13 @@ export default function SpeedtestPage() {
         if (loading) return
         setLoading(true)
         setError('')
+        setProgress(0)
+        setProgressLabel('')
         try {
-            const data = await runBrowserSpeedtest()
+            const data = await runBrowserSpeedtest((value, stage) => {
+                setProgress(value)
+                if (stage) setProgressLabel(stage)
+            })
             setResult(data)
         } catch (err) {
             console.error(err)
@@ -182,13 +213,17 @@ export default function SpeedtestPage() {
         }
     }
 
-    const ipWanValue = result?.ipwan || result?.raw?.client?.ip || '--'
-    const ispValue =
-        result?.isp ||
-        result?.raw?.client?.isp ||
-        result?.raw?.client?.isp_name ||
-        result?.raw?.client?.ispName ||
-        '--'
+    const showResult = !loading && !!result
+    const ipWanValue = showResult ? (result?.ipwan || result?.raw?.client?.ip || '--') : '--'
+    const ispValue = showResult
+        ? (
+            result?.isp ||
+            result?.raw?.client?.isp ||
+            result?.raw?.client?.isp_name ||
+            result?.raw?.client?.ispName ||
+            '--'
+        )
+        : '--'
 
     return (
         <section className="card-light speedtest-card">
@@ -215,9 +250,21 @@ export default function SpeedtestPage() {
                     >
                         <svg className="speedtest-ring" viewBox="0 0 120 120" aria-hidden="true">
                             <circle className="speedtest-ring-base" cx="60" cy="60" r="50" />
-                            <circle className="speedtest-ring-active" cx="60" cy="60" r="50" />
+                            <circle
+                                className="speedtest-ring-active"
+                                cx="60"
+                                cy="60"
+                                r="50"
+                                style={{
+                                    strokeDashoffset: RING_CIRCUMFERENCE * (1 - displayProgress),
+                                }}
+                            />
                         </svg>
-                        <span className="speedtest-btn-label">{loading ? 'Dang do' : 'Start'}</span>
+                        <span className="speedtest-btn-label">
+                            {loading
+                                ? `${progressLabel || 'Dang do'} ${Math.round(displayProgress * 100)}%`
+                                : 'Start'}
+                        </span>
                     </div>
                 </div>
                 <div className={`speedtest-status ${statusTone}`}>
@@ -230,7 +277,7 @@ export default function SpeedtestPage() {
                 <div className="speedtest-stat speedtest-download">
                     <span className="speedtest-label">Download</span>
                     <div className="speedtest-value-row">
-                        <span className="speedtest-value">{formatNumber(result?.download_mbps)}</span>
+                        <span className="speedtest-value">{showResult ? formatNumber(result?.download_mbps) : '--'}</span>
                         <span className="speedtest-unit">Mbps</span>
                     </div>
                     <span className="speedtest-caption">Băng thông tải xuống</span>
@@ -238,7 +285,7 @@ export default function SpeedtestPage() {
                 <div className="speedtest-stat speedtest-upload">
                     <span className="speedtest-label">Upload</span>
                     <div className="speedtest-value-row">
-                        <span className="speedtest-value">{formatNumber(result?.upload_mbps)}</span>
+                        <span className="speedtest-value">{showResult ? formatNumber(result?.upload_mbps) : '--'}</span>
                         <span className="speedtest-unit">Mbps</span>
                     </div>
                     <span className="speedtest-caption">Băng thông tải lên</span>
@@ -246,7 +293,7 @@ export default function SpeedtestPage() {
                 <div className="speedtest-stat speedtest-ping">
                     <span className="speedtest-label">Ping</span>
                     <div className="speedtest-value-row">
-                        <span className="speedtest-value">{formatNumber(result?.ping_ms)}</span>
+                        <span className="speedtest-value">{showResult ? formatNumber(result?.ping_ms) : '--'}</span>
                         <span className="speedtest-unit">ms</span>
                     </div>
                     <span className="speedtest-caption">Độ trễ trung bình</span>
@@ -256,7 +303,7 @@ export default function SpeedtestPage() {
             <div className="speedtest-meta">
                 <div className="speedtest-meta-item">
                     <span className="speedtest-meta-label">Thời điểm</span>
-                    <span className="speedtest-meta-value">{formatTimestamp(result?.timestamp)}</span>
+                    <span className="speedtest-meta-value">{showResult ? formatTimestamp(result?.timestamp) : '--'}</span>
                 </div>
                 <div className="speedtest-meta-item">
                     <span className="speedtest-meta-label">IP WAN</span>
