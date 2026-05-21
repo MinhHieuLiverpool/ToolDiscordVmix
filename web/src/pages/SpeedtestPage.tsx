@@ -26,6 +26,44 @@ const fetchTraceIp = async () => {
     }
 }
 
+const fetchIpInfo = async () => {
+    const sources = [
+        {
+            url: 'https://ipwho.is/?fields=ip,isp,success',
+            parse: (data: any) =>
+                data?.success
+                    ? { ip: data?.ip, isp: data?.isp }
+                    : null,
+        },
+        {
+            url: 'https://ipapi.co/json/',
+            parse: (data: any) => ({ ip: data?.ip, isp: data?.org || data?.isp }),
+        },
+        {
+            url: 'https://ipinfo.io/json',
+            parse: (data: any) => ({ ip: data?.ip, isp: data?.org }),
+        },
+    ]
+
+    for (const source of sources) {
+        try {
+            const response = await fetch(source.url, { cache: 'no-store' })
+            if (!response.ok) continue
+            const data = await response.json()
+            const parsed = source.parse(data)
+            if (parsed?.ip) {
+                return {
+                    ip: typeof parsed.ip === 'string' ? parsed.ip : null,
+                    isp: typeof parsed.isp === 'string' ? parsed.isp : null,
+                }
+            }
+        } catch {
+            // try next source
+        }
+    }
+    return null
+}
+
 const measurePing = async () => {
     const samples: number[] = []
     for (let i = 0; i < PING_ATTEMPTS; i += 1) {
@@ -60,30 +98,27 @@ const measureDownload = async () => {
 
 const measureUpload = async () => {
     const url = `${SPEEDTEST_HOST}/__up?cache=${buildCacheBuster()}`
-    const payload = new Uint8Array(UPLOAD_BYTES)
-    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
-        crypto.getRandomValues(payload)
-    }
+    const payload = '0'.repeat(UPLOAD_BYTES)
     const start = getNow()
-    const response = await fetch(url, {
+    await fetch(url, {
         method: 'POST',
         cache: 'no-store',
-        headers: {
-            'Content-Type': 'application/octet-stream',
-        },
+        mode: 'no-cors',
         body: payload,
     })
-    if (!response.ok) {
-        throw new Error('Upload test failed.')
-    }
-    await response.text()
     const end = getNow()
     const seconds = Math.max(0.001, (end - start) / 1000)
     return (UPLOAD_BYTES * 8) / seconds
 }
 
 const runBrowserSpeedtest = async (): Promise<BrowserSpeedtestResult> => {
-    const [ipwan, ping_ms] = await Promise.all([fetchTraceIp(), measurePing()])
+    const [traceIp, ping_ms, ipInfo] = await Promise.all([
+        fetchTraceIp(),
+        measurePing(),
+        fetchIpInfo(),
+    ])
+    const ipwan = ipInfo?.ip || traceIp
+    const isp = ipInfo?.isp || null
     const download_bps = await measureDownload()
     const upload_bps = await measureUpload()
     return {
@@ -95,7 +130,7 @@ const runBrowserSpeedtest = async (): Promise<BrowserSpeedtestResult> => {
         download_mbps: download_bps / 1_000_000,
         upload_mbps: upload_bps / 1_000_000,
         ipwan,
-        isp: null,
+        isp,
     }
 }
 

@@ -46,13 +46,6 @@ function extractVideoId(url: string): string | null {
     return match && match[2].length === 11 ? match[2] : null
 }
 
-function formatTime(seconds: number) {
-    const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0
-    const minutes = Math.floor(safeSeconds / 60)
-    const remain = String(safeSeconds % 60).padStart(2, '0')
-    return `${String(minutes).padStart(2, '0')}:${remain}`
-}
-
 function YouTubePlayer({
     videoId,
     onPlayerReady,
