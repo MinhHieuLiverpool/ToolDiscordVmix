@@ -17,6 +17,37 @@ export function renderDetailLine(label: string, value: unknown, mono = false) {
     )
 }
 
+function formatNumber(value: number) {
+    if (value >= 100) return value.toFixed(0)
+    if (value >= 10) return value.toFixed(1)
+    return value.toFixed(2)
+}
+
+export function formatBitrate(value: unknown): string {
+    const raw = String(value ?? '').trim()
+    if (!raw) return '-'
+
+    const normalized = raw.toLowerCase().replace(/\s+/g, '')
+    const match = normalized.match(/^([\d.]+)([a-z]+)?$/)
+    if (!match) return raw
+
+    const num = Number(match[1])
+    const unit = match[2] || ''
+    if (!Number.isFinite(num)) return raw
+
+    if (unit === 'kbps' || unit === 'k') {
+        return num >= 1000 ? `${formatNumber(num / 1000)} Mbps` : `${formatNumber(num)} kbps`
+    }
+    if (unit === 'mbps' || unit === 'm') {
+        return `${formatNumber(num)} Mbps`
+    }
+    if (unit === 'bps') {
+        return `${formatNumber(num / 1_000_000)} Mbps`
+    }
+
+    return num >= 1000 ? `${formatNumber(num / 1000)} Mbps` : `${formatNumber(num)} kbps`
+}
+
 export function renderSrtCard(srt: BackendSrtItem, index: number) {
     const statusText = toOnOff(srt.status)
     return (
@@ -41,9 +72,9 @@ export function renderStreamCard(stream: BackendStreamItem, index: number) {
                 <span className={`status-pill ${runtimeText === 'ON' ? 'pill-on' : 'pill-off'}`}>{runtimeText}</span>
             </div>
             {renderDetailLine('Health', healthText)}
-            {renderDetailLine('Video Bitrate', stream.vbit)}
+            {renderDetailLine('Video Bitrate', formatBitrate(stream.vbit))}
             {renderDetailLine('Size', stream.size)}
-            {renderDetailLine('Audio Bitrate', stream.abit)}
+            {renderDetailLine('Audio Bitrate', formatBitrate(stream.abit))}
             {renderDetailLine('Level', stream.level)}
             {renderDetailLine('Preset', stream.preset)}
             {renderDetailLine('Audio Format', stream.aformat)}

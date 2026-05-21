@@ -1613,14 +1613,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
 
         result: dict = {}
         for stream_name, (latest_path, latest_write) in latest_by_stream.items():
-            try:
-                content = self._read_file_shared(latest_path)
-            except Exception:
-                with open(latest_path, "r", encoding="utf-8", errors="replace") as f:
-                    content = f.read()
-
-            quality_matches = re.findall(r"frame=.*?fps=.*?q=.*?(?:L?size=.*?)?bitrate=.*?kbits/s.*", content)
-            quality_line = quality_matches[-1].strip() if quality_matches else ""
+            content, quality_line = self._read_stream_log_tail(latest_path)
 
             result[stream_name] = {
                 "stream_name": stream_name,
@@ -1632,6 +1625,58 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
             }
 
         return result, None
+
+    def _read_stream_log_tail(self, path: str) -> tuple[str, str]:
+        state = self._stream_log_state.get(path)
+        if state is None:
+            state = {"offset": 0, "buffer": "", "header": "", "quality_line": ""}
+            self._stream_log_state[path] = state
+
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            return "", ""
+
+        if not state["header"]:
+            try:
+                with open(path, "rb") as f:
+                    head = f.read(65536)
+                state["header"] = head.decode("utf-8", errors="replace")
+            except Exception:
+                state["header"] = ""
+
+        if size < state["offset"]:
+            state["offset"] = 0
+            state["buffer"] = ""
+
+        new_text = ""
+        try:
+            with open(path, "rb") as f:
+                if state["offset"] == 0 and size > 65536:
+                    f.seek(size - 65536)
+                else:
+                    f.seek(state["offset"])
+                chunk = f.read()
+                new_text = chunk.decode("utf-8", errors="replace")
+                state["offset"] = size
+        except Exception:
+            new_text = ""
+
+        if new_text:
+            state["buffer"] = (state["buffer"] + new_text)[-20000:]
+
+        quality_matches = re.findall(
+            r"frame=.*?fps=.*?q=.*?(?:L?size=.*?)?bitrate=.*?kbits/s.*",
+            state["buffer"],
+        )
+        if quality_matches:
+            state["quality_line"] = quality_matches[-1].strip()
+
+        combined = state["buffer"]
+        if state["header"]:
+            combined = state["header"] + "\n" + state["buffer"]
+
+        return combined, state["quality_line"]
 
     @staticmethod
     def _extract_command_line(raw_content: str) -> str:
@@ -1867,6 +1912,8 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
             return 0.0
         if field == "bitrate":
             m = re.search(r"bitrate=\s*([0-9]+(?:\.[0-9]+)?)kbits/s", line)
+        elif field == "fps":
+            m = re.search(r"fps=\s*([0-9]+(?:\.[0-9]+)?)", line)
         elif field == "speed":
             m = re.search(r"speed=\s*([0-9]+(?:\.[0-9]+)?)x", line)
         else:
@@ -1877,7 +1924,10 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
         actual_bitrate = self._parse_quality_metric(latest.get("quality_line", ""), "bitrate")
         target_bitrate = self._parse_k_to_kbps(ui.get("video_bitrate", ""))
         speed = self._parse_quality_metric(latest.get("quality_line", ""), "speed")
-        dropped_warnings = len(re.findall(r"frame dropped", latest.get("raw_content", ""), re.IGNORECASE))
+        fps = self._parse_quality_metric(latest.get("quality_line", ""), "fps")
+        raw_content = latest.get("raw_content", "")
+        recent_content = raw_content[-8000:] if raw_content else ""
+        dropped_warnings = len(re.findall(r"frame dropped", recent_content, re.IGNORECASE))
 
         ratio = (actual_bitrate / target_bitrate) if target_bitrate > 0 else 0.0
         duration_sec = 0.0
@@ -1885,19 +1935,45 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
         if m_time:
             duration_sec = int(m_time.group(1)) * 3600 + int(m_time.group(2)) * 60 + float(m_time.group(3))
 
-        if dropped_warnings >= 20 or (target_bitrate > 0 and ratio < 0.5):
-            status = "DO"
-        elif (
-            dropped_warnings > 0
+        overload_patterns = [
+            r"past duration too large",
+            r"buffer .* too full",
+            r"real-time buffer .* too full",
+            r"frame dropped",
+        ]
+        network_patterns = [
+            r"connection reset by peer",
+            r"resource temporarily unavailable",
+            r"socket error",
+            r"write error",
+            r"writen",
+            r"av_interleaved_write_frame\(\).*error",
+            r"rtmp .*send error",
+            r"srt.*error",
+            r"tcp.*error",
+        ]
+
+        overload_hit = any(re.search(pat, recent_content, re.IGNORECASE) for pat in overload_patterns)
+        network_hit = any(re.search(pat, recent_content, re.IGNORECASE) for pat in network_patterns)
+
+        if (
+            overload_hit
+            or network_hit
+            or dropped_warnings > 0
             or (target_bitrate > 0 and ratio < 0.85)
-            or (speed > 0 and speed < 0.95)
+            or (speed > 0 and speed < 0.5)
+            or (fps > 0 and fps < 30)
             or (duration_sec > 0 and duration_sec < 20)
         ):
             status = "VANG"
         else:
-            status = "XANH"
+            status = "DO"
 
-        reason = f"ratio={ratio:.2f}, speed={speed:.2f}x, dropped={dropped_warnings}, duration={duration_sec:.1f}s"
+        reason = (
+            f"ratio={ratio:.2f}, speed={speed:.2f}x, fps={fps:.2f}, "
+            f"dropped={dropped_warnings}, duration={duration_sec:.1f}s, "
+            f"overload={'1' if overload_hit else '0'}, network={'1' if network_hit else '0'}"
+        )
 
         return {
             "status": status,
@@ -1955,7 +2031,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
 
     def get_stream_quality_snapshot(self, live_window_sec: int = 20) -> dict:
         now = time.time()
-        if now - self._stream_quality_ts < 5 and self._stream_quality_cache:
+        if now - self._stream_quality_ts < 2 and self._stream_quality_cache:
             return self._stream_quality_cache
 
         streams_cfg, cfg_source, cfg_error = self._parse_all_streams_from_config()

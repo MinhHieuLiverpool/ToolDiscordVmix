@@ -473,6 +473,13 @@
 .health-bad{background:rgba(239,68,68,.08);color:#dc2626}
 .health-warn{background:rgba(245,158,11,.08);color:#d97706}
 
+.health-dot-wrap{display:inline-flex;align-items:center;gap:.35rem}
+.health-dot{width:12px;height:12px;border-radius:50%;border:2px solid #cbd5f5;background:transparent;box-shadow:0 0 0 2px rgba(15,23,42,.04) inset}
+.health-dot-good{border-color:#10b981;background:rgba(16,185,129,.25)}
+.health-dot-warn{border-color:#f59e0b;background:rgba(245,158,11,.28)}
+.health-dot-bad{border-color:#ef4444;background:rgba(239,68,68,.24)}
+.health-dot-text{font-size:.65rem;font-weight:700;text-transform:uppercase;color:#0f172a}
+
 .merged-cell{
   vertical-align:middle!important;
   border-right:2px solid #e2e8f0;

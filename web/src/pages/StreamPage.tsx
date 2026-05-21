@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { normalizeStreamList, type BackendStreamItem } from '../services/api'
-import { toOnOff } from '../components/DialogHelpers'
+import { formatBitrate, toOnOff } from '../components/DialogHelpers'
 
 interface MachineStreamGroup {
     machineName: string
@@ -149,6 +149,14 @@ export default function StreamPage() {
                                         group.streamList.map((stream, si) => {
                                             const runtimeText = toOnOff(stream.runtime)
                                             const healthText = String(stream.health || '-').toUpperCase()
+                                            const healthClass =
+                                                healthText === 'GOOD' || healthText === 'XANH'
+                                                    ? 'health-dot-good'
+                                                    : healthText === 'BAD' || healthText === 'DO' || healthText === 'ĐỎ'
+                                                        ? 'health-dot-bad'
+                                                        : healthText === 'VANG' || healthText === 'VÀNG'
+                                                            ? 'health-dot-warn'
+                                                            : ''
                                             const isFirst = si === 0
                                             return (
                                                 <tr key={`stream-${gi}-${si}`} className={gi % 2 === 0 ? '' : 'row-alt'}>
@@ -169,13 +177,14 @@ export default function StreamPage() {
                                                         </span>
                                                     </td>
                                                     <td>
-                                                        <span className={`health-badge ${healthText === 'GOOD' || healthText === 'XANH' ? 'health-good' : healthText === 'BAD' || healthText === 'DO' || healthText === 'ĐỎ' ? 'health-bad' : healthText === 'VANG' || healthText === 'VÀNG' ? 'health-warn' : ''}`}>
-                                                            {healthText}
+                                                        <span className="health-dot-wrap">
+                                                            <span className={`health-dot ${healthClass}`} title={healthText} />
+                                                            <span className="health-dot-text">{healthText}</span>
                                                         </span>
                                                     </td>
-                                                    <td>{stream.vbit || '-'}</td>
+                                                    <td>{formatBitrate(stream.vbit)}</td>
                                                     <td>{stream.size || '-'}</td>
-                                                    <td>{stream.abit || '-'}</td>
+                                                    <td>{formatBitrate(stream.abit)}</td>
                                                     <td>{stream.level || '-'}</td>
                                                     <td>{stream.preset || '-'}</td>
                                                     <td>{stream.keyframe || '-'}</td>

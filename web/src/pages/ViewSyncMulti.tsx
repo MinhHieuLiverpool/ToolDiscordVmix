@@ -65,6 +65,8 @@ function YouTubePlayer({
     const playerRef = useRef<any>(null)
     const containerRef = useRef<HTMLDivElement>(null)
     const readyRef = useRef(false)
+    const origin = window.location.origin
+    const originParam = encodeURIComponent(origin)
 
     useEffect(() => {
         let initTimeout: ReturnType<typeof setTimeout> | null = null
@@ -96,7 +98,8 @@ function YouTubePlayer({
                         rel: 0,
                         fs: 1,
                         enablejsapi: 1,
-                        origin: window.location.origin,
+                        origin,
+                        widget_referrer: window.location.href,
                     },
                     events: {
                         onReady: (event: PlayerEvent) => {
@@ -143,7 +146,7 @@ function YouTubePlayer({
                 <iframe
                     title={`YouTube ${videoId}`}
                     className="viewsync-iframe"
-                    src={`https://www.youtube.com/embed/${videoId}?enablejsapi=1&origin=${window.location.origin}&start=${startTime}`}
+                    src={`https://www.youtube.com/embed/${videoId}?enablejsapi=1&origin=${originParam}&start=${startTime}`}
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
                 />

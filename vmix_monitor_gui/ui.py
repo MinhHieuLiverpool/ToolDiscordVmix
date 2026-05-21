@@ -1,3 +1,4 @@
+import re
 import threading
 import tkinter as tk
 from datetime import datetime
@@ -18,6 +19,32 @@ except ImportError:
 
 
 class VmixMonitorUIMixin:
+    @staticmethod
+    def _format_stream_bitrate(raw_value: object) -> str:
+        text = str(raw_value or "").strip()
+        if not text:
+            return "-"
+
+        normalized = "".join(text.split()).lower()
+        m = re.match(r"^([\d.]+)([a-z]+)?$", normalized)
+        if not m:
+            return text
+
+        try:
+            value = float(m.group(1))
+        except ValueError:
+            return text
+
+        unit = m.group(2) or ""
+        if unit in {"kbps", "k"}:
+            return f"{value / 1000:.2f} Mbps" if value >= 1000 else f"{value:.0f} kbps"
+        if unit in {"mbps", "m"}:
+            return f"{value:.2f} Mbps"
+        if unit == "bps":
+            return f"{(value / 1_000_000):.2f} Mbps"
+
+        return f"{value / 1000:.2f} Mbps" if value >= 1000 else f"{value:.0f} kbps"
+
     def setup_ui(self):
         win_w, win_h = 1450, 920
         self.root.geometry(f"{win_w}x{win_h}")
@@ -393,12 +420,12 @@ class VmixMonitorUIMixin:
             def _health_dot(status: str) -> str:
                 s = (status or "").upper()
                 if s == "XANH":
-                    return "🟢"
+                    return "Xanh"
                 if s == "VANG":
-                    return "🟡"
+                    return "Vang"
                 if s == "DO":
-                    return "🔴"
-                return "⚪"
+                    return "Do"
+                return "-"
 
             tree.insert(
                 "",
@@ -407,9 +434,9 @@ class VmixMonitorUIMixin:
                     entry.get("stream", ""),
                     run.get("status", "-"),
                     _health_dot(health.get("status", "")) if health else "-",
-                    ui_snap.get("video_bitrate", "-"),
+                    self._format_stream_bitrate(ui_snap.get("video_bitrate", "-")),
                     ui_snap.get("encode_size", "-"),
-                    ui_snap.get("audio_bitrate", "-"),
+                    self._format_stream_bitrate(ui_snap.get("audio_bitrate", "-")),
                     ui_snap.get("level", "-"),
                     ui_snap.get("preset", "-"),
                     ui_snap.get("audio_format", "-"),

@@ -63,6 +63,7 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
         self._net_last_ts = None
         self._stream_quality_cache = {}
         self._stream_quality_ts = 0.0
+        self._stream_log_state = {}
         self._vmix_bw_cache_ts = 0.0
         self._vmix_bw_cache_pid = ""
         self._vmix_bw_cache_send = None
