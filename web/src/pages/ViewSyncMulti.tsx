@@ -294,7 +294,6 @@ export default function ViewSyncMultiPage() {
                                     </div>
                                 </div>
                                 <div className="viewsync-video-footer">
-                                    <span>Start: {formatTime(item.startTime)}</span>
                                 </div>
                             </div>
                         ))}

@@ -375,11 +375,12 @@
 .viewsync-video-title{display:inline-flex;align-items:center;gap:.5rem}
 .viewsync-video-frame{
   background:linear-gradient(135deg,rgba(14,165,165,.08),rgba(245,158,11,.12));
-  border-radius:12px;min-height:120px;position:relative;overflow:hidden;
-  display:flex;align-items:center;justify-content:center;padding:1rem;
+  border-radius:12px;position:relative;overflow:hidden;
+  aspect-ratio:16 / 9;
+  display:flex;align-items:stretch;justify-content:stretch;padding:0;
 }
 .viewsync-video-frame-media{
-  position:relative;width:100%;height:0;padding-bottom:56.25%;
+  position:relative;width:100%;height:100%;
 }
 .viewsync-player,.viewsync-iframe{
   position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:12px;
