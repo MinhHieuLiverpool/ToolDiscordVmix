@@ -134,8 +134,6 @@ class VmixMonitorUIMixin:
             ("Net Speed", "network_speed", "⚡", "primary"),
             ("Network UP", "sender_bw", "📤", "primary"),
             ("Network DL", "receiver_bw", "📥", "primary"),
-            ("vMix Send", "vmixsend", "🔼", "warning"),
-            ("vMix Recv", "vmixreceive", "🔽", "warning"),
             ("vMix PID", "pid_vmix", "🔧", "secondary"),
             ("Recording", "rec", "🔴", "danger"),
             ("Streaming", "live", "📡", "danger"),
@@ -180,23 +178,6 @@ class VmixMonitorUIMixin:
 
         self.delete_btn = ttk.Button(srt_wrap, text="🗑 Delete Selected", command=self.delete_selected, bootstyle="danger-outline", width=20)
         self.delete_btn.pack(pady=(10, 0))
-
-        # FFmpeg Processes
-        ff_wrap = ttk.Labelframe(tables_row, text=" 🎞️ FFmpeg Processes ", padding=10, bootstyle="warning")
-        ff_wrap.pack(side=LEFT, fill=BOTH, expand=YES, padx=(10, 0))
-
-        ff_inner = ttk.Frame(ff_wrap)
-        ff_inner.pack(fill=BOTH, expand=YES)
-
-        self.ffmpeg_tree = ttk.Treeview(ff_inner, columns=("name", "pid", "sender", "receiver"), show="headings", height=8, bootstyle="warning")
-        for col, title, width in [("name", "Name", 160), ("pid", "PID", 80), ("sender", "Sent", 110), ("receiver", "Recv", 110)]:
-            self.ffmpeg_tree.heading(col, text=title)
-            self.ffmpeg_tree.column(col, width=width, anchor=CENTER)
-
-        ff_sb = ttk.Scrollbar(ff_inner, orient=VERTICAL, command=self.ffmpeg_tree.yview, bootstyle="warning-round")
-        self.ffmpeg_tree.configure(yscrollcommand=ff_sb.set)
-        ff_sb.pack(side=RIGHT, fill=Y)
-        self.ffmpeg_tree.pack(side=LEFT, fill=BOTH, expand=YES)
 
         # ========== STREAM QUALITY SNAPSHOT ==========
         quality_wrap = ttk.Labelframe(main_container, text=" 📋 Stream Quality Health ", padding=10, bootstyle="secondary")
@@ -283,8 +264,6 @@ class VmixMonitorUIMixin:
             "network_speed": entry.get("network_speed", "—"),
             "sender_bw": entry.get("sender_bw", "—"),
             "receiver_bw": entry.get("receiver_bw", "—"),
-            "vmixsend": entry.get("vmixsend", "—"),
-            "vmixreceive": entry.get("vmixreceive", "—"),
             "pid_vmix": entry.get("pid_vmix", "—"),
             "rec": entry.get("rec", "—"),
             "live": entry.get("live", "—"),

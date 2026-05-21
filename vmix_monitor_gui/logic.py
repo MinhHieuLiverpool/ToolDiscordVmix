@@ -55,6 +55,8 @@ class VmixMonitorLogicMixin:
     def _format_mbps_text(value_mbps: float | None) -> str:
         if value_mbps is None:
             return "—"
+        if value_mbps < 1:
+            return f"{value_mbps * 1000:.0f} kbps"
         if value_mbps >= 100:
             return f"{value_mbps:.0f} Mbps"
         if value_mbps >= 10:
@@ -182,6 +184,45 @@ class VmixMonitorLogicMixin:
             return "—", "—"
 
         return chosen["mac"], chosen["speed"]
+
+    def _get_primary_interface_name(self) -> str | None:
+        try:
+            import psutil
+        except Exception:
+            return None
+
+        local_ip = str(getattr(self, "ip_var", None).get() if getattr(self, "ip_var", None) else "").strip()
+        stats_map = psutil.net_if_stats()
+        addrs_map = psutil.net_if_addrs()
+
+        preferred = None
+        fallback = None
+        for name, stat in stats_map.items():
+            if not getattr(stat, "isup", True):
+                continue
+            addrs = addrs_map.get(name, [])
+            ipv4s = []
+            for addr in addrs:
+                if str(addr.family) in {"2"} or "AF_INET" in str(addr.family):
+                    ip_text = str(getattr(addr, "address", "") or "").strip()
+                    if ip_text:
+                        ipv4s.append(ip_text)
+
+            if local_ip and local_ip in ipv4s:
+                preferred = name
+                break
+
+            if not fallback:
+                for ip_text in ipv4s:
+                    if not ip_text.startswith("127."):
+                        fallback = name
+                        break
+
+        if preferred:
+            return preferred
+        if fallback:
+            return fallback
+        return next(iter(stats_map), None)
 
     def _parse_resolution_and_srt_from_preset(self, preset_path: str) -> tuple[str, dict]:
         if not preset_path or not os.path.isfile(preset_path):
@@ -854,31 +895,44 @@ class VmixMonitorLogicMixin:
     def measure_network_sender_receiver_mbps(self) -> tuple[float | None, float | None]:
         try:
             import psutil
-
-            counters = psutil.net_io_counters()
-            sent_now = int(counters.bytes_sent)
-            recv_now = int(counters.bytes_recv)
-            ts_now = time.time()
-
-            if self._net_last_ts is None:
-                self._net_last_sent = sent_now
-                self._net_last_recv = recv_now
-                self._net_last_ts = ts_now
-                return None, None
-
-            dt = max(ts_now - self._net_last_ts, 1e-6)
-            sent_diff = max(sent_now - int(self._net_last_sent or 0), 0)
-            recv_diff = max(recv_now - int(self._net_last_recv or 0), 0)
-
-            self._net_last_sent = sent_now
-            self._net_last_recv = recv_now
-            self._net_last_ts = ts_now
-
-            sender_mbps = (sent_diff * 8) / dt / 1_000_000
-            receiver_mbps = (recv_diff * 8) / dt / 1_000_000
-            return round(sender_mbps, 3), round(receiver_mbps, 3)
         except Exception:
             return None, None
+
+        iface = self._get_primary_interface_name()
+        try:
+            pernic = psutil.net_io_counters(pernic=True)
+        except Exception:
+            pernic = {}
+
+        if iface and iface in pernic:
+            counters = pernic[iface]
+            key = iface
+        else:
+            counters = psutil.net_io_counters()
+            key = "__total__"
+
+        sent_now = int(getattr(counters, "bytes_sent", 0) or 0)
+        recv_now = int(getattr(counters, "bytes_recv", 0) or 0)
+        ts_now = time.time()
+
+        if not hasattr(self, "_net_last_by_iface"):
+            self._net_last_by_iface = {}
+
+        last_state = self._net_last_by_iface.get(key)
+        if not last_state:
+            self._net_last_by_iface[key] = (sent_now, recv_now, ts_now)
+            return None, None
+
+        last_sent, last_recv, last_ts = last_state
+        dt = max(ts_now - float(last_ts or 0.0), 1e-6)
+        sent_diff = max(sent_now - int(last_sent or 0), 0)
+        recv_diff = max(recv_now - int(last_recv or 0), 0)
+
+        self._net_last_by_iface[key] = (sent_now, recv_now, ts_now)
+
+        sender_mbps = (sent_diff * 8) / dt / 1_000_000
+        receiver_mbps = (recv_diff * 8) / dt / 1_000_000
+        return round(sender_mbps, 3), round(receiver_mbps, 3)
 
     def get_network_card_summary(self) -> tuple[str, str]:
         """Return MAC address and link speed for the primary network interface."""

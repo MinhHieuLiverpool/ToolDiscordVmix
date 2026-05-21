@@ -12,3 +12,5 @@ websocket-client
 psutil
 redis==5.0.8
 speedtest-cli==2.1.3
+etw
+krabsetw
