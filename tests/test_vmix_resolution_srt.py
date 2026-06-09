@@ -128,24 +128,39 @@ def _bw_str(bps_str: str) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Method 1 – File-based (video.txt + current.config)
+# Method 1 – File-based (video.txt + user.config)
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _find_latest_studiocoast_config() -> str | None:
+    local_appdata = os.environ.get("LOCALAPPDATA")
+    if not local_appdata:
+        return None
+    
+    studiocoast_dir = os.path.join(local_appdata, "StudioCoast_Pty_Ltd")
+    if not os.path.isdir(studiocoast_dir):
+        return None
+        
+    config_files = glob.glob(os.path.join(studiocoast_dir, "**", "*.config"), recursive=True)
+    if not config_files:
+        return None
+        
+    return max(config_files, key=os.path.getmtime)
 
 def test_file_based() -> tuple[str, dict]:
     """
     Đọc Resolution từ <ProgramData>\\vMix\\video.txt
-    Đọc SRT Quality từ <ProgramData>\\vMix\\settingbackups\\current.config
+    Đọc SRT Quality từ file .config mới nhất trong <LocalAppData>\\StudioCoast_Pty_Ltd
     Trả về: (resolution_str, {port: quality_str})
     """
-    header("METHOD 1 – File-based  (video.txt + current.config)")
+    header("METHOD 1 – File-based  (video.txt + user.config)")
 
     vmix_dir    = _vmix_data_dir()
     video_txt   = os.path.join(vmix_dir, "video.txt")
-    config_file = os.path.join(vmix_dir, "settingbackups", "current.config")
+    config_file = _find_latest_studiocoast_config()
 
     print(f"  Thư mục vMix ProgramData : {vmix_dir}")
     print(f"  video.txt                : {video_txt}")
-    print(f"  current.config           : {config_file}")
+    print(f"  user.config (latest)     : {config_file or 'KHÔNG TÌM THẤY'}")
     print()
 
     # ── Resolution ──────────────────────────────────────────────────────────
@@ -200,8 +215,8 @@ def test_file_based() -> tuple[str, dict]:
 
     # ── SRT Quality ─────────────────────────────────────────────────────────
     srt_by_port: dict = {}
-    if not os.path.isfile(config_file):
-        err("current.config", "KHÔNG TÌM THẤY")
+    if not config_file or not os.path.isfile(config_file):
+        err("user.config", "KHÔNG TÌM THẤY .config trong StudioCoast_Pty_Ltd")
     else:
         try:
             content = _read_file_shared(config_file)
@@ -231,6 +246,13 @@ def test_file_based() -> tuple[str, dict]:
                     port = 0
 
                 enabled  = (sub.findtext("SRTEnabled") or "0").strip()
+                srt_type = (sub.findtext("SRTType") or "").strip()
+                hostname = (sub.findtext("SRTHostname") or "").strip()
+                stream_id = (sub.findtext("SRTStreamID") or "").strip()
+                
+                enabled_lbl = "ON" if enabled == "1" else "OFF"
+                type_lbl = "Caller" if srt_type == "0" else "Listener"
+
                 codec_id = (sub.findtext("SRTVideoCodec") or "").strip()
                 warn(f"{ext_name} SRTVideoCodec (raw)", repr(codec_id) + "  (0=H264, 1=HEVC)")
                 codec    = "HEVC" if codec_id == "1" else "H264"
@@ -240,6 +262,8 @@ def test_file_based() -> tuple[str, dict]:
                 quality  = f"{codec} {vbw_s} AAC {abw_s}{hw}"
 
                 label = f"{ext_name} (port {port or 'N/A'})"
+                print(f"  → [SRT Info] Enabled: {enabled_lbl} ({enabled}) | Type: {type_lbl} | Hostname: {hostname} | Port: {port_str} | StreamID: {stream_id}")
+
                 if enabled == "1" and port:
                     ok(label, f"{quality}  [ENABLED]")
                     srt_by_port[port] = quality

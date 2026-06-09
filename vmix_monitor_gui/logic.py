@@ -717,10 +717,6 @@ class VmixMonitorLogicMixin:
     def send_app_status(self, status_value):
         import requests
 
-        if not self.port_list:
-            self.log("⚠️ Không có port nào trong danh sách!")
-            return
-
         ip = self.ip_var.get().strip()
         if not ip:
             return
@@ -729,14 +725,21 @@ class VmixMonitorLogicMixin:
             wan_ip = self.get_wan_ip()
             machine_name = socket.gethostname()
 
-            # Build SRT array from all ports
+            # Build SRT array from auto-scan external outputs
             srt_list = []
-            for entry in self.port_list:
+            custom_names = getattr(self, "_srt_ext_custom_names", {})
+            srt_ext_data = getattr(self, "_srt_ext_latest_data", [])
+            for ext_entry in srt_ext_data:
+                title = ext_entry.get("title", "")
                 srt_list.append({
-                    "nameSRT": entry["name"],
-                    "port": entry["port"],
-                    "quality": "—",
-                    "status": "OFF",
+                    "nameSRT": custom_names.get(title, title),
+                    "port": ext_entry.get("port", 0),
+                    "quality": ext_entry.get("quality", "—"),
+                    "status": ext_entry.get("srt_enabled_label", "OFF"),
+                    "type": ext_entry.get("srt_type_label", "—"),
+                    "hostname": ext_entry.get("hostname", ""),
+                    "stream_id": ext_entry.get("stream_id", ""),
+                    "title": title,
                 })
 
             data = {
@@ -782,15 +785,10 @@ class VmixMonitorLogicMixin:
 
     def toggle_monitoring(self):
         if not self.is_running:
-            if not self.port_list:
-                messagebox.showwarning("Cảnh báo", "Vui lòng thêm ít nhất một port!")
-                return
-
             self.is_running = True
             self.ping_timeout_count = 0
             self.start_btn.config(text="⏹️ STOP MONITORING", bootstyle="danger")
             self.status_label.config(text="● Running", bootstyle="success")
-            self.delete_btn.config(state=tk.DISABLED)
             self.name_entry.config(state=tk.DISABLED)
             self.port_entry.config(state=tk.DISABLED)
             self.add_btn.config(state=tk.DISABLED)
@@ -804,7 +802,6 @@ class VmixMonitorLogicMixin:
             threading.Thread(target=self.stop_and_cleanup, daemon=True).start()
             self.start_btn.config(text="▶️ START MONITORING", bootstyle="success")
             self.status_label.config(text="● Stopped", bootstyle="secondary")
-            self.delete_btn.config(state=tk.NORMAL)
             self.name_entry.config(state=tk.NORMAL)
             self.port_entry.config(state=tk.NORMAL)
             self.add_btn.config(state=tk.NORMAL)
@@ -1287,6 +1284,322 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
         self._vmix_file_cache = result
         self._vmix_file_ts = time.time()
         return result
+
+    @staticmethod
+    def _find_latest_studiocoast_config() -> str | None:
+        """Find the latest .config file from LocalAppData\\StudioCoast_Pty_Ltd."""
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        if not local_appdata:
+            return None
+        studiocoast_dir = os.path.join(local_appdata, "StudioCoast_Pty_Ltd")
+        if not os.path.isdir(studiocoast_dir):
+            return None
+        config_files = glob.glob(os.path.join(studiocoast_dir, "**", "*.config"), recursive=True)
+        if not config_files:
+            return None
+        return max(config_files, key=os.path.getmtime)
+
+    def _parse_srt_external_outputs(self) -> list[dict]:
+        """Parse all OutputsExternal blocks to extract detailed SRT info.
+
+        Returns a list of dicts, one per OutputsExternal block found, with keys:
+          title, srt_enabled, srt_enabled_label, srt_type, srt_type_label,
+          hostname, port, stream_id, codec, video_bw, audio_bw, hw_encoder, quality
+
+        When vMix process is not running, all SRT Enabled are forced to OFF.
+        """
+        results: list[dict] = []
+
+        # ── Check if vMix process is running ───────────────────────────────────
+        vmix_alive = False
+        try:
+            import psutil
+            for proc in psutil.process_iter(["name"]):
+                try:
+                    if (proc.info.get("name") or "").lower() in ("vmix64.exe", "vmix.exe"):
+                        vmix_alive = True
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except Exception:
+            pass
+        self._vmix_process_alive = vmix_alive
+
+        # ── Source 1: preset file from vMix API ────────────────────────────────
+        preset_root = None
+        try:
+            import requests as req
+            port_str = self.vmix_api_port_var.get().strip() or "8088"
+            url = f"http://127.0.0.1:{port_str}/api"
+            resp = req.get(url, timeout=2)
+            if resp.status_code == 200:
+                api_root = ET.fromstring(resp.content)
+                preset_path = api_root.findtext("preset", "") or api_root.findtext("Preset", "")
+                if preset_path and os.path.isfile(preset_path):
+                    try:
+                        preset_root = ET.parse(preset_path).getroot()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # ── Source 2: find preset from process or recent files ──────────────────
+        if preset_root is None:
+            try:
+                import psutil
+                for proc in psutil.process_iter(["name", "cmdline"]):
+                    try:
+                        if "vmix" in (proc.info["name"] or "").lower():
+                            for arg in (proc.info.get("cmdline") or []):
+                                if arg.lower().endswith(".vmix") and os.path.isfile(arg):
+                                    preset_root = ET.parse(arg).getroot()
+                                    break
+                    except Exception:
+                        pass
+                    if preset_root is not None:
+                        break
+            except Exception:
+                pass
+
+        if preset_root is None:
+            try:
+                search_dirs = []
+                appdata = os.environ.get("APPDATA", "")
+                if appdata:
+                    search_dirs.append(os.path.join(appdata, "vMix"))
+                home = os.path.expanduser("~")
+                search_dirs += [
+                    os.path.join(home, "Documents", "vMix"),
+                    os.path.join(home, "Desktop"),
+                    os.path.join(home, "Documents"),
+                ]
+                candidates = []
+                for d in search_dirs:
+                    candidates.extend(glob.glob(os.path.join(d, "*.vmix")))
+                if candidates:
+                    latest_file = max(candidates, key=os.path.getmtime)
+                    preset_root = ET.parse(latest_file).getroot()
+            except Exception:
+                pass
+
+        # ── Parse from preset XML (direct element access) ──────────────────────
+        if preset_root is not None:
+            for idx, ext_name in enumerate(
+                ("OutputsExternal", "OutputsExternal2", "OutputsExternal3", "OutputsExternal4"), start=1
+            ):
+                ext = preset_root.find(f".//{ext_name}")
+                if ext is None:
+                    continue
+
+                enabled = (ext.findtext("SRTEnabled") or "0").strip()
+                srt_type = (ext.findtext("SRTType") or "").strip()
+                hostname = (ext.findtext("SRTHostname") or "").strip()
+                port_str_val = (ext.findtext("SRTPort") or "0").strip()
+                stream_id = (ext.findtext("SRTStreamID") or "").strip()
+
+                try:
+                    port_val = int(port_str_val)
+                except ValueError:
+                    port_val = 0
+
+                enabled_lbl = "ON" if enabled == "1" else "OFF"
+                type_lbl = "Caller" if srt_type == "0" else "Listener"
+
+                codec_id = (ext.findtext("SRTVideoCodec") or "").strip()
+                codec = "HEVC" if codec_id == "1" else "H264"
+                vbw_s = self._bw_str(ext.findtext("SRTVideoBandwidth") or "0")
+                abw_s = self._bw_str(ext.findtext("SRTAudioBandwidth") or "0")
+                hw = "HW" if (ext.findtext("SRTHardwareEncoder") or "0").strip() == "1" else ""
+                quality = f"{codec} {vbw_s} AAC {abw_s}"
+                if hw:
+                    quality += f" {hw}"
+
+                results.append({
+                    "title": ext_name,
+                    "srt_enabled": enabled,
+                    "srt_enabled_label": enabled_lbl,
+                    "srt_type": srt_type,
+                    "srt_type_label": type_lbl,
+                    "hostname": hostname,
+                    "port": port_val,
+                    "port_str": port_str_val,
+                    "stream_id": stream_id,
+                    "codec": codec,
+                    "video_bw": vbw_s,
+                    "audio_bw": abw_s,
+                    "hw_encoder": hw,
+                    "quality": quality,
+                })
+            if results:
+                if not vmix_alive:
+                    for entry in results:
+                        entry["srt_enabled"] = "0"
+                        entry["srt_enabled_label"] = "OFF"
+                return results
+
+        # ── Fallback: parse from user.config (StudioCoast) or current.config ───
+        config_file = self._find_latest_studiocoast_config()
+        if not config_file or not os.path.isfile(config_file):
+            vmix_dir = self._vmix_data_dir()
+            config_file = os.path.join(vmix_dir, "settingbackups", "current.config")
+
+        if not config_file or not os.path.isfile(config_file):
+            return results
+
+        try:
+            content = self._read_file_shared(config_file)
+            for idx, ext_name in enumerate(
+                ("OutputsExternal", "OutputsExternal2", "OutputsExternal3", "OutputsExternal4"), start=1
+            ):
+                m = re.search(
+                    rf'name="{re.escape(ext_name)}"[^>]*>\s*<value>(.*?)</value>',
+                    content, re.DOTALL,
+                )
+                if not m:
+                    continue
+
+                decoded = html.unescape(m.group(1).strip())
+                try:
+                    sub = ET.fromstring(f"<root>{decoded}</root>")
+                except ET.ParseError:
+                    continue
+
+                enabled = (sub.findtext("SRTEnabled") or "0").strip()
+                srt_type = (sub.findtext("SRTType") or "").strip()
+                hostname = (sub.findtext("SRTHostname") or "").strip()
+                port_str_val = (sub.findtext("SRTPort") or "0").strip()
+                stream_id = (sub.findtext("SRTStreamID") or "").strip()
+
+                try:
+                    port_val = int(port_str_val)
+                except ValueError:
+                    port_val = 0
+
+                enabled_lbl = "ON" if enabled == "1" else "OFF"
+                type_lbl = "Caller" if srt_type == "0" else "Listener"
+
+                codec_id = (sub.findtext("SRTVideoCodec") or "").strip()
+                codec = "HEVC" if codec_id == "1" else "H264"
+                vbw_s = self._bw_str(sub.findtext("SRTVideoBandwidth") or "0")
+                abw_s = self._bw_str(sub.findtext("SRTAudioBandwidth") or "0")
+                hw = "HW" if (sub.findtext("SRTHardwareEncoder") or "0").strip() == "1" else ""
+                quality = f"{codec} {vbw_s} AAC {abw_s}"
+                if hw:
+                    quality += f" {hw}"
+
+                results.append({
+                    "title": ext_name,
+                    "srt_enabled": enabled,
+                    "srt_enabled_label": enabled_lbl,
+                    "srt_type": srt_type,
+                    "srt_type_label": type_lbl,
+                    "hostname": hostname,
+                    "port": port_val,
+                    "port_str": port_str_val,
+                    "stream_id": stream_id,
+                    "codec": codec,
+                    "video_bw": vbw_s,
+                    "audio_bw": abw_s,
+                    "hw_encoder": hw,
+                    "quality": quality,
+                })
+        except Exception:
+            pass
+
+        # ── Override: if vMix is not running, force all SRT Enabled to OFF ────
+        if not vmix_alive and results:
+            for entry in results:
+                entry["srt_enabled"] = "0"
+                entry["srt_enabled_label"] = "OFF"
+
+        return results
+
+    def auto_scan_srt(self):
+        """Start continuous SRT external output scanning in a background thread.
+        Called automatically on app launch.
+        """
+        if getattr(self, "_srt_scan_running", False):
+            return  # Already running
+
+        self._srt_scan_running = True
+        self.log("🔍 Auto Scan SRT External Outputs đã bắt đầu...")
+
+        def _scan_loop():
+            while getattr(self, "_srt_scan_running", False):
+                try:
+                    srt_outputs = self._parse_srt_external_outputs()
+                    self.root.after(0, lambda data=srt_outputs: self._update_srt_external_table(data))
+                except Exception as e:
+                    self.log(f"❌ SRT Scan error: {e}")
+                # Scan every 3 seconds
+                for _ in range(30):
+                    if not getattr(self, "_srt_scan_running", False):
+                        break
+                    time.sleep(0.1)
+
+        threading.Thread(target=_scan_loop, daemon=True).start()
+
+    def _update_srt_external_table(self, srt_outputs: list[dict]):
+        """Update the SRT External Outputs table on the GUI."""
+        if not hasattr(self, "srt_ext_tree"):
+            return
+
+        # Store latest data for server use
+        self._srt_ext_latest_data = srt_outputs
+
+        tree = self.srt_ext_tree
+        for item in tree.get_children():
+            tree.delete(item)
+
+        if not srt_outputs:
+            tree.insert("", tk.END, values=("(no data)",) + ("—",) * 7)
+            return
+
+        custom_names = getattr(self, "_srt_ext_custom_names", {})
+
+        for entry in srt_outputs:
+            # Skip entries with no port configured
+            if not entry.get("port"):
+                continue
+            enabled_lbl = entry.get("srt_enabled_label", "—")
+            type_lbl = entry.get("srt_type_label", "—")
+            hostname = entry.get("hostname", "—") or "—"
+            port_str = str(entry.get("port", 0) or "—")
+            stream_id = entry.get("stream_id", "—") or "—"
+            quality = entry.get("quality", "—")
+            title = entry.get("title", "—")
+
+            # Custom name (user-editable)
+            name = custom_names.get(title, title)
+
+            # Type icon
+            if type_lbl == "Caller":
+                type_display = "📤 Caller"
+            elif type_lbl == "Listener":
+                type_display = "📥 Listener"
+            else:
+                type_display = type_lbl
+
+            # Enabled icon
+            if enabled_lbl == "ON":
+                enabled_display = "🟢 ON"
+            else:
+                enabled_display = "🔴 OFF"
+
+            tree.insert(
+                "",
+                tk.END,
+                values=(
+                    name,
+                    title,
+                    enabled_display,
+                    port_str,
+                    type_display,
+                    hostname,
+                    stream_id,
+                    quality,
+                ),
+            )
 
     def test_vmix_api(self):
         import requests
@@ -2222,8 +2535,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                 _, srt_by_port = self.get_res_and_srt_from_file()
             srt_fallback = next(iter(srt_by_port.values()), "—")
 
-            # Build SRT array and update UI entries
-            srt_list = []
+            # Update port_list entries with machine metrics
             for entry in self.port_list:
                 port = entry["port"]
                 name = entry["name"]
@@ -2256,12 +2568,23 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                     self.log(f"{icon} SRT {current_status}: {name} {ip}:{port}")
                     prev_status[port] = current_status
 
+            # Build SRT array from auto-scan external outputs data
+            srt_list = []
+            custom_names = getattr(self, "_srt_ext_custom_names", {})
+            srt_ext_data = getattr(self, "_srt_ext_latest_data", [])
+            for ext_entry in srt_ext_data:
+                title = ext_entry.get("title", "")
                 srt_list.append({
-                    "nameSRT": name,
-                    "port": port,
-                    "quality": srt_str,
-                    "status": current_status,
+                    "nameSRT": custom_names.get(title, title),
+                    "port": ext_entry.get("port", 0),
+                    "quality": ext_entry.get("quality", "—"),
+                    "status": ext_entry.get("srt_enabled_label", "OFF"),
+                    "type": ext_entry.get("srt_type_label", "—"),
+                    "hostname": ext_entry.get("hostname", ""),
+                    "stream_id": ext_entry.get("stream_id", ""),
+                    "title": title,
                 })
+
 
             quality_snapshot = self.get_stream_quality_snapshot()
             stream_rows = self._build_stream_rows_for_db(quality_snapshot)

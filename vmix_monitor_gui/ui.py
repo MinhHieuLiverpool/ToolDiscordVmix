@@ -55,7 +55,7 @@ class VmixMonitorUIMixin:
         self.root.geometry(f"{win_w}x{win_h}+{x}+{y}")
 
         style = ttk.Style()
-        style.configure("Treeview", font=("Segoe UI", 10), rowheight=28)
+        style.configure("Treeview", font=("Segoe UI", 10), rowheight=70)
         style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
         style.configure("Header.TLabel", font=("Segoe UI", 20, "bold"))
         style.configure("Metric.TLabel", font=("Segoe UI", 14, "bold"))
@@ -123,7 +123,11 @@ class VmixMonitorUIMixin:
         self.port_entry.grid(row=1, column=1, padx=5, pady=(2, 0), sticky=EW)
 
         self.add_btn = ttk.Button(add_card, text="Add Port", command=self.add_port_entry, bootstyle="success", width=12)
-        self.add_btn.grid(row=1, column=2, padx=10, pady=(2, 0))
+        self.add_btn.grid(row=1, column=2, padx=5, pady=(2, 0))
+
+        self.scan_status_label = ttk.Label(add_card, text="🔄 SRT Auto Scan", font=("Segoe UI", 9), bootstyle="info")
+        self.scan_status_label.grid(row=1, column=3, padx=(0, 10), pady=(2, 0))
+
         add_card.columnconfigure(0, weight=2)
         add_card.columnconfigure(1, weight=1)
 
@@ -182,29 +186,41 @@ class VmixMonitorUIMixin:
         for c in range(m_cols):
             metrics_frame.columnconfigure(c, weight=1)
 
-        # ========== TABLES SECTION ==========
-        tables_row = ttk.Frame(main_container)
-        tables_row.pack(fill=BOTH, expand=YES, pady=(0, 20))
+        # Hidden tree for backward compatibility (used by port_list management in logic.py)
+        self.tree = ttk.Treeview(main_container, columns=("name", "port", "quality", "status"), show="headings", height=0)
+        self.delete_btn = ttk.Button(main_container)
+        # Not packed — invisible
 
-        # SRT Streams
-        srt_wrap = ttk.Labelframe(tables_row, text=" 📡 SRT Streams ", padding=10, bootstyle="success")
-        srt_wrap.pack(side=LEFT, fill=BOTH, expand=YES, padx=(0, 10))
-        
-        srt_inner = ttk.Frame(srt_wrap)
-        srt_inner.pack(fill=BOTH, expand=YES)
-        
-        self.tree = ttk.Treeview(srt_inner, columns=("name", "port", "quality", "status"), show="headings", height=8, bootstyle="success")
-        for col, title, width in [("name", "Name", 140), ("port", "Port", 80), ("quality", "Quality", 220), ("status", "Status", 90)]:
-            self.tree.heading(col, text=title)
-            self.tree.column(col, width=width, anchor=CENTER)
+        # ========== SRT EXTERNAL OUTPUTS (AUTO-SCAN) ==========
+        srt_ext_wrap = ttk.Labelframe(main_container, text=" 🔌 SRT External Outputs (Auto-Scan) ", padding=10, bootstyle="warning")
+        srt_ext_wrap.pack(fill=X, pady=(0, 20))
 
-        srt_sb = ttk.Scrollbar(srt_inner, orient=VERTICAL, command=self.tree.yview, bootstyle="success-round")
-        self.tree.configure(yscrollcommand=srt_sb.set)
-        srt_sb.pack(side=RIGHT, fill=Y)
-        self.tree.pack(side=LEFT, fill=BOTH, expand=YES)
+        srt_ext_cols = ("name", "title", "srt_enabled", "port", "type", "hostname", "stream_id", "quality")
+        self.srt_ext_tree = ttk.Treeview(srt_ext_wrap, columns=srt_ext_cols, show="headings", height=5, bootstyle="warning")
+        for col, label, width in (
+            ("name", "Name", 140),
+            ("title", "Title", 150),
+            ("srt_enabled", "SRT Enabled", 100),
+            ("port", "Port", 80),
+            ("type", "Type", 120),
+            ("hostname", "Hostname", 160),
+            ("stream_id", "StreamID", 200),
+            ("quality", "Quality", 200),
+        ):
+            self.srt_ext_tree.heading(col, text=label)
+            self.srt_ext_tree.column(col, width=width, anchor=CENTER)
 
-        self.delete_btn = ttk.Button(srt_wrap, text="🗑 Delete Selected", command=self.delete_selected, bootstyle="danger-outline", width=20)
-        self.delete_btn.pack(pady=(10, 0))
+        srt_ext_sb = ttk.Scrollbar(srt_ext_wrap, orient=VERTICAL, command=self.srt_ext_tree.yview, bootstyle="warning-round")
+        self.srt_ext_tree.configure(yscrollcommand=srt_ext_sb.set)
+        srt_ext_sb.pack(side=RIGHT, fill=Y)
+        self.srt_ext_tree.pack(side=LEFT, fill=BOTH, expand=YES)
+
+        # Double-click on Name column to edit
+        self.srt_ext_tree.bind("<Double-1>", self._on_srt_ext_name_dblclick)
+        self._srt_ext_custom_names: dict[str, str] = {}  # title -> custom name
+
+        # Placeholder row
+        self.srt_ext_tree.insert("", tk.END, values=("⏳ Đang scan...",) + ("—",) * 7)
 
         # ========== STREAM QUALITY SNAPSHOT ==========
         quality_wrap = ttk.Labelframe(main_container, text=" 📋 Stream Quality Health ", padding=10, bootstyle="secondary")
@@ -585,26 +601,65 @@ class VmixMonitorUIMixin:
             self.root.after(100, self.check_log_queue)
 
     def update_table_display(self):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-
-        for entry in self.port_list:
-            name = entry["name"]
-            port = entry["port"]
-            srt = entry.get("srt", "—")
-
-            # Determine status from srt quality or other info
-            status = entry.get("srt_status", "—")
-
-            self.tree.insert(
-                "",
-                tk.END,
-                values=(name, port, srt, status),
-            )
-
         # Update machine info cards from first entry (all entries share same machine stats)
         if self.port_list:
             self._update_machine_cards(self.port_list[0])
+
+    def _on_srt_ext_name_dblclick(self, event):
+        """Handle double-click on SRT External Outputs table to edit Name column."""
+        tree = self.srt_ext_tree
+        region = tree.identify_region(event.x, event.y)
+        if region != "cell":
+            return
+
+        col = tree.identify_column(event.x)
+        # col is like "#1", "#2", etc. — Name is column #1
+        if col != "#1":
+            return
+
+        item = tree.identify_row(event.y)
+        if not item:
+            return
+
+        # Get current values
+        values = tree.item(item, "values")
+        if not values or len(values) < 2:
+            return
+
+        current_name = values[0]
+        title = values[1]  # Title (OutputsExternal, etc.)
+
+        # Get cell bounding box
+        bbox = tree.bbox(item, column="name")
+        if not bbox:
+            return
+
+        x, y, w, h = bbox
+
+        # Create inline entry
+        entry_var = tk.StringVar(value=current_name)
+        entry = ttk.Entry(tree, textvariable=entry_var, font=("Segoe UI", 10), justify=CENTER)
+        entry.place(x=x, y=y, width=w, height=h)
+        entry.focus_set()
+        entry.select_range(0, tk.END)
+
+        def _save(e=None):
+            new_name = entry_var.get().strip()
+            if new_name:
+                self._srt_ext_custom_names[title] = new_name
+                # Update current row
+                new_values = list(values)
+                new_values[0] = new_name
+                tree.item(item, values=new_values)
+                self.log(f"✏️ Đổi tên {title} → {new_name}")
+            entry.destroy()
+
+        def _cancel(e=None):
+            entry.destroy()
+
+        entry.bind("<Return>", _save)
+        entry.bind("<Escape>", _cancel)
+        entry.bind("<FocusOut>", _save)
 
     def copy_to_clipboard(self, text):
         if not text:

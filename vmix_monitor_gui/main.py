@@ -68,6 +68,9 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
         self._vmix_bw_cache_pid = ""
         self._vmix_bw_cache_send = None
         self._vmix_bw_cache_recv = None
+        self._srt_scan_running = False
+        self._vmix_process_alive = False
+        self._srt_ext_latest_data = []
 
         self.setup_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -77,6 +80,8 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
         self.check_log_queue()
         threading.Thread(target=self._resolve_local_ip_and_load_async, daemon=True).start()
         threading.Thread(target=self._ping_bg_loop, daemon=True).start()
+        # Auto-start SRT external output scanning
+        self.auto_scan_srt()
 
     def _resolve_local_ip_and_load_async(self):
         local_ip = self.get_local_ip()
