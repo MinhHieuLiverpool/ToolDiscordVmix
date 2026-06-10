@@ -517,6 +517,14 @@ class VmixMonitorLogicMixin:
                     srt_list = [srt_list] if isinstance(srt_list, dict) else []
 
                 for srt_item in srt_list:
+                    if not isinstance(srt_item, dict):
+                        continue
+                    title = srt_item.get("title", "")
+                    name_srt = srt_item.get("nameSRT", "")
+                    # Nếu có custom name và không bằng title thì load về, ngược lại bỏ qua (để trống)
+                    if title and name_srt and name_srt != title:
+                        self._srt_ext_custom_names[title] = name_srt
+
                     name = srt_item.get("nameSRT", "")
                     port = srt_item.get("port", 0)
                     if name and port:
@@ -733,11 +741,12 @@ class VmixMonitorLogicMixin:
                 if not ext_entry.get("port"):
                     continue
                 title = ext_entry.get("title", "")
+                srt_status = "OFF" if self.is_network_offline() else ext_entry.get("srt_enabled_label", "OFF")
                 srt_list.append({
-                    "nameSRT": custom_names.get(title, title),
+                    "nameSRT": custom_names.get(title, ""),
                     "port": ext_entry.get("port", 0),
                     "quality": ext_entry.get("quality", "—"),
-                    "status": ext_entry.get("srt_enabled_label", "OFF"),
+                    "status": srt_status,
                     "type": ext_entry.get("srt_type_label", "—"),
                     "hostname": ext_entry.get("hostname", ""),
                     "stream_id": ext_entry.get("stream_id", ""),
@@ -819,7 +828,13 @@ class VmixMonitorLogicMixin:
                 self._ping_ms = val
                 if val is None:
                     self.ping_timeout_count += 1
+                else:
+                    self.ping_timeout_count = 0
             time.sleep(3)
+
+    def is_network_offline(self) -> bool:
+        with self._ping_lock:
+            return (self._ping_ms is None) or (self.ping_timeout_count > 0)
 
     def measure_ping(self, host="8.8.8.8") -> float | None:
         try:
@@ -1572,7 +1587,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
             title = entry.get("title", "—")
 
             # Custom name (user-editable)
-            name = custom_names.get(title, title)
+            name = custom_names.get(title, "")
 
             # Type icon
             if type_lbl == "Caller":
@@ -1583,7 +1598,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                 type_display = type_lbl
 
             # Enabled icon
-            if enabled_lbl == "ON":
+            if enabled_lbl == "ON" and not self.is_network_offline():
                 enabled_display = "🟢 ON"
             else:
                 enabled_display = "🔴 OFF"
@@ -2476,6 +2491,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
             return
 
         wan_ip = self.get_wan_ip()
+        self.root.after(0, lambda: self.wan_ip_var.set(wan_ip or "—"))
         prev_status = {}
         last_wan_check = datetime.now(VIETNAM_TZ)
         last_ip_check = datetime.now(VIETNAM_TZ)
@@ -2502,6 +2518,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                 if new_wan != wan_ip:
                     self.log(f"🌐 WAN IP thay đổi: {wan_ip} → {new_wan}")
                     wan_ip = new_wan
+                    self.root.after(0, lambda w=new_wan: self.wan_ip_var.set(w or "—"))
                     for entry in self.port_list:
                         entry["ipwan"] = new_wan
                     self.root.after(0, self.update_table_display)
@@ -2580,11 +2597,12 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                 if not ext_entry.get("port"):
                     continue
                 title = ext_entry.get("title", "")
+                srt_status = "OFF" if self.is_network_offline() else ext_entry.get("srt_enabled_label", "OFF")
                 srt_list.append({
-                    "nameSRT": custom_names.get(title, title),
+                    "nameSRT": custom_names.get(title, ""),
                     "port": ext_entry.get("port", 0),
                     "quality": ext_entry.get("quality", "—"),
-                    "status": ext_entry.get("srt_enabled_label", "OFF"),
+                    "status": srt_status,
                     "type": ext_entry.get("srt_type_label", "—"),
                     "hostname": ext_entry.get("hostname", ""),
                     "stream_id": ext_entry.get("stream_id", ""),

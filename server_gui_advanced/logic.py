@@ -18,6 +18,25 @@ except ImportError:
     except ImportError:
         from shared import DEFAULT_SERVER_URL, VIETNAM_TZ, get_first_srt, get_srt_ports_str
 
+import sys
+def safe_print(*args, **kwargs):
+    try:
+        sys.stdout.write(" ".join(map(str, args)) + "\n")
+        sys.stdout.flush()
+    except UnicodeEncodeError:
+        cleaned = []
+        for arg in args:
+            s = str(arg)
+            s = s.replace("✓", "[OK]").replace("⚠", "[WARN]").replace("✗", "[ERROR]")
+            s = s.encode(sys.stdout.encoding or 'ascii', errors='replace').decode(sys.stdout.encoding or 'ascii')
+            cleaned.append(s)
+        try:
+            sys.stdout.write(" ".join(cleaned) + "\n")
+            sys.stdout.flush()
+        except Exception:
+            pass
+print = safe_print
+
 SEATALK_WEBHOOK_URL = "https://openapi.seatalk.io/webhook/group/LFjr9TS6TxKPYTbeGp7Hdw"
 
 
@@ -517,7 +536,8 @@ class ServerDataGUILogicMixin:
                 else:
                     self.root.after(0, lambda: messagebox.showerror("Error", f"HTTP {resp.status_code}: {resp.text}"))
             except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("Error", f"ERROR: {str(e)}"))
+                err_msg = str(e)
+                self.root.after(0, lambda msg=err_msg: messagebox.showerror("Error", f"ERROR: {msg}"))
 
         threading.Thread(target=fetch, daemon=True).start()
 

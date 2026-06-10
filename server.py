@@ -1597,6 +1597,28 @@ async def check_inactive_machines():
                     last_updated = datetime.fromisoformat(last_str)
                     if last_updated < timeout_threshold:
                         _data_cache[name]["statusapp"] = 0
+                        
+                        # Set all active SRT streams to OFF and send Discord notifications
+                        srt_list = _data_cache[name].get("SRT", [])
+                        if isinstance(srt_list, list):
+                            for srt_item in srt_list:
+                                if isinstance(srt_item, dict) and srt_item.get("status") == "ON":
+                                    srt_item["status"] = "OFF"
+                                    try:
+                                        await asyncio.to_thread(
+                                            send_discord_notification,
+                                            name,
+                                            _data_cache[name].get("ipwan", ""),
+                                            srt_item.get("nameSRT", ""),
+                                            str(srt_item.get("port", "")),
+                                            "OFF",
+                                            srt_item.get("quality", ""),
+                                            srt_item.get("type", ""),
+                                            srt_item.get("hostname", "")
+                                        )
+                                    except Exception as ne:
+                                        print(f"⚠ Failed to send Discord notify for offline SRT {name}: {ne}")
+
                         updated_count += 1
                         print(f"⏱️  Auto-OFF: {name} - No activity for 1 minute")
                         asyncio.create_task(_mongo_upsert(name, _data_cache[name]))

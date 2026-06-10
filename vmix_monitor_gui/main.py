@@ -33,8 +33,8 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
         except Exception:
             pass
 
-        # Keep startup non-blocking; resolve real local IP asynchronously.
         self.ip_var = tk.StringVar(value="127.0.0.1")
+        self.wan_ip_var = tk.StringVar(value="—")
         self.server_url_var = tk.StringVar(value=SERVER_URL)
         self.name_var = tk.StringVar(value="")
         self.port_var = tk.StringVar(value="")
@@ -85,9 +85,11 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
 
     def _resolve_local_ip_and_load_async(self):
         local_ip = self.get_local_ip()
+        wan_ip = self.get_wan_ip()
 
         def _apply_ip_then_load():
             self.ip_var.set(local_ip)
+            self.wan_ip_var.set(wan_ip or "—")
             self.load_data_from_database_async()
 
         self.root.after(0, _apply_ip_then_load)

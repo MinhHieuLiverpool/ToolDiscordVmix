@@ -516,20 +516,24 @@ class ServerDataGUIUIMixin:
         if not isinstance(srt_list, list): srt_list = []
 
         if d.get("ptz", False) or not srt_list:
+            raw_status = d.get("status", "—")
+            display_status = "OFF" if statusapp == 0 else raw_status
             srt_rows = [{
-                "status": d.get("status", "—"),
+                "status": display_status,
                 "port": d.get("port", "—"),
                 "name": "—",
                 "hostname": "—",
                 "stream_id": "—",
                 "quality": d.get("srt_quality", "—") or "—",
-                "color": "#4CAF50" if d.get("status") == "ON" else "#f44336"
+                "color": "#4CAF50" if display_status == "ON" else "#f44336"
             }]
         else:
             srt_rows = []
             for s in srt_list:
                 if not isinstance(s, dict): continue
                 st = s.get("status", "—")
+                if statusapp == 0:
+                    st = "OFF"
                 q = s.get("quality", "")
                 sn = s.get("nameSRT", "")
                 sp = s.get("port", "")

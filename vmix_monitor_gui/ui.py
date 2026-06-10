@@ -91,30 +91,15 @@ class VmixMonitorUIMixin:
         ttk.Label(title_frame, text="vMix Monitor", font=("Segoe UI", 20, "bold"), bootstyle="primary").pack(side=LEFT)
         ttk.Label(title_frame, text="PRO", font=("Segoe UI", 10, "bold"), bootstyle="inverse-primary", padding=(4, 2)).pack(side=LEFT, padx=8, pady=(8, 0))
 
-        # Right Header Info
-        info_frame = ttk.Frame(header_card)
-        info_frame.pack(side=RIGHT)
 
-        top_info = ttk.Frame(info_frame)
-        top_info.pack(anchor=E)
-        
-        ttk.Label(top_info, text="Local IP:", font=("Segoe UI", 9, "bold"), bootstyle="secondary").pack(side=LEFT, padx=(10, 5))
-        self.ip_entry = ttk.Entry(top_info, textvariable=self.ip_var, width=15, state="readonly", font=("Consolas", 10), bootstyle="dark", justify=CENTER)
-        self.ip_entry.pack(side=LEFT)
-
-        ttk.Label(top_info, text="Server URL:", font=("Segoe UI", 9, "bold"), bootstyle="secondary").pack(side=LEFT, padx=(20, 5))
-        self.server_entry = ttk.Entry(top_info, textvariable=self.server_url_var, width=35, font=("Segoe UI", 10), bootstyle="info")
-        self.server_entry.pack(side=LEFT, padx=(0, 5))
-        self.server_entry.bind("<Return>", lambda _e: self.apply_server_url())
-        ttk.Button(top_info, text="Apply", command=self.apply_server_url, bootstyle="info-outline", width=8).pack(side=LEFT)
 
         # ========== QUICK ACTIONS & STATUS ==========
         action_row = ttk.Frame(main_container)
         action_row.pack(fill=X, pady=(0, 20))
 
-        # LEFT: Add Port Card
+        # LEFT: Add Port Card (Created but not packed to hide from UI while keeping code references valid)
         add_card = ttk.Labelframe(action_row, text=" ➕ Add New Port ", padding=15, bootstyle="primary")
-        add_card.pack(side=LEFT, fill=Y, expand=YES, padx=(0, 10))
+        # add_card.pack(side=LEFT, fill=Y, expand=YES, padx=(0, 10))
 
         ttk.Label(add_card, text="Machine Name:").grid(row=0, column=0, sticky=W, padx=5)
         self.name_entry = ttk.Entry(add_card, textvariable=self.name_var, width=25)
@@ -133,15 +118,33 @@ class VmixMonitorUIMixin:
         add_card.columnconfigure(0, weight=2)
         add_card.columnconfigure(1, weight=1)
 
-        # RIGHT: Control Card
+        # RIGHT: Control Card (Expanded to take full horizontal width)
         ctrl_card = ttk.Labelframe(action_row, text=" ⚙️ Monitoring Controls ", padding=15, bootstyle="info")
-        ctrl_card.pack(side=LEFT, fill=Y, padx=(10, 0))
+        ctrl_card.pack(fill=X, expand=YES)
 
         v_cfg = ttk.Frame(ctrl_card)
         v_cfg.pack(fill=X, pady=(0, 10))
+
+        # Left side: vMix Port configuration
         ttk.Label(v_cfg, text="vMix Port:").pack(side=LEFT)
-        ttk.Entry(v_cfg, textvariable=self.vmix_api_port_var, width=8, justify=CENTER).pack(side=LEFT, padx=5)
+        self.vmix_entry = ttk.Entry(v_cfg, textvariable=self.vmix_api_port_var, width=8, justify=CENTER)
+        self.vmix_entry.pack(side=LEFT, padx=5)
         ttk.Button(v_cfg, text="Test API", command=self.test_vmix_api, bootstyle="warning-outline", width=10).pack(side=LEFT, padx=5)
+
+        # Right side: Local IP & Server URL Configuration (packed right-to-left)
+        ttk.Button(v_cfg, text="Apply", command=self.apply_server_url, bootstyle="info-outline", width=8).pack(side=RIGHT, padx=(5, 0))
+        self.server_entry = ttk.Entry(v_cfg, textvariable=self.server_url_var, width=30, font=("Segoe UI", 10), bootstyle="info")
+        self.server_entry.pack(side=RIGHT, padx=(0, 5))
+        self.server_entry.bind("<Return>", lambda _e: self.apply_server_url())
+        ttk.Label(v_cfg, text="Server URL:", font=("Segoe UI", 9, "bold"), bootstyle="secondary").pack(side=RIGHT, padx=(15, 5))
+
+        self.wan_ip_entry = ttk.Entry(v_cfg, textvariable=self.wan_ip_var, width=15, state="readonly", font=("Consolas", 10), bootstyle="dark", justify=CENTER)
+        self.wan_ip_entry.pack(side=RIGHT, padx=(0, 5))
+        ttk.Label(v_cfg, text="WAN IP:", font=("Segoe UI", 9, "bold"), bootstyle="secondary").pack(side=RIGHT, padx=(15, 5))
+
+        self.ip_entry = ttk.Entry(v_cfg, textvariable=self.ip_var, width=15, state="readonly", font=("Consolas", 10), bootstyle="dark", justify=CENTER)
+        self.ip_entry.pack(side=RIGHT, padx=(0, 5))
+        ttk.Label(v_cfg, text="Local IP:", font=("Segoe UI", 9, "bold"), bootstyle="secondary").pack(side=RIGHT, padx=(10, 5))
 
         btn_box = ttk.Frame(ctrl_card)
         btn_box.pack(fill=X)
@@ -657,13 +660,19 @@ class VmixMonitorUIMixin:
 
         def _save(e=None):
             new_name = entry_var.get().strip()
+            self._srt_ext_custom_names[title] = new_name
+            # Update current row safely
+            try:
+                if tree.exists(item):
+                    new_values = list(values)
+                    new_values[0] = new_name
+                    tree.item(item, values=new_values)
+            except Exception:
+                pass
             if new_name:
-                self._srt_ext_custom_names[title] = new_name
-                # Update current row
-                new_values = list(values)
-                new_values[0] = new_name
-                tree.item(item, values=new_values)
                 self.log(f"✏️ Đổi tên {title} → {new_name}")
+            else:
+                self.log(f"✏️ Xóa tên SRT cho {title}")
             entry.destroy()
 
         def _cancel(e=None):
