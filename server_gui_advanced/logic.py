@@ -18,6 +18,8 @@ except ImportError:
     except ImportError:
         from shared import DEFAULT_SERVER_URL, VIETNAM_TZ, get_first_srt, get_srt_ports_str
 
+SEATALK_WEBHOOK_URL = "https://openapi.seatalk.io/webhook/group/LFjr9TS6TxKPYTbeGp7Hdw"
+
 
 class ServerDataGUILogicMixin:
     def _normalize_api_url(self, raw_url: str) -> str:
@@ -27,6 +29,69 @@ class ServerDataGUILogicMixin:
         if not (url.startswith("http://") or url.startswith("https://")):
             url = f"http://{url}"
         return url.rstrip("/")
+
+    # ── SeaTalk Webhook Helper ──────────────────────────────────────────────
+
+    def _send_seatalk(self, markdown_content: str):
+        """Send a markdown message to SeaTalk group webhook."""
+        if not SEATALK_WEBHOOK_URL:
+            return
+
+        # SeaTalk payload limit: 4000 chars
+        if len(markdown_content) > 3950:
+            markdown_content = markdown_content[:3950] + "\n...*(truncated)*"
+
+        payload = {
+            "tag": "markdown",
+            "markdown": {
+                "content": markdown_content
+            }
+        }
+        try:
+            resp = requests.post(SEATALK_WEBHOOK_URL, json=payload, timeout=10)
+            if resp.status_code == 200:
+                print("📨 SeaTalk: Đã gửi thông báo thành công")
+            else:
+                print(f"⚠️ SeaTalk: HTTP {resp.status_code}")
+        except Exception as e:
+            print(f"❌ SeaTalk: Lỗi gửi webhook: {e}")
+
+    def _build_seatalk_full_list(self, prefix: str) -> str:
+        """Build SeaTalk markdown for full status list."""
+        now = datetime.now(VIETNAM_TZ)
+        lines = [
+            f"**📋 FULL STATUS LIST**",
+            f"*{now.strftime('%d/%m/%Y %H:%M:%S')}*",
+            "---",
+        ]
+        for entry in self.selected_data:
+            d = entry.get("data", {})
+            ipwan = d.get("ipwan", "")
+            for row in self._build_discord_rows(d):
+                status = row['status']
+                icon = "🟢" if status == "ON" else "🔴" if status == "OFF" else "❓"
+                lines.append(
+                    f"{icon} **[{prefix}][{row['name']}]** SRT {status}\nIPWAN: {ipwan} | PORT: {row['port']}"
+                )
+                lines.append("")  # blank line between items
+        return "\n".join(lines)
+
+    def _build_seatalk_changes(self, prefix: str, changed_items: list[dict]) -> str:
+        """Build SeaTalk markdown for status changes."""
+        now = datetime.now(VIETNAM_TZ)
+        lines = [
+            f"**🔔 STATUS CHANGED**",
+            f"*{now.strftime('%d/%m/%Y %H:%M:%S')}*",
+            "---",
+        ]
+        for item in changed_items:
+            status = item.get('status', '')
+            icon = "🟢" if status == "ON" else "🔴" if status == "OFF" else "❓"
+            lines.append(
+                f"{icon} **[{prefix}][{item['name']}]** SRT {status}\nIPWAN: {item.get('ipwan', '')} | PORT: {item.get('port', '')}"
+            )
+            lines.append("")  # blank line between items
+        return "\n".join(lines)
 
     def _build_ws_url(self, api_url: str) -> str:
         if api_url.startswith("https://"):
@@ -295,6 +360,13 @@ class ServerDataGUILogicMixin:
                     print(f"✓ Sent FULL LIST ({len(self.selected_data)} items) to Discord")
                 else:
                     print(f"✗ Discord error: {resp.status_code}")
+
+                # Also send to SeaTalk
+                try:
+                    seatalk_msg = self._build_seatalk_full_list(prefix)
+                    self._send_seatalk(seatalk_msg)
+                except Exception as e:
+                    print(f"⚠️ SeaTalk full list error: {e}")
             except Exception as e:
                 print(f"✗ Failed to send full list: {e}")
 
@@ -394,6 +466,13 @@ class ServerDataGUILogicMixin:
                         print(f"✓ Sent {len(changed_items)} changed items to Discord")
                     else:
                         print(f"✗ Discord error: {resp.status_code}")
+
+                    # Also send to SeaTalk
+                    try:
+                        seatalk_msg = self._build_seatalk_changes(prefix, changed_items)
+                        self._send_seatalk(seatalk_msg)
+                    except Exception as e:
+                        print(f"⚠️ SeaTalk change error: {e}")
 
                 self.previous_data = current_snapshot
             except Exception as e:
@@ -879,6 +958,7 @@ class ServerDataGUILogicMixin:
                                 unique[key] = entry
                         self.selected_data = list(unique.values())
                         print(f"✓ Loaded {len(self.selected_data)} items from database (unique)")
+                        self.update_selected_data()
                         for entry in self.selected_data:
                             d = entry.get("data", {})
                             if d.get("ptz", False):

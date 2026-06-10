@@ -55,8 +55,10 @@ class VmixMonitorUIMixin:
         self.root.geometry(f"{win_w}x{win_h}+{x}+{y}")
 
         style = ttk.Style()
-        style.configure("Treeview", font=("Segoe UI", 10), rowheight=70)
+        style.configure("Treeview", font=("Segoe UI", 10), rowheight=26)
         style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
+        style.configure("warning.Treeview", font=("Segoe UI", 10), rowheight=26)
+        style.configure("secondary.Treeview", font=("Segoe UI", 10), rowheight=26)
         style.configure("Header.TLabel", font=("Segoe UI", 20, "bold"))
         style.configure("Metric.TLabel", font=("Segoe UI", 14, "bold"))
         style.configure("MetricTitle.TLabel", font=("Segoe UI", 9), foreground="#cccccc")
@@ -638,7 +640,17 @@ class VmixMonitorUIMixin:
 
         # Create inline entry
         entry_var = tk.StringVar(value=current_name)
-        entry = ttk.Entry(tree, textvariable=entry_var, font=("Segoe UI", 10), justify=CENTER)
+        entry = tk.Entry(
+            tree,
+            textvariable=entry_var,
+            font=("Segoe UI", 10),
+            justify=CENTER,
+            bd=1,
+            relief="solid",
+            bg="#2e2e2e",
+            fg="white",
+            insertbackground="white"
+        )
         entry.place(x=x, y=y, width=w, height=h)
         entry.focus_set()
         entry.select_range(0, tk.END)

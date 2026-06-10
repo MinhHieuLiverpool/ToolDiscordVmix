@@ -180,6 +180,8 @@ class ServerDataGUI:
         ctk.CTkLabel(header_frame_right, text="STATUS",     font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="PORT",       font=("Arial", 10, "bold"), width=60).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="NAME SRT",   font=("Arial", 10, "bold"), width=100).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="HOSTNAME",   font=("Arial", 10, "bold"), width=150).pack(side="left", padx=2)
+        ctk.CTkLabel(header_frame_right, text="STREAM ID",   font=("Arial", 10, "bold"), width=220).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="QUALITY",    font=("Arial", 10, "bold"), width=180).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="APP",        font=("Arial", 10, "bold"), width=45).pack(side="left", padx=2)
         ctk.CTkLabel(header_frame_right, text="📡 PING",    font=("Arial", 10, "bold"), width=70).pack(side="left", padx=2)
@@ -1034,6 +1036,8 @@ class ServerDataGUI:
                     "status": d.get("status", "—"),
                     "port": d.get("port", "—"),
                     "name": "—",
+                    "hostname": "—",
+                    "stream_id": "—",
                     "quality": d.get("srt_quality", "—") or "—",
                     "color": "#4CAF50" if d.get("status") == "ON" else "#f44336"
                 }]
@@ -1045,10 +1049,14 @@ class ServerDataGUI:
                     q = s.get("quality", "")
                     sn = s.get("nameSRT", "")
                     sp = s.get("port", "")
+                    sh = s.get("hostname", "")
+                    sid = s.get("stream_id", "")
                     srt_rows.append({
                         "status": st,
                         "port": str(sp),
                         "name": sn or "—",
+                        "hostname": sh or "—",
+                        "stream_id": sid or "—",
                         "quality": q or "—",
                         "color": "#4CAF50" if st == "ON" else "#f44336"
                     })
@@ -1106,6 +1114,14 @@ class ServerDataGUI:
             c_name_srt = create_cell(row_frame, 100)
             inner_name_srt = create_centered_srt_container(c_name_srt)
             
+            # Hostname
+            c_hostname = create_cell(row_frame, 150)
+            inner_hostname = create_centered_srt_container(c_hostname)
+            
+            # Stream ID
+            c_stream_id = create_cell(row_frame, 220)
+            inner_stream_id = create_centered_srt_container(c_stream_id)
+            
             # Quality
             c_quality = create_cell(row_frame, 180)
             inner_quality = create_centered_srt_container(c_quality)
@@ -1114,6 +1130,8 @@ class ServerDataGUI:
                 ctk.CTkLabel(inner_status, text=s_info["status"], font=("Arial", 9, "bold"), text_color=s_info["color"], anchor="center").pack(fill="x")
                 ctk.CTkLabel(inner_port, text=s_info["port"], font=("Arial", 9), anchor="center").pack(fill="x")
                 ctk.CTkLabel(inner_name_srt, text=s_info["name"], font=("Arial", 9, "bold"), text_color="#90CAF9", anchor="center").pack(fill="x")
+                ctk.CTkLabel(inner_hostname, text=s_info["hostname"], font=("Arial", 9), text_color="#E0E0E0", anchor="center").pack(fill="x")
+                ctk.CTkLabel(inner_stream_id, text=s_info["stream_id"], font=("Arial", 9), text_color="#E0E0E0", anchor="center").pack(fill="x")
                 ctk.CTkLabel(inner_quality, text=s_info["quality"], font=("Arial", 9), text_color=s_info["color"], anchor="center").pack(fill="x")
 
             # App Status
@@ -1818,6 +1836,7 @@ class ServerDataGUI:
                                 unique[key] = entry
                         self.selected_data = list(unique.values())
                         print(f"✓ Loaded {len(self.selected_data)} items from database (unique)")
+                        self.update_selected_data()
                         # Start ping threads for PTZ entries
                         for entry in self.selected_data:
                             d = entry.get("data", {})

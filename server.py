@@ -188,7 +188,11 @@ def _normalize_payload_list(raw_value):
         return raw_value
     return []
 
-def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port: str, status: str):
+# Removed SeaTalk webhook from server.py (notifications handled by server_gui_advanced)
+
+
+def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port: str, status: str,
+                               quality: str = "", srt_type: str = "", hostname: str = ""):
     """Gửi notification lên Discord (nếu có webhook)"""
     if not DISCORD_WEBHOOK:
         return
@@ -196,9 +200,15 @@ def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port
     try:
         import requests
         
-        # Gửi text đơn giản thay vì embed
         label = srt_name if srt_name else machine_name
-        message = f"[{label}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
+        parts = [f"[{label}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"]
+        if srt_type:
+            parts.append(f"Type: {srt_type}")
+        if hostname:
+            parts.append(f"Host: {hostname}")
+        if quality:
+            parts.append(f"Quality: {quality}")
+        message = " | ".join(parts)
         payload = {"content": message}
         
         response = requests.post(DISCORD_WEBHOOK, json=payload, timeout=5)
@@ -314,20 +324,25 @@ async def receive_data(data: dict):
         ip_val = data.get('ip', '')
         statistics_id = _build_statistics_id(ip_val, data.get('port', ''), machine_name)
 
-        # Compare SRT status changes for Discord notifications
+        # Compare SRT status changes for Discord + SeaTalk notifications
         prev_srt_list = _normalize_payload_list(prev.get('SRT', []))
         prev_stream_list = _normalize_payload_list(prev.get('stream', []))
         prev_stream_keys_list = _normalize_payload_list(prev.get('stream_keys', []))
-        prev_srt_map = {s.get('port', ''): s.get('status', '') for s in prev_srt_list if isinstance(s, dict)}
+        prev_srt_map = {s.get('port', ''): s for s in prev_srt_list if isinstance(s, dict)}
         for srt_item in srt_list:
             if not isinstance(srt_item, dict):
                 continue
             port_val = srt_item.get('port', '')
             new_status = srt_item.get('status', '')
-            old_status = prev_srt_map.get(port_val, '')
+            prev_srt_entry = prev_srt_map.get(port_val, {})
+            old_status = prev_srt_entry.get('status', '')
             if old_status and old_status != new_status and new_status in ('ON', 'OFF'):
                 srt_name = srt_item.get('nameSRT', '')
-                send_discord_notification(machine_name, data.get('ipwan', ''), srt_name, port_val, new_status)
+                srt_quality = srt_item.get('quality', '')
+                srt_type = srt_item.get('type', '')
+                srt_hostname = srt_item.get('hostname', '')
+                send_discord_notification(machine_name, data.get('ipwan', ''), srt_name, port_val, new_status,
+                                          quality=srt_quality, srt_type=srt_type, hostname=srt_hostname)
 
         # Check for general field changes
         fields_to_check = ['ip', 'ipwan']

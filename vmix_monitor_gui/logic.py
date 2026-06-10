@@ -730,6 +730,8 @@ class VmixMonitorLogicMixin:
             custom_names = getattr(self, "_srt_ext_custom_names", {})
             srt_ext_data = getattr(self, "_srt_ext_latest_data", [])
             for ext_entry in srt_ext_data:
+                if not ext_entry.get("port"):
+                    continue
                 title = ext_entry.get("title", "")
                 srt_list.append({
                     "nameSRT": custom_names.get(title, title),
@@ -2461,6 +2463,8 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
 
         return result
 
+    # Removed SeaTalk helper methods (notifications handled by server_gui_advanced)
+
     def monitor_loop(self):
         import requests
 
@@ -2573,6 +2577,8 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
             custom_names = getattr(self, "_srt_ext_custom_names", {})
             srt_ext_data = getattr(self, "_srt_ext_latest_data", [])
             for ext_entry in srt_ext_data:
+                if not ext_entry.get("port"):
+                    continue
                 title = ext_entry.get("title", "")
                 srt_list.append({
                     "nameSRT": custom_names.get(title, title),
@@ -2642,6 +2648,8 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                 self.log(f"❌ ERROR: {str(e)}")
 
             self.root.after(0, self.update_table_display)
+
+
 
             for _ in range(10):
                 if not self.is_running:
