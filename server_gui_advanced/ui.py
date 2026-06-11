@@ -1,4 +1,5 @@
 import json
+import re
 import threading
 from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
@@ -7,12 +8,12 @@ import customtkinter as ctk
 import requests
 
 try:
-    from .shared import VIETNAM_TZ, pretty_time, get_first_srt, get_srt_ports_str, get_srt_quality_str
+    from .shared import VIETNAM_TZ, pretty_time, get_first_srt, get_srt_ports_str, get_srt_quality_str, GLOBAL_LOG_QUEUE
 except ImportError:
     try:
-        from server_gui_advanced.shared import VIETNAM_TZ, pretty_time, get_first_srt, get_srt_ports_str, get_srt_quality_str
+        from server_gui_advanced.shared import VIETNAM_TZ, pretty_time, get_first_srt, get_srt_ports_str, get_srt_quality_str, GLOBAL_LOG_QUEUE
     except ImportError:
-        from shared import VIETNAM_TZ, pretty_time, get_first_srt, get_srt_ports_str, get_srt_quality_str
+        from shared import VIETNAM_TZ, pretty_time, get_first_srt, get_srt_ports_str, get_srt_quality_str, GLOBAL_LOG_QUEUE
 
 
 class ServerDataGUIUIMixin:
@@ -58,7 +59,31 @@ class ServerDataGUIUIMixin:
         ctk.CTkButton(row2, text="🌐 Web", command=self.open_web_dialog, fg_color="#00ACC1", hover_color="#00838F", width=90, font=("Arial", 10, "bold")).pack(side="left", padx=3)
         ctk.CTkButton(row2, text="➕ Add PTZ", command=self.add_ptz_manual, fg_color="#FF9800", hover_color="#F57C00", width=100, font=("Arial", 10, "bold")).pack(side="left", padx=3)
         ctk.CTkButton(row2, text="🔑 StreamKey", command=self.open_stream_keys_dialog, fg_color="#26A69A", hover_color="#1F857A", width=110, font=("Arial", 10, "bold")).pack(side="left", padx=3)
-        ctk.CTkButton(row2, text="🎞️ FFmpeg", command=self.open_ffmpeg_dialog, fg_color="#FFA726", hover_color="#FB8C00", width=105, font=("Arial", 10, "bold")).pack(side="left", padx=3)
+
+        self.setting_nav_btn = ctk.CTkButton(
+            row2,
+            text="⚙️ Setting",
+            command=self.toggle_setting_page,
+            fg_color="#607D8B",
+            hover_color="#455A64",
+            width=105,
+            font=("Arial", 10, "bold")
+        )
+        self.setting_nav_btn.pack(side="left", padx=3)
+
+        self.import_log_nav_btn = ctk.CTkButton(
+            row2,
+            text="📄 Import Log",
+            command=self.toggle_import_log_page,
+            fg_color="#FF5722",
+            hover_color="#E64A19",
+            width=110,
+            font=("Arial", 10, "bold"),
+        )
+        self.import_log_nav_btn.pack(side="left", padx=3)
+
+        self.debug_nav_btn = ctk.CTkButton(row2, text="🐞 Debug", command=self.toggle_debug_page, fg_color="#7e57c2", hover_color="#5e35b1", width=95, font=("Arial", 10, "bold"))
+        self.debug_nav_btn.pack(side="left", padx=3)
 
         # Connection status
         self.status_label = ctk.CTkLabel(row2, text="⚪ Disconnected", font=("Arial", 9, "bold"), text_color="#9E9E9E")
@@ -67,6 +92,45 @@ class ServerDataGUIUIMixin:
         # Main content area with draggable splitter between table and vmPing
         self.vertical_splitter = self._create_vertical_splitter()
         self.vertical_splitter.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+
+        # Create Debug Frame (hidden by default)
+        self.showing_debug = False
+        self.debug_frame = ctk.CTkFrame(self.root, fg_color="#181818")
+
+        # Create Import Log Frame (hidden by default)
+        self.showing_import_log = False
+        self.import_log_frame = ctk.CTkFrame(self.root, fg_color="#181818")
+        self.setup_import_log_ui()
+
+        # Create Setting Frame (hidden by default)
+        self.showing_setting = False
+        self.setting_frame = ctk.CTkFrame(self.root, fg_color="#181818")
+        self.setup_setting_ui()
+        
+        # Header inside debug frame
+        db_hdr = ctk.CTkFrame(self.debug_frame, fg_color="#1a1a1a", height=38)
+        db_hdr.pack(fill="x", padx=0, pady=(0, 2))
+        db_hdr.pack_propagate(False)
+        ctk.CTkLabel(db_hdr, text="🐞 System Debug Logs", font=("Arial", 10, "bold"), text_color="#FFB300").pack(side="left", padx=10)
+        
+        ctk.CTkButton(db_hdr, text="🗑️ Clear Logs", command=self.clear_debug_logs, fg_color="#f44336", hover_color="#d32f2f", width=100, height=26, font=("Arial", 9, "bold")).pack(side="right", padx=10)
+
+        # Textbox for logs
+        self.debug_textbox = ctk.CTkTextbox(self.debug_frame, font=("Consolas", 10), fg_color="#1e1e1e", text_color="#00ff00")
+        self.debug_textbox.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Configure custom tag colors for log segments
+        self.debug_textbox.tag_config("log_time", foreground="#7F8C8D")      # cool gray
+        self.debug_textbox.tag_config("log_sep", foreground="#555555")       # dark gray
+        self.debug_textbox.tag_config("log_device", foreground="#3498DB")    # sky blue
+        self.debug_textbox.tag_config("metric_lbl", foreground="#E67E22")    # orange
+        self.debug_textbox.tag_config("metric_val", foreground="#1ABC9C")    # turquoise
+        self.debug_textbox.tag_config("srt_port", foreground="#BDC3C7")      # light gray
+        self.debug_textbox.tag_config("srt_on", foreground="#2ECC71")        # bright green
+        self.debug_textbox.tag_config("srt_off", foreground="#E74C3C")       # bright red
+        
+        # Start queue processing
+        self.root.after(200, self.update_debug_logs_from_queue)
 
         main_frame = ctk.CTkFrame(self.vertical_splitter)
         main_frame.grid_columnconfigure(0, weight=1)
@@ -825,6 +889,7 @@ class ServerDataGUIUIMixin:
         wc["remove_btn"].pack(side="left")
 
         row_frame.bind("<Button-1>", lambda e, ent=entry: self.show_detail_from_entry(ent))
+        self._patch_selected_row(wc, rd)
         return row_frame, wc
 
     def _patch_selected_row(self, wc, rd):
@@ -832,18 +897,38 @@ class ServerDataGUIUIMixin:
         wc["name_lbl"].configure(text=rd["name"])
         wc["ip_lbl"].configure(text=rd["ip"])
         wc["ipwan_lbl"].configure(text=rd["ipwan"])
-        wc["app_lbl"].configure(text=rd["statusapp_text"], text_color=rd["app_color"])
-        wc["ping_lbl"].configure(text=rd["ping_str"],
-                                  text_color="#4CAF50" if rd["ping"] else "#9E9E9E")
-        wc["timeout_lbl"].configure(text=rd["timeout_str"],
-                                     text_color="#f44336" if rd["ping_timeouts"] else "#9E9E9E")
-        wc["net_speed_lbl"].configure(text=rd["net_speed_str"])
+        
+        app_color = self.get_metric_color("status_app", rd["statusapp_text"], rd["app_color"])
+        wc["app_lbl"].configure(text=rd["statusapp_text"], text_color=app_color)
+        
+        default_ping_color = "#4CAF50" if rd["ping"] else "#9E9E9E"
+        ping_color = self.get_metric_color("ping", rd["ping_str"], default_ping_color)
+        wc["ping_lbl"].configure(text=rd["ping_str"], text_color=ping_color)
+        
+        default_timeout_color = "#f44336" if rd["ping_timeouts"] else "#9E9E9E"
+        timeout_color = self.get_metric_color("timeout", rd["timeout_str"], default_timeout_color)
+        wc["timeout_lbl"].configure(text=rd["timeout_str"], text_color=timeout_color)
+        
+        net_speed_color = self.get_metric_color("netspeed", rd["net_speed_str"], "#ffffff")
+        wc["net_speed_lbl"].configure(text=rd["net_speed_str"], text_color=net_speed_color)
+        
         wc["mac_lbl"].configure(text=rd["mac_str"])
-        wc["cpu_lbl"].configure(text=rd["cpu_str"])
-        wc["mem_lbl"].configure(text=rd["mem_str"])
-        wc["gpu_lbl"].configure(text=rd["gpu_str"])
-        wc["sender_lbl"].configure(text=rd["sender_str"])
-        wc["receiver_lbl"].configure(text=rd["receiver_str"])
+        
+        cpu_color = self.get_metric_color("cpu", rd["cpu_str"], "#ffffff")
+        wc["cpu_lbl"].configure(text=rd["cpu_str"], text_color=cpu_color)
+        
+        mem_color = self.get_metric_color("ram", rd["mem_str"], "#ffffff")
+        wc["mem_lbl"].configure(text=rd["mem_str"], text_color=mem_color)
+        
+        gpu_color = self.get_metric_color("gpu", rd["gpu_str"], "#ffffff")
+        wc["gpu_lbl"].configure(text=rd["gpu_str"], text_color=gpu_color)
+        
+        sender_color = self.get_metric_color("sender", rd["sender_str"], "#ffffff")
+        wc["sender_lbl"].configure(text=rd["sender_str"], text_color=sender_color)
+        
+        receiver_color = self.get_metric_color("receiver", rd["receiver_str"], "#ffffff")
+        wc["receiver_lbl"].configure(text=rd["receiver_str"], text_color=receiver_color)
+        
         wc["pid_vmix_lbl"].configure(text=rd["pid_vmix_str"])
         wc["rec_lbl"].configure(text="● ON" if rd["vmix_rec"] else "○ OFF",
                                  text_color="#f44336" if rd["vmix_rec"] else "#555555")
@@ -857,7 +942,8 @@ class ServerDataGUIUIMixin:
         for i, s_info in enumerate(rd["srt_rows"]):
             if i < len(wc["srt_lbl_groups"]):
                 g = wc["srt_lbl_groups"][i]
-                g["status"].configure(text=s_info["status"], text_color=s_info["color"])
+                srt_color = self.get_metric_color("srt_status", s_info["status"], s_info["color"])
+                g["status"].configure(text=s_info["status"], text_color=srt_color)
                 g["port"].configure(text=s_info["port"])
                 g["name"].configure(text=s_info["name"])
                 g["hostname"].configure(text=s_info["hostname"])
@@ -1583,3 +1669,756 @@ class ServerDataGUIUIMixin:
 
     def show_detail_selected(self, event):
         pass
+
+    def toggle_debug_page(self):
+        if not hasattr(self, "showing_debug"):
+            self.showing_debug = False
+        
+        if not self.showing_debug:
+            if getattr(self, "showing_import_log", False):
+                self.toggle_import_log_page()
+            if getattr(self, "showing_setting", False):
+                self.toggle_setting_page()
+            # Switch to Debug page
+            self.vertical_splitter.pack_forget()
+            self.debug_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+            self.debug_nav_btn.configure(text="🖥️ Monitor", fg_color="#455a64", hover_color="#37474f")
+            self.showing_debug = True
+            self.refresh_debug_textbox()
+        else:
+            # Switch back to Monitor page
+            self.debug_frame.pack_forget()
+            self.vertical_splitter.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+            self._set_default_split_position()
+            self.debug_nav_btn.configure(text="🐞 Debug", fg_color="#7e57c2", hover_color="#5e35b1")
+            self.showing_debug = False
+
+    def clear_debug_logs(self):
+        if hasattr(self, "debug_textbox") and self.debug_textbox.winfo_exists():
+            self.debug_textbox.delete("1.0", "end")
+
+    def update_debug_logs_from_queue(self):
+        try:
+            has_new = False
+            while not GLOBAL_LOG_QUEUE.empty():
+                msg = GLOBAL_LOG_QUEUE.get_nowait()
+                if hasattr(self, "debug_textbox") and self.debug_textbox.winfo_exists():
+                    if isinstance(msg, list):
+                        for text, tag in msg:
+                            self.debug_textbox.insert("end", text, tag)
+                        self.debug_textbox.insert("end", "\n")
+                    else:
+                        self.debug_textbox.insert("end", str(msg) + "\n")
+                    has_new = True
+            if has_new:
+                # Keep at most 2000 lines to prevent memory issues
+                num_lines = int(self.debug_textbox.index('end-1c').split('.')[0])
+                if num_lines > 2000:
+                    self.debug_textbox.delete("1.0", f"{num_lines - 2000}.0")
+                self.debug_textbox.see("end")
+        except Exception:
+            pass
+        self.root.after(200, self.update_debug_logs_from_queue)
+
+    def refresh_debug_textbox(self):
+        self.update_debug_logs_from_queue()
+
+    def setup_import_log_ui(self):
+        import tkinter as tk
+        from tkinter import filedialog
+
+        # Header inside import log frame
+        hdr = ctk.CTkFrame(self.import_log_frame, fg_color="#1a1a1a", height=38)
+        hdr.pack(fill="x", padx=0, pady=(0, 2))
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text="📄 Import & Check Log File", font=("Arial", 10, "bold"), text_color="#FFB300").pack(side="left", padx=10)
+        
+        # Select file button
+        ctk.CTkButton(hdr, text="📂 Chọn file Log (.txt)", command=self.select_and_import_log_file, fg_color="#4CAF50", hover_color="#45a049", width=160, height=26, font=("Arial", 9, "bold")).pack(side="left", padx=10)
+
+        # Clear button
+        ctk.CTkButton(hdr, text="🗑️ Clear Logs", command=self.clear_imported_logs, fg_color="#f44336", hover_color="#d32f2f", width=100, height=26, font=("Arial", 9, "bold")).pack(side="right", padx=10)
+
+        # File path display label
+        self.import_file_label = ctk.CTkLabel(hdr, text="Chưa chọn file log nào...", font=("Arial", 9), text_color="#9E9E9E")
+        self.import_file_label.pack(side="left", padx=10)
+
+        # Control/Filter bar
+        ctrl_bar = ctk.CTkFrame(self.import_log_frame, fg_color="#1e1e1e", height=45)
+        ctrl_bar.pack(fill="x", padx=5, pady=5)
+        ctrl_bar.pack_propagate(False)
+
+        # Machine Name filter (ComboBox)
+        ctk.CTkLabel(ctrl_bar, text="Tên máy:", font=("Arial", 9, "bold")).pack(side="left", padx=(10, 2))
+        self.import_machine_cb = ctk.CTkComboBox(
+            ctrl_bar,
+            values=["Tất cả"],
+            width=160,
+            font=("Arial", 10),
+            dropdown_font=("Arial", 10),
+            corner_radius=6,
+            border_width=1,
+            border_color="#555555",
+            button_color="#2b2b2b",
+            button_hover_color="#3a3a3a",
+            dropdown_fg_color="#1e1e1e",
+            dropdown_hover_color="#2b2b2b",
+            dropdown_text_color="#ffffff",
+            command=lambda e: self.apply_log_filters()
+        )
+        self.import_machine_cb.pack(side="left", padx=5)
+
+        # IP filter
+        ctk.CTkLabel(ctrl_bar, text="IP / WAN IP:", font=("Arial", 9, "bold")).pack(side="left", padx=(15, 2))
+        self.import_ip_entry = ctk.CTkEntry(ctrl_bar, placeholder_text="Nhập IP để tìm...", width=160, font=("Arial", 9))
+        self.import_ip_entry.pack(side="left", padx=5)
+        self.import_ip_entry.bind("<KeyRelease>", self.apply_log_filters)
+
+        # Time filter (Start - End)
+        ctk.CTkLabel(ctrl_bar, text="Từ:", font=("Arial", 9, "bold")).pack(side="left", padx=(15, 2))
+        self.import_start_time_entry = ctk.CTkEntry(ctrl_bar, placeholder_text="HH:MM:SS (VD: 08:00)", width=120, font=("Arial", 9))
+        self.import_start_time_entry.pack(side="left", padx=5)
+        self.import_start_time_entry.bind("<KeyRelease>", self.apply_log_filters)
+
+        ctk.CTkLabel(ctrl_bar, text="Đến:", font=("Arial", 9, "bold")).pack(side="left", padx=(5, 2))
+        self.import_end_time_entry = ctk.CTkEntry(ctrl_bar, placeholder_text="HH:MM:SS (VD: 17:00)", width=120, font=("Arial", 9))
+        self.import_end_time_entry.pack(side="left", padx=5)
+        self.import_end_time_entry.bind("<KeyRelease>", self.apply_log_filters)
+
+        # Reset button
+        ctk.CTkButton(ctrl_bar, text="🔄 Reset Bộ Lọc", command=self.reset_log_filters, fg_color="#555555", hover_color="#444444", width=120, height=26, font=("Arial", 9, "bold")).pack(side="left", padx=15)
+
+        # Textbox for logs (similar to debug_textbox)
+        self.import_textbox = ctk.CTkTextbox(self.import_log_frame, font=("Consolas", 10), fg_color="#1e1e1e", text_color="#00ff00")
+        self.import_textbox.pack(fill="both", expand=True, padx=5, pady=5)
+        # Configure tags matching debug_textbox
+        self.import_textbox.tag_config("log_time", foreground="#7F8C8D")      # cool gray
+        self.import_textbox.tag_config("log_sep", foreground="#555555")       # dark gray
+        self.import_textbox.tag_config("log_device", foreground="#3498DB")    # sky blue
+        self.import_textbox.tag_config("metric_lbl", foreground="#E67E22")    # orange
+        self.import_textbox.tag_config("metric_val", foreground="#1ABC9C")    # turquoise
+        self.import_textbox.tag_config("srt_port", foreground="#BDC3C7")      # light gray
+        self.import_textbox.tag_config("srt_on", foreground="#2ECC71")        # bright green
+        self.import_textbox.tag_config("srt_off", foreground="#E74C3C")       # bright red
+
+        self.parsed_log_entries = []
+
+    def parse_log_line(self, line: str) -> dict | None:
+        import re
+        line = line.strip()
+        if not line:
+            return None
+
+        # Extract timestamp
+        timestamp_match = re.match(r"^\[\s*([^\]]+)\s*\]\s*-\s*(.*)$", line)
+        if not timestamp_match:
+            return None
+
+        time_date_str = timestamp_match.group(1).strip()
+        remaining = timestamp_match.group(2).strip()
+
+        # Split time and date
+        if "," in time_date_str:
+            parts = time_date_str.split(",", 1)
+            time_part = parts[0].strip()
+            date_part = parts[1].strip()
+        else:
+            time_part = time_date_str
+            date_part = ""
+
+        # Extract machine name
+        if remaining.startswith("["):
+            machine_match = re.match(r"^\[\s*([^\]]+)\s*\]\s*-\s*(.*)$", remaining)
+            if machine_match:
+                machine_name = machine_match.group(1).strip()
+                rest = machine_match.group(2).strip()
+            else:
+                parts = remaining.split(" - ", 1)
+                machine_name = parts[0].strip()
+                rest = parts[1].strip() if len(parts) > 1 else ""
+        else:
+            parts = remaining.split(" - ", 1)
+            machine_name = parts[0].strip()
+            rest = parts[1].strip() if len(parts) > 1 else ""
+
+        # Parse fields using simple regular expressions
+        def find_val(pattern, text):
+            match = re.search(pattern, text, re.IGNORECASE)
+            return match.group(1).strip() if match else "—"
+
+        ip_val = find_val(r"\b(?<!wan )ip:\s*([^\s\|]+)", rest)
+        ipwan_val = find_val(r"\bwan\s+ip:\s*([^\s\|]+)", rest) or find_val(r"\bipwan:\s*([^\s\|]+)", rest)
+        cpu_val = find_val(r"\bcpu:\s*([^\|]+)", rest)
+        ram_val = find_val(r"\bram:\s*([^\|]+)", rest)
+        gpu_val = find_val(r"\bgpu:\s*([^\|]+)", rest)
+        ping_val = find_val(r"\bping:\s*([^\|]+)", rest)
+        timeout_val = find_val(r"\btimeout:\s*([^\|]+)", rest) or find_val(r"\btimeouts:\s*([^\|]+)", rest)
+        send_val = find_val(r"\bsend:\s*([^\|]+)", rest)
+        recv_val = find_val(r"\brecv:\s*([^\|]+)", rest)
+        res_val = find_val(r"\bres:\s*([^\|]+)", rest)
+        rec_val = find_val(r"\brec:\s*([^\|]+)", rest)
+        live_val = find_val(r"\blive:\s*([^\|]+)", rest)
+        ext_val = find_val(r"\bext:\s*([^\|]+)", rest)
+        srt_val = find_val(r"\bsrt\s+([^\|]+)", rest)
+
+        datetime_str = f"{time_part}  {date_part}".strip()
+        return {
+            "raw": line,
+            "time": time_part,
+            "date": date_part,
+            "datetime_str": datetime_str,
+            "machine": machine_name,
+            "ip": ip_val,
+            "ipwan": ipwan_val,
+            "cpu": cpu_val,
+            "ram": ram_val,
+            "gpu": gpu_val,
+            "ping": ping_val,
+            "timeout": timeout_val,
+            "send": send_val,
+            "recv": recv_val,
+            "res": res_val,
+            "rec": rec_val,
+            "live": live_val,
+            "ext": ext_val,
+            "srt": srt_val,
+        }
+
+    def reconstruct_log_tags(self, line: str) -> list:
+        import re
+        line = line.strip()
+        if not line:
+            return []
+
+        # 1. Extract timestamp
+        timestamp_match = re.match(r"^(\[\s*[^\]]+\s*\])\s*-\s*(.*)$", line)
+        if not timestamp_match:
+            return [(line, "text")]
+        
+        time_part = timestamp_match.group(1)
+        remaining = timestamp_match.group(2).strip()
+
+        # 2. Extract machine name
+        if remaining.startswith("["):
+            machine_match = re.match(r"^(\[\s*[^\]]+\s*\])\s*-\s*(.*)$", remaining)
+            if machine_match:
+                device_name = machine_match.group(1)
+                rest = machine_match.group(2).strip()
+            else:
+                parts = remaining.split(" - ", 1)
+                device_name = parts[0]
+                rest = parts[1] if len(parts) > 1 else ""
+        else:
+            parts = remaining.split(" - ", 1)
+            device_name = parts[0]
+            rest = parts[1] if len(parts) > 1 else ""
+
+        parts_list = [
+            (time_part, "log_time"),
+            (" - ", "log_sep"),
+            (device_name, "log_device"),
+            (" - ", "log_sep")
+        ]
+
+        metrics_parts = rest.split(" | ")
+        for idx, mp in enumerate(metrics_parts):
+            mp = mp.strip()
+            if not mp:
+                continue
+
+            if mp.upper().startswith("SRT"):
+                srt_split = mp.split(" ", 1)
+                parts_list.append((srt_split[0] + " ", "metric_lbl"))
+                if len(srt_split) > 1:
+                    ports_list = srt_split[1].split(", ")
+                    for p_idx, port_status in enumerate(ports_list):
+                        if ":" in port_status:
+                            p_num, p_state = port_status.split(":", 1)
+                            parts_list.append((p_num + ":", "srt_port"))
+                            parts_list.append((p_state, "srt_on" if p_state.upper() == "ON" else "srt_off"))
+                        else:
+                            parts_list.append((port_status, "metric_val"))
+                        if p_idx < len(ports_list) - 1:
+                            parts_list.append((", ", "log_sep"))
+            else:
+                if ":" in mp:
+                    k, v = mp.split(":", 1)
+                    parts_list.append((k + ": ", "metric_lbl"))
+                    v_clean = v.strip()
+                    if v_clean in ("ON", "OFF"):
+                        parts_list.append((v_clean, "srt_on" if v_clean == "ON" else "srt_off"))
+                    else:
+                        parts_list.append((v_clean, "metric_val"))
+                else:
+                    parts_list.append((mp, "metric_val"))
+
+            if idx < len(metrics_parts) - 1:
+                parts_list.append((" | ", "log_sep"))
+
+        return parts_list
+
+    def select_and_import_log_file(self):
+        fpath = filedialog.askopenfilename(
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            title="Chọn file Log (.txt)"
+        )
+        if not fpath:
+            return
+
+        self.import_file_label.configure(text=f"Đang đọc: {fpath}...")
+        self.root.update_idletasks()
+
+        try:
+            with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+
+            parsed_entries = []
+            for line in lines:
+                entry = self.parse_log_line(line)
+                if entry:
+                    parsed_entries.append(entry)
+
+            if not parsed_entries:
+                messagebox.showwarning("Cảnh báo", "Không tìm thấy dòng log hợp lệ nào trong file đã chọn!")
+                self.import_file_label.configure(text="Chưa chọn file log nào...")
+                return
+
+            self.parsed_log_entries = parsed_entries
+            self.import_file_label.configure(text=f"File: {fpath} ({len(parsed_entries)} dòng log)")
+
+            # Populate machine filter dropdown values
+            machines = sorted(list(set(entry["machine"] for entry in self.parsed_log_entries)))
+            self.import_machine_cb.configure(values=["Tất cả"] + machines)
+            self.import_machine_cb.set("Tất cả")
+
+            # Apply filters (repopulates tree)
+            self.apply_log_filters()
+            messagebox.showinfo("Thành công", f"Đã import thành công {len(parsed_entries)} dòng log!")
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Lỗi", f"Không thể import file log:\n{str(e)}")
+            self.import_file_label.configure(text="Lỗi đọc file...")
+
+    def apply_log_filters(self, event=None):
+        if not hasattr(self, "parsed_log_entries") or not self.parsed_log_entries:
+            return
+
+        machine_filter = self.import_machine_cb.get()
+        ip_filter = self.import_ip_entry.get().strip().lower()
+        
+        start_time_str = self.import_start_time_entry.get().strip()
+        end_time_str = self.import_end_time_entry.get().strip()
+
+        def parse_time_to_seconds(s: str) -> int | None:
+            s = s.strip()
+            if not s:
+                return None
+            parts = s.split(":")
+            try:
+                h = int(parts[0])
+                m = int(parts[1]) if len(parts) > 1 else 0
+                sec = int(parts[2]) if len(parts) > 2 else 0
+                return h * 3600 + m * 60 + sec
+            except Exception:
+                return None
+
+        start_secs = parse_time_to_seconds(start_time_str)
+        end_secs = parse_time_to_seconds(end_time_str)
+
+        # Clear textbox
+        self.import_textbox.configure(state="normal")
+        self.import_textbox.delete("1.0", "end")
+
+        for entry in self.parsed_log_entries:
+            # Filter by machine name
+            if machine_filter != "Tất cả" and entry["machine"] != machine_filter:
+                continue
+
+            # Filter by IP or WAN IP
+            if ip_filter:
+                ip_match = ip_filter in entry["ip"].lower()
+                ipwan_match = ip_filter in entry["ipwan"].lower()
+                if not (ip_match or ipwan_match):
+                    continue
+
+            # Filter by Time Range
+            if start_secs is not None or end_secs is not None:
+                entry_secs = parse_time_to_seconds(entry["time"])
+                if entry_secs is not None:
+                    if start_secs is not None and entry_secs < start_secs:
+                        continue
+                    if end_secs is not None and entry_secs > end_secs:
+                        continue
+                else:
+                    # Exclude lines that don't have a valid parseable time if range filter is active
+                    continue
+
+            # Reconstruct tags and insert
+            tag_parts = self.reconstruct_log_tags(entry["raw"])
+            for text, tag in tag_parts:
+                self.import_textbox.insert("end", text, tag)
+            self.import_textbox.insert("end", "\n")
+
+        self.import_textbox.configure(state="disabled")
+        self.import_textbox.see("end")
+
+    def reset_log_filters(self):
+        self.import_machine_cb.set("Tất cả")
+        self.import_ip_entry.delete(0, "end")
+        self.import_start_time_entry.delete(0, "end")
+        self.import_end_time_entry.delete(0, "end")
+        self.apply_log_filters()
+
+    def clear_imported_logs(self):
+        self.parsed_log_entries = []
+        self.import_file_label.configure(text="Chưa chọn file log nào...")
+        self.import_machine_cb.configure(values=["Tất cả"])
+        self.import_machine_cb.set("Tất cả")
+        self.import_ip_entry.delete(0, "end")
+        self.import_start_time_entry.delete(0, "end")
+        self.import_end_time_entry.delete(0, "end")
+        self.import_textbox.configure(state="normal")
+        self.import_textbox.delete("1.0", "end")
+        self.import_textbox.configure(state="disabled")
+
+    def toggle_import_log_page(self):
+        if not hasattr(self, "showing_import_log"):
+            self.showing_import_log = False
+ 
+        if not self.showing_import_log:
+            # Close debug page if open
+            if getattr(self, "showing_debug", False):
+                self.toggle_debug_page()
+            if getattr(self, "showing_setting", False):
+                self.toggle_setting_page()
+ 
+            self.vertical_splitter.pack_forget()
+            self.import_log_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+            self.import_log_nav_btn.configure(text="🖥️ Monitor", fg_color="#455a64", hover_color="#37474f")
+            self.showing_import_log = True
+        else:
+            self.import_log_frame.pack_forget()
+            self.vertical_splitter.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+            self._set_default_split_position()
+            self.import_log_nav_btn.configure(text="📄 Import Log", fg_color="#FF5722", hover_color="#E64A19")
+            self.showing_import_log = False
+
+    def toggle_setting_page(self):
+        if not hasattr(self, "showing_setting"):
+            self.showing_setting = False
+
+        if not self.showing_setting:
+            if getattr(self, "showing_debug", False):
+                self.toggle_debug_page()
+            if getattr(self, "showing_import_log", False):
+                self.toggle_import_log_page()
+
+            self.vertical_splitter.pack_forget()
+            self.setting_frame.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+            self.setting_nav_btn.configure(text="🖥️ Monitor", fg_color="#455a64", hover_color="#37474f")
+            self.showing_setting = True
+        else:
+            self.setting_frame.pack_forget()
+            self.vertical_splitter.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+            self._set_default_split_position()
+            self.setting_nav_btn.configure(text="⚙️ Setting", fg_color="#607D8B", hover_color="#455A64")
+            self.showing_setting = False
+
+    def setup_setting_ui(self):
+        hdr = ctk.CTkFrame(self.setting_frame, fg_color="#1a1a1a", height=38)
+        hdr.pack(fill="x", padx=0, pady=(0, 2))
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text="⚙️ Metric Validation Settings", font=("Arial", 11, "bold"), text_color="#2196F3").pack(side="left", padx=10)
+
+        container = ctk.CTkScrollableFrame(self.setting_frame, fg_color="#181818")
+        container.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Column headers
+        header_row = ctk.CTkFrame(container, fg_color="#1a1a1a", height=36)
+        header_row.pack(fill="x", pady=(0, 6), padx=5)
+        header_row.pack_propagate(False)
+        ctk.CTkLabel(header_row, text="METRIC", font=("Arial", 10, "bold"), width=150, anchor="w", text_color="#90CAF9").pack(side="left", padx=15)
+        ctk.CTkLabel(header_row, text="CONDITION", font=("Arial", 10, "bold"), width=120, anchor="center", text_color="#90CAF9").pack(side="left", padx=10)
+        ctk.CTkLabel(header_row, text="VALUE / THRESHOLD", font=("Arial", 10, "bold"), width=280, anchor="w", text_color="#90CAF9").pack(side="left", padx=10)
+        ctk.CTkLabel(header_row, text="ĐƠN VỊ", font=("Arial", 10, "bold"), width=90, anchor="center", text_color="#90CAF9").pack(side="left", padx=5)
+        ctk.CTkLabel(header_row, text="ERROR REPORT MODE", font=("Arial", 10, "bold"), width=250, anchor="w", text_color="#90CAF9").pack(side="left", padx=10)
+
+        metrics_config = [
+            ("status_app", "Status APP", True, False),
+            ("srt_status", "SRT Status", True, False),
+            ("ping", "Ping (ms)", False, False),
+            ("timeout", "Time out", False, False),
+            ("netspeed", "Net Speed", False, True),
+            ("cpu", "CPU (%)", False, False),
+            ("gpu", "GPU (%)", False, False),
+            ("ram", "RAM (%)", False, False),
+            ("sender", "Sender", False, True),
+            ("receiver", "Receiver", False, True)
+        ]
+
+        self.setting_widgets = {}
+
+        for idx, (key, label, is_status, has_unit) in enumerate(metrics_config):
+            row = ctk.CTkFrame(container, fg_color="#242424" if idx % 2 == 0 else "transparent", height=50)
+            row.pack(fill="x", pady=2, padx=5)
+            row.pack_propagate(False)
+
+            ctk.CTkLabel(row, text=label, font=("Arial", 11, "bold"), width=150, anchor="w").pack(side="left", padx=15)
+
+            types = ["None", "Equal"] if is_status else ["None", "Equal", ">", "<", "Range"]
+            type_var = ctk.StringVar(value=self.settings_data.get(key, {}).get("type", "None"))
+            val1_var = ctk.StringVar(value=self.settings_data.get(key, {}).get("val1", ""))
+            val2_var = ctk.StringVar(value=self.settings_data.get(key, {}).get("val2", ""))
+            status_val_var = ctk.StringVar(value=self.settings_data.get(key, {}).get("val", "ON"))
+            unit_var = ctk.StringVar(value=self.settings_data.get(key, {}).get("unit", "Mbps"))
+            error_interval_var = ctk.StringVar(value=str(self.settings_data.get(key, {}).get("error_interval", 15)))
+
+            widgets = {}
+            cb_type = ctk.CTkComboBox(
+                row, values=types, width=120, font=("Arial", 10),
+                dropdown_font=("Arial", 10), variable=type_var,
+                corner_radius=6, border_width=1, border_color="#555555"
+            )
+            cb_type.pack(side="left", padx=10)
+
+            input_frame = ctk.CTkFrame(row, fg_color="transparent", width=280)
+            input_frame.pack(side="left", padx=5)
+            input_frame.pack_propagate(False)
+
+            # Unit combobox area
+            unit_frame = ctk.CTkFrame(row, fg_color="transparent", width=90)
+            unit_frame.pack(side="left", padx=5)
+            unit_frame.pack_propagate(False)
+            if has_unit:
+                cb_unit = ctk.CTkComboBox(
+                    unit_frame, values=["Mbps", "Kbps", "Gbps"], width=85,
+                    font=("Arial", 10), dropdown_font=("Arial", 10),
+                    variable=unit_var, corner_radius=6, border_width=1, border_color="#555555"
+                )
+                cb_unit.pack(side="left", padx=2, pady=8)
+                widgets["cb_unit"] = cb_unit
+            else:
+                ctk.CTkLabel(unit_frame, text="—", font=("Arial", 10), text_color="#555555").pack(side="left", padx=2, pady=8)
+
+            # Error mode area
+            error_frame = ctk.CTkFrame(row, fg_color="transparent", width=250)
+            error_frame.pack(side="left", padx=10)
+            error_frame.pack_propagate(False)
+            if is_status:
+                mode_inner = ctk.CTkFrame(error_frame, fg_color="#2a3a2a", corner_radius=6, height=32)
+                mode_inner.pack(side="left", padx=2, pady=8)
+                mode_inner.pack_propagate(False)
+                ctk.CTkLabel(mode_inner, text="🔔 Báo 1 lần khi đổi trạng thái",
+                             font=("Arial", 9, "bold"), text_color="#4CAF50", width=220).pack(padx=8, pady=4)
+            else:
+                mode_inner = ctk.CTkFrame(error_frame, fg_color="transparent")
+                mode_inner.pack(side="left", padx=2, pady=8)
+                ctk.CTkLabel(mode_inner, text="🔄 Loop mỗi", font=("Arial", 9, "bold"),
+                             text_color="#FF9800").pack(side="left", padx=(0, 4))
+                interval_entry = ctk.CTkEntry(
+                    mode_inner, width=55, font=("Arial", 10), textvariable=error_interval_var,
+                    placeholder_text="15", corner_radius=6, border_width=1,
+                    border_color="#555555", justify="center"
+                )
+                interval_entry.pack(side="left", padx=2)
+                ctk.CTkLabel(mode_inner, text="giây", font=("Arial", 9, "bold"),
+                             text_color="#FF9800").pack(side="left", padx=(4, 0))
+                widgets["interval_entry"] = interval_entry
+
+            widgets["cb_type"] = cb_type
+            widgets["val1_var"] = val1_var
+            widgets["val2_var"] = val2_var
+            widgets["status_val_var"] = status_val_var
+            widgets["unit_var"] = unit_var
+            widgets["error_interval_var"] = error_interval_var
+            widgets["is_status"] = is_status
+            widgets["has_unit"] = has_unit
+            widgets["input_frame"] = input_frame
+
+            def update_inputs(k=key, w=widgets):
+                for child in w["input_frame"].winfo_children():
+                    child.destroy()
+                t = w["cb_type"].get()
+                if t == "None":
+                    ctk.CTkLabel(w["input_frame"], text="Không kiểm tra", font=("Arial", 10, "italic"), text_color="#777777").pack(side="left", padx=10, pady=8)
+                elif w["is_status"]:
+                    cb_val = ctk.CTkComboBox(
+                        w["input_frame"], values=["ON", "OFF"], width=100,
+                        font=("Arial", 10), dropdown_font=("Arial", 10),
+                        variable=w["status_val_var"], corner_radius=6,
+                        border_width=1, border_color="#555555"
+                    )
+                    cb_val.pack(side="left", padx=10, pady=8)
+                else:
+                    if t in ("Equal", ">", "<"):
+                        entry1 = ctk.CTkEntry(
+                            w["input_frame"], width=120, font=("Arial", 10),
+                            textvariable=w["val1_var"], placeholder_text="Giá trị...",
+                            corner_radius=6, border_width=1, border_color="#555555"
+                        )
+                        entry1.pack(side="left", padx=10, pady=8)
+                    elif t == "Range":
+                        ctk.CTkLabel(w["input_frame"], text="Từ:", font=("Arial", 10)).pack(side="left", padx=(10, 2), pady=8)
+                        ctk.CTkEntry(
+                            w["input_frame"], width=100, font=("Arial", 10),
+                            textvariable=w["val1_var"], placeholder_text="Min...",
+                            corner_radius=6, border_width=1, border_color="#555555"
+                        ).pack(side="left", padx=2, pady=8)
+                        ctk.CTkLabel(w["input_frame"], text="Đến:", font=("Arial", 10)).pack(side="left", padx=(10, 2), pady=8)
+                        ctk.CTkEntry(
+                            w["input_frame"], width=100, font=("Arial", 10),
+                            textvariable=w["val2_var"], placeholder_text="Max...",
+                            corner_radius=6, border_width=1, border_color="#555555"
+                        ).pack(side="left", padx=2, pady=8)
+
+            update_func = lambda k=key, w=widgets: update_inputs(k, w)
+            widgets["update_func"] = update_func
+            cb_type.configure(command=lambda e, uf=update_func: uf())
+            update_func()
+
+            self.setting_widgets[key] = widgets
+
+        footer = ctk.CTkFrame(container, fg_color="transparent")
+        footer.pack(fill="x", pady=20, padx=5)
+        ctk.CTkButton(
+            footer, text="💾 Save Settings", command=self.save_settings_action,
+            fg_color="#4CAF50", hover_color="#45a049", width=160, font=("Arial", 10, "bold")
+        ).pack(side="left", padx=10)
+        ctk.CTkButton(
+            footer, text="🔄 Reset", command=self.reset_settings_action,
+            fg_color="#f44336", hover_color="#d32f2f", width=120, font=("Arial", 10, "bold")
+        ).pack(side="left", padx=10)
+
+
+    def save_settings_action(self):
+        for key, w in self.setting_widgets.items():
+            t = w["cb_type"].get()
+            self.settings_data[key]["type"] = t
+            if w["is_status"]:
+                self.settings_data[key]["val"] = w["status_val_var"].get()
+                self.settings_data[key]["error_mode"] = "once"
+            else:
+                self.settings_data[key]["val1"] = w["val1_var"].get()
+                self.settings_data[key]["val2"] = w["val2_var"].get()
+                self.settings_data[key]["error_mode"] = "loop"
+                try:
+                    self.settings_data[key]["error_interval"] = max(1, int(w["error_interval_var"].get()))
+                except (ValueError, TypeError):
+                    self.settings_data[key]["error_interval"] = 15
+            if w.get("has_unit"):
+                self.settings_data[key]["unit"] = w["unit_var"].get()
+        
+        self.save_settings()
+        self.update_selected_table()
+        messagebox.showinfo("Thành công", "Đã lưu cài đặt và áp dụng thành công!")
+
+    def reset_settings_action(self):
+        if not messagebox.askyesno("Xác nhận", "Bạn có chắc chắn muốn đặt lại tất cả cài đặt giới hạn về mặc định?"):
+            return
+        
+        for key, w in self.setting_widgets.items():
+            w["cb_type"].set("None")
+            if w["is_status"]:
+                w["status_val_var"].set("ON")
+                self.settings_data[key] = {"type": "None", "val": "ON", "error_mode": "once"}
+            else:
+                w["val1_var"].set("")
+                w["val2_var"].set("")
+                w["error_interval_var"].set("15")
+                default_entry = {"type": "None", "val1": "", "val2": "", "error_mode": "loop", "error_interval": 15}
+                if w.get("has_unit"):
+                    w["unit_var"].set("Mbps")
+                    default_entry["unit"] = "Mbps"
+                self.settings_data[key] = default_entry
+            w["update_func"]()
+            
+        self.save_settings()
+        self.update_selected_table()
+        messagebox.showinfo("Thành công", "Đã đặt lại cài đặt về mặc định!")
+
+    def check_violation(self, key, value_str) -> bool:
+        if not hasattr(self, "settings_data"):
+            return False
+        rule = self.settings_data.get(key)
+        if not rule or rule.get("type") == "None":
+            return False
+
+        rule_type = rule.get("type")
+        val1_str = rule.get("val1", "")
+        val2_str = rule.get("val2", "")
+
+        if key in ("status_app", "srt_status"):
+            target = rule.get("val", "ON")
+            actual = str(value_str).strip().upper()
+            return actual != target.upper()
+
+        def parse_numeric(v):
+            if v is None:
+                return None
+            v_str = str(v).strip().lower()
+            if not v_str or v_str in ("—", "off", "none", "null"):
+                return None
+            v_clean = re.sub(r"[^\d\.]", "", v_str)
+            try:
+                value = float(v_clean)
+                if "gbps" in v_str:
+                    value *= 1000
+                elif "kbps" in v_str:
+                    value /= 1000
+                return value
+            except ValueError:
+                return None
+
+        def convert_threshold_to_mbps(v_str):
+            """Convert user-entered threshold value to Mbps based on the rule's unit setting."""
+            if v_str is None:
+                return None
+            v_str_clean = str(v_str).strip()
+            if not v_str_clean:
+                return None
+            try:
+                value = float(v_str_clean)
+            except ValueError:
+                return parse_numeric(v_str_clean)
+            unit = rule.get("unit", "Mbps")
+            if unit == "Kbps":
+                value /= 1000
+            elif unit == "Gbps":
+                value *= 1000
+            return value
+
+        val = parse_numeric(value_str)
+        if val is None:
+            # If checking is active but reported value is offline/empty, mark as violation
+            return True
+
+        # Use unit-aware conversion for threshold values if metric has unit
+        has_unit = key in ("netspeed", "sender", "receiver")
+        if has_unit:
+            v1 = convert_threshold_to_mbps(val1_str)
+            v2 = convert_threshold_to_mbps(val2_str)
+        else:
+            v1 = parse_numeric(val1_str)
+            v2 = parse_numeric(val2_str)
+
+        if rule_type == "Equal":
+            if v1 is None: return False
+            return abs(val - v1) > 0.001
+        elif rule_type == ">":
+            if v1 is None: return False
+            return val > v1
+        elif rule_type == "<":
+            if v1 is None: return False
+            return val < v1
+        elif rule_type == "Range":
+            if v1 is None or v2 is None: return False
+            return not (v1 <= val <= v2)
+
+        return False
+
+    def get_metric_color(self, key, val_str, default_color="#ffffff") -> str:
+        if self.check_violation(key, val_str):
+            return "#f44336"
+        return default_color

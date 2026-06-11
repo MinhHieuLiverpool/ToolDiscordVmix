@@ -49,6 +49,7 @@ class ServerDataGUI(ServerDataGUIUIMixin, ServerDataGUILogicMixin):
         self.ws_reconnect_attempts = 0
         self.rest_polling_active = False
 
+        self.load_settings()
         self.setup_main_ui()
         self.apply_server_url(reconnect=False, announce=False)
 

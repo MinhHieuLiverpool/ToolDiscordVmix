@@ -5,6 +5,9 @@ import pytz
 VIETNAM_TZ = pytz.timezone("Asia/Ho_Chi_Minh")
 DEFAULT_SERVER_URL = "http://localhost:8000"
 
+import queue
+GLOBAL_LOG_QUEUE = queue.Queue()
+
 
 def get_first_srt(d: dict) -> dict:
     """Safely extract the first SRT dict from data.

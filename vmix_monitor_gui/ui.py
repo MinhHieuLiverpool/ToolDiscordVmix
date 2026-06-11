@@ -605,9 +605,11 @@ class VmixMonitorUIMixin:
         finally:
             self.root.after(100, self.check_log_queue)
 
-    def update_table_display(self):
+    def update_table_display(self, entry=None):
         # Update machine info cards from first entry (all entries share same machine stats)
-        if self.port_list:
+        if entry:
+            self._update_machine_cards(entry)
+        elif self.port_list:
             self._update_machine_cards(self.port_list[0])
 
     def _on_srt_ext_name_dblclick(self, event):

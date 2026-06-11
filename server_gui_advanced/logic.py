@@ -11,17 +11,24 @@ import requests
 import websocket
 
 try:
-    from .shared import DEFAULT_SERVER_URL, VIETNAM_TZ, get_first_srt, get_srt_ports_str
+    from .shared import DEFAULT_SERVER_URL, VIETNAM_TZ, get_first_srt, get_srt_ports_str, GLOBAL_LOG_QUEUE
 except ImportError:
     try:
-        from server_gui_advanced.shared import DEFAULT_SERVER_URL, VIETNAM_TZ, get_first_srt, get_srt_ports_str
+        from server_gui_advanced.shared import DEFAULT_SERVER_URL, VIETNAM_TZ, get_first_srt, get_srt_ports_str, GLOBAL_LOG_QUEUE
     except ImportError:
-        from shared import DEFAULT_SERVER_URL, VIETNAM_TZ, get_first_srt, get_srt_ports_str
+        from shared import DEFAULT_SERVER_URL, VIETNAM_TZ, get_first_srt, get_srt_ports_str, GLOBAL_LOG_QUEUE
 
 import sys
 def safe_print(*args, **kwargs):
+    msg = " ".join(map(str, args))
     try:
-        sys.stdout.write(" ".join(map(str, args)) + "\n")
+        GLOBAL_LOG_QUEUE.put(msg)
+    except Exception:
+        pass
+    if not sys.stdout:
+        return
+    try:
+        sys.stdout.write(msg + "\n")
         sys.stdout.flush()
     except UnicodeEncodeError:
         cleaned = []
@@ -168,6 +175,7 @@ class ServerDataGUILogicMixin:
 
                 has_list_changed = self.has_data_changed(self.data, data)
                 self.data = data
+                self.process_and_log_server_data(data)
 
                 if has_list_changed:
                     self.root.after(0, self.update_all_table)
@@ -259,6 +267,7 @@ class ServerDataGUILogicMixin:
                         data = unique
                         has_list_changed = self.has_data_changed(self.data, data)
                         self.data = data
+                        self.process_and_log_server_data(data)
                         if has_list_changed:
                             self.root.after(0, self.update_all_table)
                         self.update_selected_data()
@@ -416,6 +425,7 @@ class ServerDataGUILogicMixin:
                             return
 
                         self.data = data
+                        self.process_and_log_server_data(data)
                         self.update_selected_data()
                         self.update_selected_table()
                         self.send_to_discord_auto()
@@ -525,6 +535,7 @@ class ServerDataGUILogicMixin:
                         if self.has_data_changed(self.data, data):
                             print("✓ Data changed, refreshing table...")
                             self.data = data
+                            self.process_and_log_server_data(data)
                             self.root.after(0, self.update_all_table)
                             self.update_selected_data()
                             self.root.after(0, self.update_selected_table)
@@ -736,6 +747,289 @@ class ServerDataGUILogicMixin:
                 f.write(line)
         except Exception as e:
             print(f"⚠ Log write error: {e}")
+
+    def process_and_log_server_data(self, data):
+        if not data or not isinstance(data, list):
+            return
+
+        if not hasattr(self, "last_logged_states"):
+            self.last_logged_states = {}
+
+        for entry in data:
+            d = entry.get("data", {})
+            if not d:
+                continue
+
+            name = d.get("name", "").strip() or d.get("ip", "Unknown")
+            timestamp = entry.get("timestamp", d.get("last_updated", ""))
+            statusapp = d.get("statusapp", 0)
+
+            # Check if this state is already logged
+            state_key = (timestamp, statusapp)
+            if self.last_logged_states.get(name) == state_key:
+                continue
+            self.last_logged_states[name] = state_key
+
+            # Construct log parts
+            now_dt = datetime.now(VIETNAM_TZ)
+            time_str = now_dt.strftime("%H:%M:%S")
+            date_str = now_dt.strftime("%d-%m-%Y")
+            time_date_lbl = f"[ {time_str}, {date_str} ]"
+
+            log_parts = [
+                (time_date_lbl, "log_time"),
+                (" - ", "log_sep"),
+                (f"{name}", "log_device"),
+                (" - ", "log_sep"),
+            ]
+
+            # Append stats
+            ip_val = d.get("ip", "—")
+            ipwan = d.get("ipwan", "—")
+            ping_val = d.get("ping", None)
+            ping_timeouts = d.get("ping_timeouts", 0)
+            network_speed = d.get("network_speed", "—")
+            mac_address = d.get("mac_address", "—")
+            
+            # Bandwidth send/recv
+            send_mbps = d.get("sender_mbps", d.get("sender_bw", None))
+            recv_mbps = d.get("receiver_mbps", d.get("receiver_bw", None))
+            
+            pid_vmix = d.get("PIDVMIX", "—")
+            rec_val = d.get("vmix_recording", False)
+            live_val = d.get("vmix_streaming", False)
+            ext_val = d.get("vmix_external", False)
+            resolution = d.get("resolution", "—")
+
+            if statusapp == 0:
+                log_parts.extend([
+                    ("CPU: ", "metric_lbl"), ("OFF", "srt_off"), (" | ", "log_sep"),
+                    ("RAM: ", "metric_lbl"), ("OFF", "srt_off"), (" | ", "log_sep"),
+                    ("GPU: ", "metric_lbl"), ("OFF", "srt_off"), (" | ", "log_sep"),
+                    ("PING: ", "metric_lbl"), ("OFF", "srt_off"), (" | ", "log_sep"),
+                    ("TIMEOUT: ", "metric_lbl"), (f"{ping_timeouts}", "metric_val"), (" | ", "log_sep"),
+                    ("NET SPEED: ", "metric_lbl"), ("OFF", "srt_off"), (" | ", "log_sep"),
+                    ("MAC: ", "metric_lbl"), (f"{mac_address}", "metric_val"), (" | ", "log_sep"),
+                    ("SEND: ", "metric_lbl"), ("OFF", "srt_off"), (" | ", "log_sep"),
+                    ("RECV: ", "metric_lbl"), ("OFF", "srt_off"), (" | ", "log_sep"),
+                    ("PID VMIX: ", "metric_lbl"), ("OFF", "srt_off"), (" | ", "log_sep"),
+                    ("REC: ", "metric_lbl"), ("OFF", "srt_off"), (" | ", "log_sep"),
+                    ("LIVE: ", "metric_lbl"), ("OFF", "srt_off"), (" | ", "log_sep"),
+                    ("EXT: ", "metric_lbl"), ("OFF", "srt_off"), (" | ", "log_sep"),
+                    ("RES: ", "metric_lbl"), ("OFF", "srt_off"), (" | ", "log_sep"),
+                    ("IP: ", "metric_lbl"), (f"{ip_val}", "metric_val"), (" | ", "log_sep"),
+                    ("WAN IP: ", "metric_lbl"), (f"{ipwan}", "metric_val"), (" | ", "log_sep"),
+                ])
+            else:
+                cpu_val = d.get("temperature", d.get("cpu", None))
+                ram_val = d.get("memory", None)
+                gpu_val = d.get("gpu", None)
+
+                cpu_s = f"{cpu_val:.1f}%" if cpu_val is not None else "—"
+                ram_s = f"{ram_val:.1f}%" if ram_val is not None else "—"
+                gpu_s = f"{gpu_val:.1f}%" if gpu_val is not None else "—"
+                
+                ping_s = f"{ping_val:.0f}ms" if ping_val is not None else "—"
+                
+                send_s = f"{send_mbps:.2f} Mbps" if isinstance(send_mbps, (int, float)) else f"{send_mbps or '—'}"
+                recv_s = f"{recv_mbps:.2f} Mbps" if isinstance(recv_mbps, (int, float)) else f"{recv_mbps or '—'}"
+                
+                rec_s = "ON" if rec_val else "OFF"
+                live_s = "ON" if live_val else "OFF"
+                ext_s = "ON" if ext_val else "OFF"
+
+                log_parts.extend([
+                    ("CPU: ", "metric_lbl"), (f"{cpu_s}", "metric_val"), (" | ", "log_sep"),
+                    ("RAM: ", "metric_lbl"), (f"{ram_s}", "metric_val"), (" | ", "log_sep"),
+                    ("GPU: ", "metric_lbl"), (f"{gpu_s}", "metric_val"), (" | ", "log_sep"),
+                    ("PING: ", "metric_lbl"), (f"{ping_s}", "metric_val"), (" | ", "log_sep"),
+                    ("TIMEOUT: ", "metric_lbl"), (f"{ping_timeouts}", "metric_val"), (" | ", "log_sep"),
+                    ("NET SPEED: ", "metric_lbl"), (f"{network_speed}", "metric_val"), (" | ", "log_sep"),
+                    ("MAC: ", "metric_lbl"), (f"{mac_address}", "metric_val"), (" | ", "log_sep"),
+                    ("SEND: ", "metric_lbl"), (f"{send_s}", "metric_val"), (" | ", "log_sep"),
+                    ("RECV: ", "metric_lbl"), (f"{recv_s}", "metric_val"), (" | ", "log_sep"),
+                    ("PID VMIX: ", "metric_lbl"), (f"{pid_vmix}", "metric_val"), (" | ", "log_sep"),
+                    ("REC: ", "metric_lbl"), (rec_s, "srt_on" if rec_val else "srt_off"), (" | ", "log_sep"),
+                    ("LIVE: ", "metric_lbl"), (live_s, "srt_on" if live_val else "srt_off"), (" | ", "log_sep"),
+                    ("EXT: ", "metric_lbl"), (ext_s, "srt_on" if ext_val else "srt_off"), (" | ", "log_sep"),
+                    ("RES: ", "metric_lbl"), (f"{resolution}", "metric_val"), (" | ", "log_sep"),
+                    ("IP: ", "metric_lbl"), (f"{ip_val}", "metric_val"), (" | ", "log_sep"),
+                    ("WAN IP: ", "metric_lbl"), (f"{ipwan}", "metric_val"), (" | ", "log_sep"),
+                ])
+
+            # SRT Status
+            srt_list = d.get("SRT", [])
+            if isinstance(srt_list, dict):
+                srt_list = [srt_list]
+            if not isinstance(srt_list, list):
+                srt_list = []
+
+            log_parts.append(("SRT ", "metric_lbl"))
+            if not srt_list:
+                log_parts.append(("None", "srt_off"))
+            else:
+                for idx, s in enumerate(srt_list):
+                    if not isinstance(s, dict):
+                        continue
+                    port = s.get("port", "")
+                    status = s.get("status", "OFF")
+                    if statusapp == 0:
+                        status = "OFF"
+                    if port:
+                        log_parts.append((f"{port}:", "srt_port"))
+                        log_parts.append((status, "srt_on" if status == "ON" else "srt_off"))
+                        if idx < len(srt_list) - 1:
+                            log_parts.append((", ", "log_sep"))
+
+            # Put to GLOBAL_LOG_QUEUE for colorized UI display
+            GLOBAL_LOG_QUEUE.put(log_parts)
+
+            # Write to plain text file on Drive C
+            try:
+                today_str = datetime.now(VIETNAM_TZ).strftime("%d-%m-%Y")
+                folder_path = "C:\\VmixMonitor"
+                os.makedirs(folder_path, exist_ok=True)
+                file_path = os.path.join(folder_path, f"{today_str}.txt")
+
+                plain_text = "".join(text for text, tag in log_parts)
+                with open(file_path, "a", encoding="utf-8") as f:
+                    f.write(plain_text + "\n")
+            except Exception as fe:
+                print(f"✗ Error writing log file to {file_path}: {fe}")
+
+            # Check settings violations and log to Error directory
+            if hasattr(self, "settings_data") and hasattr(self, "check_violation"):
+                now_dt = datetime.now(VIETNAM_TZ)
+                time_str = now_dt.strftime("%H:%M:%S")
+                date_str = now_dt.strftime("%d-%m-%Y")
+                
+                violations = []
+                
+                # APP Status check
+                statusapp_text = "ON" if d.get("statusapp", 0) == 1 else "OFF"
+                if self.check_violation("status_app", statusapp_text):
+                    rule = self.settings_data.get("status_app", {})
+                    violations.append(("status_app", f"Status APP is {statusapp_text} (phải là {rule.get('val', 'ON')})"))
+
+                # SRT Status check
+                srt_list_check = d.get("SRT", [])
+                if isinstance(srt_list_check, dict):
+                    srt_list_check = [srt_list_check]
+                if not isinstance(srt_list_check, list):
+                    srt_list_check = []
+                for s in srt_list_check:
+                    if isinstance(s, dict):
+                        port = s.get("port", "")
+                        status = s.get("status", "OFF")
+                        if d.get("statusapp", 0) == 0:
+                            status = "OFF"
+                        if self.check_violation("srt_status", status):
+                            rule = self.settings_data.get("srt_status", {})
+                            violations.append(("srt_status", f"SRT port {port} status is {status} (phải là {rule.get('val', 'ON')})"))
+
+                # Helper to check numeric parameters
+                def check_num(key, val_str, metric_name):
+                    if self.check_violation(key, val_str):
+                        rule = self.settings_data.get(key, {})
+                        t = rule.get("type")
+                        v1 = rule.get("val1", "")
+                        v2 = rule.get("val2", "")
+                        unit = rule.get("unit", "")
+                        unit_suffix = f" {unit}" if unit else ""
+                        if t == "Equal":
+                            violations.append((key, f"{metric_name} is {val_str} (phải = {v1}{unit_suffix})"))
+                        elif t == ">":
+                            violations.append((key, f"{metric_name} is {val_str} (vượt giới hạn > {v1}{unit_suffix})"))
+                        elif t == "<":
+                            violations.append((key, f"{metric_name} is {val_str} (dưới giới hạn < {v1}{unit_suffix})"))
+                        elif t == "Range":
+                            violations.append((key, f"{metric_name} is {val_str} (ngoài khoảng [{v1}, {v2}]{unit_suffix})"))
+
+                ping_val = d.get("ping", None)
+                ping_s = f"{ping_val:.0f}ms" if ping_val is not None else "—"
+                check_num("ping", ping_s, "Ping")
+
+                timeout_s = f"{d.get('ping_timeouts', 0)}"
+                check_num("timeout", timeout_s, "Timeout")
+
+                netspeed_s = str(d.get("network_speed", "—")).strip()
+                check_num("netspeed", netspeed_s, "Net Speed")
+
+                cpu_val = d.get("temperature", d.get("cpu", None))
+                cpu_s = f"{cpu_val:.1f}%" if cpu_val is not None else "—"
+                check_num("cpu", cpu_s, "CPU")
+
+                gpu_val = d.get("gpu", None)
+                gpu_s = f"{gpu_val:.1f}%" if gpu_val is not None else "—"
+                check_num("gpu", gpu_s, "GPU")
+
+                ram_val = d.get("memory", None)
+                ram_s = f"{ram_val:.1f}%" if ram_val is not None else "—"
+                check_num("ram", ram_s, "RAM")
+
+                send_mbps = d.get("sender_mbps", d.get("sender_bw", None))
+                send_s = f"{send_mbps:.2f} Mbps" if isinstance(send_mbps, (int, float)) else f"{send_mbps or '—'}"
+                check_num("sender", send_s, "Sender")
+
+                recv_mbps = d.get("receiver_mbps", d.get("receiver_bw", None))
+                recv_s = f"{recv_mbps:.2f} Mbps" if isinstance(recv_mbps, (int, float)) else f"{recv_mbps or '—'}"
+                check_num("receiver", recv_s, "Receiver")
+
+                if violations:
+                    try:
+                        err_folder = "C:\\VmixMonitor\\Error"
+                        os.makedirs(err_folder, exist_ok=True)
+                        err_file = os.path.join(err_folder, f"{date_str}.txt")
+
+                        if not hasattr(self, "last_logged_violations"):
+                            self.last_logged_violations = {}
+                        if not hasattr(self, "last_violation_states"):
+                            self.last_violation_states = {}
+
+                        for v_key_metric, violation in violations:
+                            rule = self.settings_data.get(v_key_metric, {})
+                            error_mode = rule.get("error_mode", "loop")
+                            error_interval = 15
+                            try:
+                                error_interval = max(1, int(rule.get("error_interval", 15)))
+                            except (ValueError, TypeError):
+                                pass
+
+                            track_key = (name, v_key_metric)
+
+                            if error_mode == "once":
+                                # Only log when violation state changes
+                                prev_state = self.last_violation_states.get(track_key)
+                                current_state = violation
+                                if prev_state == current_state:
+                                    continue  # Already reported this exact violation
+                                self.last_violation_states[track_key] = current_state
+                            else:
+                                # Loop mode: throttle by error_interval seconds
+                                last_time = self.last_logged_violations.get(track_key, 0)
+                                if time.time() - last_time < error_interval:
+                                    continue
+                                self.last_logged_violations[track_key] = time.time()
+
+                            err_line = f"[ {time_str} - {date_str} ] - {name} - {violation}\n"
+                            with open(err_file, "a", encoding="utf-8") as ef:
+                                ef.write(err_line)
+
+                        # Clear violation states for metrics that are no longer in violation
+                        violation_metric_keys = {v[0] for v in violations}
+                        all_metric_keys = ["status_app", "srt_status", "ping", "timeout", "netspeed", "cpu", "gpu", "ram", "sender", "receiver"]
+                        for mk in all_metric_keys:
+                            tk = (name, mk)
+                            if mk not in violation_metric_keys and tk in self.last_violation_states:
+                                del self.last_violation_states[tk]
+                    except Exception as ee:
+                        print(f"✗ Error writing to Error log file: {ee}")
+                else:
+                    # No violations at all - clear all violation states for this machine
+                    if hasattr(self, "last_violation_states"):
+                        keys_to_clear = [k for k in self.last_violation_states if k[0] == name]
+                        for k in keys_to_clear:
+                            del self.last_violation_states[k]
 
     def update_selected_data(self):
         for i, sel_entry in enumerate(self.selected_data):
@@ -1157,3 +1451,41 @@ class ServerDataGUILogicMixin:
             self.ping_hosts[host]["card"].destroy()
         self.ping_hosts.clear()
         self.ping_count_label.configure(text="0 monitors")
+
+    def load_settings(self):
+        default_settings = {
+            "status_app": {"type": "None", "val": "ON", "error_mode": "once"},
+            "srt_status": {"type": "None", "val": "ON", "error_mode": "once"},
+            "ping": {"type": "None", "val1": "", "val2": "", "error_mode": "loop", "error_interval": 15},
+            "timeout": {"type": "None", "val1": "", "val2": "", "error_mode": "loop", "error_interval": 15},
+            "netspeed": {"type": "None", "val1": "", "val2": "", "unit": "Mbps", "error_mode": "loop", "error_interval": 15},
+            "cpu": {"type": "None", "val1": "", "val2": "", "error_mode": "loop", "error_interval": 15},
+            "gpu": {"type": "None", "val1": "", "val2": "", "error_mode": "loop", "error_interval": 15},
+            "ram": {"type": "None", "val1": "", "val2": "", "error_mode": "loop", "error_interval": 15},
+            "sender": {"type": "None", "val1": "", "val2": "", "unit": "Mbps", "error_mode": "loop", "error_interval": 15},
+            "receiver": {"type": "None", "val1": "", "val2": "", "unit": "Mbps", "error_mode": "loop", "error_interval": 15}
+        }
+        folder_path = "C:\\VmixMonitor\\Setting"
+        fpath = os.path.join(folder_path, "settings.json")
+        if os.path.exists(fpath):
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    saved = json.load(f)
+                if isinstance(saved, dict):
+                    for k, v in saved.items():
+                        if k in default_settings and isinstance(v, dict):
+                            default_settings[k].update(v)
+            except Exception as e:
+                print(f"⚠ Lỗi đọc file settings.json: {e}")
+        self.settings_data = default_settings
+
+    def save_settings(self):
+        folder_path = "C:\\VmixMonitor\\Setting"
+        try:
+            os.makedirs(folder_path, exist_ok=True)
+            fpath = os.path.join(folder_path, "settings.json")
+            with open(fpath, "w", encoding="utf-8") as f:
+                json.dump(self.settings_data, f, indent=4, ensure_ascii=False)
+            print("✓ Đã lưu settings thành công!")
+        except Exception as e:
+            print(f"✗ Lỗi lưu settings: {e}")

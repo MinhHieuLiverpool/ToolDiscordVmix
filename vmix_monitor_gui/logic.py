@@ -1304,14 +1304,27 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
 
     @staticmethod
     def _find_latest_studiocoast_config() -> str | None:
-        """Find the latest .config file from LocalAppData\\StudioCoast_Pty_Ltd."""
+        """Find the latest user.config file specifically for vMix from LocalAppData\\StudioCoast_Pty_Ltd."""
         local_appdata = os.environ.get("LOCALAPPDATA")
         if not local_appdata:
             return None
         studiocoast_dir = os.path.join(local_appdata, "StudioCoast_Pty_Ltd")
         if not os.path.isdir(studiocoast_dir):
             return None
-        config_files = glob.glob(os.path.join(studiocoast_dir, "**", "*.config"), recursive=True)
+
+        # Filter strictly for vMix's main app user.config to avoid other utilities
+        config_files = []
+        for root_dir, _, filenames in os.walk(studiocoast_dir):
+            root_lower = root_dir.lower()
+            if "vmix64.exe_url_" in root_lower or "vmix.exe_url_" in root_lower:
+                for f in filenames:
+                    if f.lower() == "user.config":
+                        config_files.append(os.path.join(root_dir, f))
+
+        if not config_files:
+            # Fallback to general user.config under StudioCoast
+            config_files = glob.glob(os.path.join(studiocoast_dir, "**", "user.config"), recursive=True)
+
         if not config_files:
             return None
         return max(config_files, key=os.path.getmtime)
@@ -2484,10 +2497,10 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
         import requests
 
         ip = self.ip_var.get().strip()
-        if not ip or not self.port_list:
-            self.log("ERROR: IP hoặc danh sách port trống!")
+        if not ip:
+            self.log("ERROR: IP trống!")
             self.is_running = False
-            self.start_btn.config(text="START", bg="#4CAF50")
+            self.start_btn.config(text="▶ START MONITORING", bootstyle="success")
             return
 
         wan_ip = self.get_wan_ip()
@@ -2497,7 +2510,10 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
         last_ip_check = datetime.now(VIETNAM_TZ)
         wan_refresh_sec = 30
         ip_check_sec = 5
-        self.log(f"Bắt đầu giám sát {len(self.port_list)} port(s)...")
+        if self.port_list:
+            self.log(f"Bắt đầu giám sát {len(self.port_list)} port(s)...")
+        else:
+            self.log("Bắt đầu giám sát...")
 
         while self.is_running:
             now = datetime.now(VIETNAM_TZ)
@@ -2665,7 +2681,25 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
             except Exception as e:
                 self.log(f"❌ ERROR: {str(e)}")
 
-            self.root.after(0, self.update_table_display)
+            metrics_entry = {
+                "ping": ping_str,
+                "timeout": timeout_str,
+                "cpu": cpu_str,
+                "memory": mem_str,
+                "gpu": gpu_str,
+                "sender_bw": sender_bw_str,
+                "receiver_bw": receiver_bw_str,
+                "mac_address": mac_addr,
+                "network_speed": net_speed,
+                "vmixsend": vmix_send_bw_str,
+                "vmixreceive": vmix_receive_bw_str,
+                "pid_vmix": pid_vmix_str,
+                "rec": rec_str,
+                "live": live_str,
+                "ext": ext_str,
+                "resolution": res_str,
+            }
+            self.root.after(0, lambda e=metrics_entry: self.update_table_display(e))
 
 
 
