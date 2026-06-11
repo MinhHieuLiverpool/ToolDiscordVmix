@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { normalizeSrtList, type BackendSrtItem } from '../services/api'
-import { toOnOff } from '../components/DialogHelpers'
+import { toOnOff, renderTypePill, renderTitlePill } from '../components/DialogHelpers'
 
 interface MachineGroup {
     machineName: string
@@ -117,13 +117,17 @@ export default function SrtPage() {
             <div className="card-light table-card">
                 <div className="table-scroll-shell">
                     <div className="table-scroll">
-                        <table className="data-table">
+                        <table className="data-table compact-table">
                             <thead>
                                 <tr>
                                     <th>Máy</th>
                                     <th>IP</th>
+                                    <th>Title</th>
                                     <th>Tên SRT</th>
                                     <th>Port</th>
+                                    <th>Type</th>
+                                    <th>Host</th>
+                                    <th>Stream ID</th>
                                     <th>Quality</th>
                                     <th>Trạng thái</th>
                                 </tr>
@@ -131,7 +135,7 @@ export default function SrtPage() {
                             <tbody>
                                 {filteredGroups.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="table-empty-cell">
+                                        <td colSpan={10} className="table-empty-cell">
                                             Không có dữ liệu SRT.
                                         </td>
                                     </tr>
@@ -152,8 +156,12 @@ export default function SrtPage() {
                                                             </td>
                                                         </>
                                                     )}
+                                                    <td>{renderTitlePill(srt.title)}</td>
                                                     <td>{srt.nameSRT || '-'}</td>
                                                     <td className="mono">{srt.port || '-'}</td>
+                                                    <td>{renderTypePill(srt.type)}</td>
+                                                    <td>{srt.hostname || '-'}</td>
+                                                    <td className="mono">{srt.stream_id || '-'}</td>
                                                     <td>{srt.quality || '-'}</td>
                                                     <td>
                                                         <span className={`pill-light ${st === 'ON' ? 'pill-light-on' : 'pill-light-off'}`}>

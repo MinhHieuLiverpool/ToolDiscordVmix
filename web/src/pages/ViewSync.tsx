@@ -92,22 +92,33 @@ export default function ViewSyncPage() {
         const trimmed = newVideoUrl.trim()
         if (!trimmed) return
         if (videos.length >= 10) {
-            alert('Toi da 10 video.')
+            alert('Tối đa 10 video.')
             return
         }
-        const videoId = extractVideoId(trimmed)
+        
+        let videoId = extractVideoId(trimmed)
+        const isYouTube = !!videoId
+
         if (!videoId) {
-            alert('URL YouTube khong hop le.')
+            // Check if it's a valid URL
+            try {
+                new URL(trimmed)
+                videoId = `custom-${videos.length}`
+            } catch {
+                alert('URL không hợp lệ. Vui lòng nhập link YouTube hoặc link stream trực tiếp (http/https).')
+                return
+            }
+        }
+
+        if (videos.some((video) => video.url === trimmed)) {
+            alert('Video này đã có trong danh sách.')
             return
         }
-        if (videos.some((video) => video.id === videoId)) {
-            alert('Video nay da co trong danh sach.')
-            return
-        }
+
         const newVideo: VideoItem = {
             id: videoId,
             url: trimmed,
-            title: `Video ${videos.length + 1}`,
+            title: isYouTube ? `YouTube ${videos.length + 1}` : `Live ${videos.length + 1}`,
             startTime: Math.floor(currentTime),
         }
         setVideos((prev) => [...prev, newVideo])

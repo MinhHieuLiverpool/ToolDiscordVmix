@@ -155,6 +155,119 @@ function YouTubePlayer({
     )
 }
 
+function CustomStreamPlayer({
+    url,
+    startTime,
+    onPlayerReady,
+    id,
+}: {
+    url: string
+    startTime: number
+    onPlayerReady: (id: string, player: any) => void
+    id: string
+}) {
+    const videoRef = useRef<HTMLVideoElement>(null)
+    const hlsRef = useRef<any>(null)
+
+    useEffect(() => {
+        const video = videoRef.current
+        if (!video) return
+
+        let hlsInstance: any = null
+
+        const initPlayer = () => {
+            if ((window as any).Hls) {
+                const Hls = (window as any).Hls
+                if (Hls.isSupported()) {
+                    hlsInstance = new Hls()
+                    hlsRef.current = hlsInstance
+                    hlsInstance.loadSource(url)
+                    hlsInstance.attachMedia(video)
+                    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+                        onPlayerReady(id, {
+                            playVideo: () => video.play().catch(() => {}),
+                            pauseVideo: () => video.pause(),
+                        })
+                        if (startTime > 0) {
+                            video.currentTime = startTime
+                        }
+                    })
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = url
+                    video.addEventListener('loadedmetadata', () => {
+                        onPlayerReady(id, {
+                            playVideo: () => video.play().catch(() => {}),
+                            pauseVideo: () => video.pause(),
+                        })
+                        if (startTime > 0) {
+                            video.currentTime = startTime
+                        }
+                    })
+                } else {
+                    video.src = url
+                    onPlayerReady(id, {
+                        playVideo: () => video.play().catch(() => {}),
+                        pauseVideo: () => video.pause(),
+                    })
+                }
+            } else {
+                video.src = url
+                onPlayerReady(id, {
+                    playVideo: () => video.play().catch(() => {}),
+                    pauseVideo: () => video.pause(),
+                })
+            }
+        }
+
+        if (url.includes('.m3u8') || url.includes('/live')) {
+            if (!(window as any).Hls) {
+                const scriptId = 'hls-js-cdn'
+                let script = document.getElementById(scriptId) as HTMLScriptElement
+                if (!script) {
+                    script = document.createElement('script')
+                    script.id = scriptId
+                    script.src = 'https://cdn.jsdelivr.net/npm/hls.js@latest'
+                    script.async = true
+                    script.onload = initPlayer
+                    document.head.appendChild(script)
+                } else {
+                    script.addEventListener('load', initPlayer)
+                }
+            } else {
+                initPlayer()
+            }
+        } else {
+            video.src = url
+            onPlayerReady(id, {
+                playVideo: () => video.play().catch(() => {}),
+                pauseVideo: () => video.pause(),
+            })
+            if (startTime > 0) {
+                video.addEventListener('loadedmetadata', () => {
+                    video.currentTime = startTime
+                })
+            }
+        }
+
+        return () => {
+            if (hlsInstance) {
+                hlsInstance.destroy()
+            }
+        }
+    }, [url, startTime, onPlayerReady, id])
+
+    return (
+        <video
+            ref={videoRef}
+            className="viewsync-iframe"
+            controls
+            playsInline
+            muted
+            style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
+        />
+    )
+}
+
 export default function ViewSyncMultiPage() {
     const [videos, setVideos] = useState<VideoItem[]>([])
     const playersRef = useRef<Record<string, any>>({})
@@ -188,12 +301,16 @@ export default function ViewSyncMultiPage() {
         while (params.has(`video${index}`)) {
             const url = params.get(`video${index}`) || ''
             const startTime = Number(params.get(`start${index}`) || '0')
-            const videoId = extractVideoId(url)
+            let videoId = extractVideoId(url)
+            const isYouTube = !!videoId
+            if (!videoId && url.trim()) {
+                videoId = `custom-${index}`
+            }
             if (videoId) {
                 loaded.push({
                     id: videoId,
                     url,
-                    title: `Video ${index + 1}`,
+                    title: isYouTube ? `YouTube ${index + 1}` : `Live ${index + 1}`,
                     startTime,
                 })
             }
@@ -279,11 +396,20 @@ export default function ViewSyncMultiPage() {
                                 </div>
                                 <div className="viewsync-video-frame">
                                     <div className="viewsync-video-frame-media">
-                                        <YouTubePlayer
-                                            videoId={item.id}
-                                            onPlayerReady={onPlayerReady}
-                                            startTime={item.startTime}
-                                        />
+                                        {item.id.startsWith('custom-') ? (
+                                            <CustomStreamPlayer
+                                                url={item.url}
+                                                startTime={item.startTime}
+                                                onPlayerReady={onPlayerReady}
+                                                id={item.id}
+                                            />
+                                        ) : (
+                                            <YouTubePlayer
+                                                videoId={item.id}
+                                                onPlayerReady={onPlayerReady}
+                                                startTime={item.startTime}
+                                            />
+                                        )}
                                     </div>
                                 </div>
                                 <div className="viewsync-video-footer">

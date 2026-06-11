@@ -4,6 +4,7 @@ import {
   normalizeSrtList,
   normalizeStreamList,
   normalizeFfmpegList,
+  getMachineStatisticsId,
   type BackendLogItem,
 } from '../../services/api'
 import Dialog from '../../components/ui/Dialog'
@@ -102,8 +103,9 @@ export default function StatusByTablePage({
                   const ffmpegList = normalizeFfmpegList(item.data.ffmpeg)
                   const primaryPort = String(item.data.port || srtList[0]?.port || '-')
 
+                  const machineId = getMachineStatisticsId(item) || `${item.data.ip || 'no-ip'}-${item.data.name || 'no-name'}`
                   return (
-                    <tr key={`row-${index}-${item.timestamp || 'no-ts'}`}>
+                    <tr key={`row-${machineId}`} className={index % 2 === 0 ? '' : 'row-alt'}>
                       <td className="status-table-index">{index + 1}</td>
                       <td className="status-table-main-cell">
                         <div className="status-table-machine">{item.data.name || 'Unknown'}</div>

@@ -43,12 +43,29 @@ function buildMachineId(item: BackendLogItem): string {
     return String(item.data.name || '').trim()
 }
 
+function sortLogs(logs: BackendLogItem[]): BackendLogItem[] {
+    return [...logs].sort((a, b) => {
+        const nameA = String(a.data.name || '').toLowerCase()
+        const nameB = String(b.data.name || '').toLowerCase()
+        if (nameA !== nameB) {
+            return nameA.localeCompare(nameB)
+        }
+        const ipA = String(a.data.ip || '')
+        const ipB = String(b.data.ip || '')
+        return ipA.localeCompare(ipB)
+    })
+}
+
 export function useDashboardData() {
     /* ─── Machine list (từ WebSocket) ─── */
     const [rows, setRows] = useState<BackendLogItem[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
+
+    /* ─── Debug logs ─── */
+    const [debugLogs, setDebugLogs] = useState<string[]>([])
+    const clearDebugLogs = useCallback(() => setDebugLogs([]), [])
     const wsRef = useRef<WebSocket | null>(null)
     const reconnectTimerRef = useRef<number | null>(null)
 
@@ -138,7 +155,29 @@ export function useDashboardData() {
         try {
             setError('')
             const data = await fetchAllLogs()
-            setRows(data)
+            setRows(sortLogs(data))
+
+            const d = new Date()
+            const hh = String(d.getHours()).padStart(2, '0')
+            const mm = String(d.getMinutes()).padStart(2, '0')
+            const ss = String(d.getSeconds()).padStart(2, '0')
+            const day = String(d.getDate()).padStart(2, '0')
+            const month = String(d.getMonth() + 1).padStart(2, '0')
+            const year = d.getFullYear()
+            const formatTimeDate = `[ ${hh}:${mm}:${ss} - ${day}/${month}/${year} ]`
+
+            const newLogs = data.map((item) => {
+                const name = item.data.name || 'Unknown'
+                const ip = item.data.ip || '-'
+                const ipwan = item.data.ipwan || '-'
+                const responseParams = JSON.stringify(item.data)
+                return `${formatTimeDate} - ${name} - ${ip} - ${ipwan} - ${responseParams}`
+            })
+
+            setDebugLogs((prev) => {
+                const combined = [...newLogs, ...prev]
+                return combined.slice(0, 1000)
+            })
         } catch (err) {
             setError('Không thể lấy dữ liệu từ backend.')
             console.error(err)
@@ -159,8 +198,30 @@ export function useDashboardData() {
         ws.onmessage = (event) => {
             try {
                 const incoming = JSON.parse(event.data) as BackendLogItem[]
-                setRows(incoming)
+                setRows(sortLogs(incoming))
                 setLoading(false)
+
+                const d = new Date()
+                const hh = String(d.getHours()).padStart(2, '0')
+                const mm = String(d.getMinutes()).padStart(2, '0')
+                const ss = String(d.getSeconds()).padStart(2, '0')
+                const day = String(d.getDate()).padStart(2, '0')
+                const month = String(d.getMonth() + 1).padStart(2, '0')
+                const year = d.getFullYear()
+                const formatTimeDate = `[ ${hh}:${mm}:${ss} - ${day}/${month}/${year} ]`
+
+                const newLogs = incoming.map((item) => {
+                    const name = item.data.name || 'Unknown'
+                    const ip = item.data.ip || '-'
+                    const ipwan = item.data.ipwan || '-'
+                    const responseParams = JSON.stringify(item.data)
+                    return `${formatTimeDate} - ${name} - ${ip} - ${ipwan} - ${responseParams}`
+                })
+
+                setDebugLogs((prev) => {
+                    const combined = [...newLogs, ...prev]
+                    return combined.slice(0, 1000)
+                })
             } catch (e) {
                 console.error(e)
             }
@@ -423,5 +484,7 @@ export function useDashboardData() {
         filteredMachines,
         currentLoading,
         loadData,
+        debugLogs,
+        clearDebugLogs,
     }
 }

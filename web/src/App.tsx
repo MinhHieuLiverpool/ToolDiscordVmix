@@ -14,7 +14,10 @@ import RolePage from './pages/RolePage'
 import ViewSyncPage from './pages/ViewSync'
 import ViewSyncMultiPage from './pages/ViewSyncMulti'
 import LoginPage from './pages/Login'
+import DebugLogPage from './pages/DebugLogPage'
+import ImportDebugPage from './pages/ImportDebug'
 import { isAuthenticated } from './services/auth'
+
 
 function ProtectedLayout() {
   return isAuthenticated() ? <DashboardLayout /> : <Navigate to="/login" replace />
@@ -41,6 +44,8 @@ function App() {
           <Route path="/speedtest" element={<SpeedtestPage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/account/roles" element={<RolePage />} />
+          <Route path="/debug-logs" element={<DebugLogPage />} />
+          <Route path="/debug-logs/import" element={<ImportDebugPage />} />
         </Route>
 
         {/* Login */}

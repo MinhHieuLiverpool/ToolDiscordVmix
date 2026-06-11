@@ -21,6 +21,8 @@ const ROUTE_TITLES: RouteTitle[] = [
     { match: /^\/speedtest\b/, title: 'Speedtest' },
     { match: /^\/account\/roles\b/, title: 'Phân quyền' },
     { match: /^\/account\b/, title: 'Tài khoản' },
+    { match: /^\/debug-logs\/import\b/, title: 'Import File Debug' },
+    { match: /^\/debug-logs\b/, title: 'Debug Log' },
 ]
 
 export default function PageHeaderBar() {

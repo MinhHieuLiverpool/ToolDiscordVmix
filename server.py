@@ -258,7 +258,7 @@ def _build_health_payload() -> dict:
 async def health_check():
     """Health check endpoint for UptimeRobot - hỗ trợ cả GET và HEAD"""
     from fastapi.responses import PlainTextResponse
-    return PlainTextResponse("I am alive!")
+    return PlainTextResponse("I am Hieu Liverpool!")
 
 
 @app.api_route("/health", methods=["GET", "HEAD"])
@@ -283,6 +283,24 @@ async def receive_data(data: dict):
     try:
         timestamp = datetime.now(VIETNAM_TZ).isoformat()
         machine_name = data.get('name', data.get('ip', 'Unknown'))
+
+        # ── 0. Ghi logs debug ra C:\VmixMonitor\debugger\<ngày>.txt ──
+        try:
+            now_dt = datetime.now(VIETNAM_TZ)
+            today_str = now_dt.strftime("%Y-%m-%d")
+            debug_dir = r"C:\VmixMonitor\debugger"
+            os.makedirs(debug_dir, exist_ok=True)
+            log_file = os.path.join(debug_dir, f"{today_str}.txt")
+            
+            time_str = now_dt.strftime("%H:%M:%S")
+            date_str = now_dt.strftime("%d/%m/%Y")
+            format_time_date = f"[ {time_str} - {date_str} ]"
+            
+            log_line = f"{format_time_date} - {machine_name} - {data.get('ip', '-')} - {data.get('ipwan', '-')} - {json.dumps(data, ensure_ascii=False)}\n"
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(log_line)
+        except Exception as log_err:
+            print(f"✗ Error writing local file debug log: {log_err}")
 
         # Extract SRT/stream/stream_keys as arrays (backward compat: accept dict too)
         srt_list = _normalize_payload_list(data.get('SRT', []))

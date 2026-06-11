@@ -30,13 +30,16 @@ export default function StatusByMachinePage({
 
   return (
     <div className="status-cards-grid">
-      {rows.map((item, index) => (
-        <MachineStatusCard
-          key={`${getMachineStatisticsId(item) || `${item.data.ip || 'no-ip'}`}::${index}`}
-          item={item}
-          index={index}
-        />
-      ))}
+      {rows.map((item, index) => {
+        const machineId = getMachineStatisticsId(item) || `${item.data.ip || 'no-ip'}-${item.data.name || 'no-name'}`
+        return (
+          <MachineStatusCard
+            key={machineId}
+            item={item}
+            index={index}
+          />
+        )
+      })}
     </div>
   )
 }

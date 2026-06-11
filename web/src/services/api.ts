@@ -6,6 +6,10 @@ export interface BackendSrtItem {
   port?: number | string
   quality?: string
   status?: string
+  type?: string
+  hostname?: string
+  stream_id?: string
+  title?: string
 }
 
 export interface BackendStreamItem {
