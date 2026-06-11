@@ -72,6 +72,23 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
         self._vmix_process_alive = False
         self._srt_ext_latest_data = []
 
+        # ── Scan optimisation caches ──────────────────────────────
+        # Cache discovered user.config paths (os.walk is expensive)
+        self._sc_config_paths: list[str] = []   # discovered file paths
+        self._sc_config_paths_ts: float = 0.0   # last os.walk timestamp
+        self._SC_CONFIG_TTL: float = 60.0       # re-walk every 60s
+
+        # Cache psutil process iteration results
+        self._proc_cache_alive: bool = False
+        self._proc_cache_preset: str | None = None  # preset path from cmdline
+        self._proc_cache_ts: float = 0.0
+        self._PROC_CACHE_TTL: float = 10.0      # re-scan processes every 10s
+
+        # Cache vMix API preset path
+        self._api_preset_path: str | None = None
+        self._api_preset_ts: float = 0.0
+        self._API_PRESET_TTL: float = 15.0       # re-query API every 15s
+
         self.setup_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.after(100, self._bootstrap_background_tasks)

@@ -1184,23 +1184,18 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
 
     def get_vmix_resolution_from_file(self, preset_path: str = "") -> str:
         project_file = preset_path if preset_path and os.path.isfile(preset_path) else None
-        if not project_file:
-            try:
-                import psutil
 
-                for proc in psutil.process_iter(["name", "cmdline"]):
-                    try:
-                        if "vmix" in (proc.info["name"] or "").lower():
-                            for arg in (proc.info.get("cmdline") or []):
-                                if arg.lower().endswith(".vmix") and os.path.isfile(arg):
-                                    project_file = arg
-                                    break
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        pass
-                    if project_file:
-                        break
-            except Exception:
-                pass
+        # Use cached preset path from process scan (already updated every 10s)
+        if not project_file:
+            cached = getattr(self, "_proc_cache_preset", None)
+            if cached and os.path.isfile(cached):
+                project_file = cached
+
+        # Also check cached API preset path
+        if not project_file:
+            cached_api = getattr(self, "_api_preset_path", None)
+            if cached_api and os.path.isfile(cached_api):
+                project_file = cached_api
 
         if not project_file:
             try:
@@ -1302,32 +1297,50 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
         self._vmix_file_ts = time.time()
         return result
 
-    @staticmethod
-    def _find_latest_studiocoast_config() -> str | None:
-        """Find the latest user.config file specifically for vMix from LocalAppData\\StudioCoast_Pty_Ltd."""
-        local_appdata = os.environ.get("LOCALAPPDATA")
-        if not local_appdata:
-            return None
-        studiocoast_dir = os.path.join(local_appdata, "StudioCoast_Pty_Ltd")
-        if not os.path.isdir(studiocoast_dir):
-            return None
+    def _find_latest_studiocoast_config(self) -> str | None:
+        """Find the latest user.config file for vMix from LocalAppData\\StudioCoast_Pty_Ltd.
 
-        # Filter strictly for vMix's main app user.config to avoid other utilities
-        config_files = []
-        for root_dir, _, filenames in os.walk(studiocoast_dir):
-            root_lower = root_dir.lower()
-            if "vmix64.exe_url_" in root_lower or "vmix.exe_url_" in root_lower:
-                for f in filenames:
-                    if f.lower() == "user.config":
-                        config_files.append(os.path.join(root_dir, f))
+        Uses a cached path list to avoid expensive os.walk on every call.
+        Full re-scan of the directory tree every _SC_CONFIG_TTL seconds (default 60s).
+        Between re-scans, just picks the most-recently-modified file from the cached list.
+        """
+        now = time.time()
+        ttl = getattr(self, "_SC_CONFIG_TTL", 60.0)
+        cached_paths = getattr(self, "_sc_config_paths", [])
+        cached_ts = getattr(self, "_sc_config_paths_ts", 0.0)
 
-        if not config_files:
-            # Fallback to general user.config under StudioCoast
-            config_files = glob.glob(os.path.join(studiocoast_dir, "**", "user.config"), recursive=True)
+        # ── Re-discover paths if cache is stale or empty ───────────────────
+        if not cached_paths or (now - cached_ts) >= ttl:
+            local_appdata = os.environ.get("LOCALAPPDATA")
+            if not local_appdata:
+                return None
+            studiocoast_dir = os.path.join(local_appdata, "StudioCoast_Pty_Ltd")
+            if not os.path.isdir(studiocoast_dir):
+                return None
 
-        if not config_files:
+            config_files: list[str] = []
+            for root_dir, _, filenames in os.walk(studiocoast_dir):
+                root_lower = root_dir.lower()
+                if "vmix64.exe_url_" in root_lower or "vmix.exe_url_" in root_lower:
+                    for f in filenames:
+                        if f.lower() == "user.config":
+                            config_files.append(os.path.join(root_dir, f))
+
+            if not config_files:
+                # Fallback to general user.config under StudioCoast
+                config_files = glob.glob(
+                    os.path.join(studiocoast_dir, "**", "user.config"), recursive=True
+                )
+
+            self._sc_config_paths = config_files
+            self._sc_config_paths_ts = now
+
+        # ── Pick the most recent file that still exists ────────────────────
+        paths = getattr(self, "_sc_config_paths", [])
+        valid = [p for p in paths if os.path.isfile(p)]
+        if not valid:
             return None
-        return max(config_files, key=os.path.getmtime)
+        return max(valid, key=os.path.getmtime)
 
     def _parse_srt_external_outputs(self) -> list[dict]:
         """Parse all OutputsExternal blocks to extract detailed SRT info.
@@ -1340,57 +1353,79 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
         """
         results: list[dict] = []
 
-        # ── Check if vMix process is running ───────────────────────────────────
-        vmix_alive = False
-        try:
-            import psutil
-            for proc in psutil.process_iter(["name"]):
-                try:
-                    if (proc.info.get("name") or "").lower() in ("vmix64.exe", "vmix.exe"):
-                        vmix_alive = True
-                        break
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-        except Exception:
-            pass
-        self._vmix_process_alive = vmix_alive
+        now = time.time()
 
-        # ── Source 1: preset file from vMix API ────────────────────────────────
-        preset_root = None
-        try:
-            import requests as req
-            port_str = self.vmix_api_port_var.get().strip() or "8088"
-            url = f"http://127.0.0.1:{port_str}/api"
-            resp = req.get(url, timeout=2)
-            if resp.status_code == 200:
-                api_root = ET.fromstring(resp.content)
-                preset_path = api_root.findtext("preset", "") or api_root.findtext("Preset", "")
-                if preset_path and os.path.isfile(preset_path):
-                    try:
-                        preset_root = ET.parse(preset_path).getroot()
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-        # ── Source 2: find preset from process or recent files ──────────────────
-        if preset_root is None:
+        # ── Cached psutil process check (alive + preset path from cmdline) ──
+        proc_ttl = getattr(self, "_PROC_CACHE_TTL", 10.0)
+        if (now - getattr(self, "_proc_cache_ts", 0.0)) >= proc_ttl:
+            _alive = False
+            _preset_from_proc: str | None = None
             try:
                 import psutil
                 for proc in psutil.process_iter(["name", "cmdline"]):
                     try:
-                        if "vmix" in (proc.info["name"] or "").lower():
+                        pname = (proc.info.get("name") or "").lower()
+                        if pname in ("vmix64.exe", "vmix.exe"):
+                            _alive = True
                             for arg in (proc.info.get("cmdline") or []):
                                 if arg.lower().endswith(".vmix") and os.path.isfile(arg):
-                                    preset_root = ET.parse(arg).getroot()
+                                    _preset_from_proc = arg
                                     break
+                            if _preset_from_proc:
+                                break
                     except Exception:
                         pass
-                    if preset_root is not None:
-                        break
+            except Exception:
+                pass
+            self._proc_cache_alive = _alive
+            self._proc_cache_preset = _preset_from_proc
+            self._proc_cache_ts = now
+
+        vmix_alive = getattr(self, "_proc_cache_alive", False)
+        self._vmix_process_alive = vmix_alive
+
+        # ── Source 1: preset file from vMix API (cached path) ───────────────
+        preset_root = None
+        api_ttl = getattr(self, "_API_PRESET_TTL", 15.0)
+        cached_api_path = getattr(self, "_api_preset_path", None)
+
+        # Reuse cached API preset path if still valid
+        if cached_api_path and os.path.isfile(cached_api_path) and (now - getattr(self, "_api_preset_ts", 0.0)) < api_ttl:
+            try:
+                preset_root = ET.parse(cached_api_path).getroot()
             except Exception:
                 pass
 
+        # Re-query API if cache expired or invalid
+        if preset_root is None and (now - getattr(self, "_api_preset_ts", 0.0)) >= api_ttl:
+            self._api_preset_ts = now  # update timestamp regardless of result
+            try:
+                import requests as req
+                port_str = self.vmix_api_port_var.get().strip() or "8088"
+                url = f"http://127.0.0.1:{port_str}/api"
+                resp = req.get(url, timeout=2)
+                if resp.status_code == 200:
+                    api_root = ET.fromstring(resp.content)
+                    preset_path = api_root.findtext("preset", "") or api_root.findtext("Preset", "")
+                    if preset_path and os.path.isfile(preset_path):
+                        self._api_preset_path = preset_path
+                        try:
+                            preset_root = ET.parse(preset_path).getroot()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        # ── Source 2: preset from cached process cmdline ────────────────────
+        if preset_root is None:
+            proc_preset = getattr(self, "_proc_cache_preset", None)
+            if proc_preset and os.path.isfile(proc_preset):
+                try:
+                    preset_root = ET.parse(proc_preset).getroot()
+                except Exception:
+                    pass
+
+        # ── Source 3: fallback — glob for *.vmix files ─────────────────────
         if preset_root is None:
             try:
                 search_dirs = []
