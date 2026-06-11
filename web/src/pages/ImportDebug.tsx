@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { showToast } from '../components/ui/Toast'
+import Dialog from '../components/ui/Dialog'
 
 type ParsedLogLine = {
     timestamp: string
@@ -24,6 +25,113 @@ export default function ImportDebugPage() {
     const [filterHour, setFilterHour] = useState('') // e.g. "19" or "19:05"
     const [filterTimeStart, setFilterTimeStart] = useState('') // e.g. "12:00:00" or "12:00"
     const [filterTimeEnd, setFilterTimeEnd] = useState('') // e.g. "13:30:00" or "13:30"
+    const initialFieldFilters: Record<string, boolean> = {
+        name: false,
+        ip: false,
+        ipwan: false,
+        statusapp: false,
+        ping: false,
+        ping_timeouts: false,
+        temperature: false,
+        memory: false,
+        gpu: false,
+        sender_mbps: false,
+        receiver_mbps: false,
+        mac_address: false,
+        network_speed: false,
+        vmixsend: false,
+        vmixreceive: false,
+        PIDVMIX: false,
+        vmix_recording: false,
+        vmix_streaming: false,
+        vmix_external: false,
+        resolution: false,
+        SRT: false,
+        'SRT.nameSRT': false,
+        'SRT.port': false,
+        'SRT.quality': false,
+        'SRT.status': false,
+        'SRT.type': false,
+        'SRT.hostname': false,
+        'SRT.stream_id': false,
+        'SRT.title': false,
+        stream: false,
+        stream_keys: false,
+        stream_quality: false,
+        generated_at: false,
+        config_source: false,
+        config_error: false,
+        log_error: false,
+        streams: false,
+        ffmpeg: false,
+    }
+
+    const [isFilterModalOpen, setIsFilterModalOpen] = useState(false)
+    const [activeFields, setActiveFields] = useState<Record<string, boolean>>(initialFieldFilters)
+    const [draftFields, setDraftFields] = useState<Record<string, boolean>>(initialFieldFilters)
+
+    const openFilterModal = () => {
+        setDraftFields({ ...activeFields })
+        setIsFilterModalOpen(true)
+    }
+
+    const applyFilters = () => {
+        setActiveFields({ ...draftFields })
+        setIsFilterModalOpen(false)
+    }
+
+    const clearAdvancedFilters = () => {
+        setActiveFields(initialFieldFilters)
+    }
+
+    const hasActiveFilters = useMemo(() => {
+        return Object.values(activeFields).some(v => v)
+    }, [activeFields])
+
+    const filterJson = (rawJsonStr: string, fields: Record<string, boolean>): string => {
+        try {
+            const hasAnyActive = Object.values(fields).some(v => v)
+            if (!hasAnyActive) return rawJsonStr
+
+            const obj = JSON.parse(rawJsonStr)
+            const filtered: any = {}
+
+            Object.entries(fields).forEach(([fieldPath, isChecked]) => {
+                if (!isChecked) return
+
+                if (fieldPath.startsWith('SRT.')) {
+                    const sub = fieldPath.split('.')[1]
+                    if (Array.isArray(obj.SRT)) {
+                        if (!filtered.SRT) {
+                            filtered.SRT = obj.SRT.map(() => ({}))
+                        }
+                        obj.SRT.forEach((srtItem: any, index: number) => {
+                            if (srtItem && srtItem[sub] !== undefined) {
+                                filtered.SRT[index][sub] = srtItem[sub]
+                            }
+                        })
+                    }
+                    return
+                }
+
+                if (obj[fieldPath] !== undefined) {
+                    if (fieldPath === 'SRT') {
+                        if (!Object.keys(fields).some(k => k.startsWith('SRT.') && fields[k])) {
+                            filtered.SRT = obj.SRT
+                        }
+                    } else {
+                        filtered[fieldPath] = obj[fieldPath]
+                    }
+                }
+            })
+
+            return JSON.stringify(filtered)
+        } catch (e) {
+            return rawJsonStr
+        }
+    }
+
+
 
     const parseTimeToSeconds = (timeStr: string): number | null => {
         const trimmed = timeStr.trim()
@@ -126,7 +234,6 @@ export default function ImportDebugPage() {
                 return false
             }
             if (filterHour.trim()) {
-                // Hour filter: prefix match on timeOnly (e.g. "19" matches "19:05:40")
                 const cleanHour = filterHour.trim()
                 if (!line.timeOnly.startsWith(cleanHour)) {
                     return false
@@ -150,7 +257,10 @@ export default function ImportDebugPage() {
             showToast('Không có log để copy.', 'error')
             return
         }
-        const text = filteredLines.map(l => `${l.timestamp} - ${l.machineName} - ${l.ip} - ${l.ipwan} - ${l.rawJson}`).join('\n')
+        const text = filteredLines.map(l => {
+            const filteredJson = filterJson(l.rawJson, activeFields)
+            return `${l.timestamp} - ${l.machineName} - ${l.ip} - ${l.ipwan} - ${filteredJson}`
+        }).join('\n')
         navigator.clipboard.writeText(text)
             .then(() => showToast('Đã copy logs đã lọc.', 'success'))
             .catch(() => showToast('Không thể copy logs.', 'error'))
@@ -265,19 +375,47 @@ export default function ImportDebugPage() {
                     </div>
                 </div>
 
-                {logLines.length > 0 && (
-                    <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                <div style={{ marginTop: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button
+                            className="viewsync-primary-btn"
+                            type="button"
+                            onClick={openFilterModal}
+                            style={{ padding: '0.45rem 1rem', fontSize: '0.85rem' }}
+                        >
+                            ⚙ Lọc Nâng Cao SRT & Máy
+                        </button>
+                        {hasActiveFilters && (
+                            <button
+                                className="viewsync-outline-btn"
+                                type="button"
+                                onClick={clearAdvancedFilters}
+                                style={{ padding: '0.45rem 1rem', fontSize: '0.85rem', borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444' }}
+                            >
+                                Xóa bộ lọc nâng cao
+                            </button>
+                        )}
+                        {hasActiveFilters && (
+                            <span style={{ fontSize: '0.8rem', color: '#10b981', fontWeight: 600 }}>
+                                Đã lọc: {Object.entries(activeFields)
+                                    .filter(([_, isChecked]) => isChecked)
+                                    .map(([fieldName]) => fieldName)
+                                    .join(', ')}
+                            </span>
+                        )}
+                    </div>
+                    {logLines.length > 0 && (
                         <button
                             className="viewsync-outline-btn"
                             type="button"
                             onClick={copyFilteredLogs}
                             disabled={filteredLines.length === 0}
-                            style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                            style={{ padding: '0.45rem 1.25rem', fontSize: '0.85rem' }}
                         >
-                            Copy Logs Đã Lọc ({filteredLines.length})
+                            Copy Logs Đã Lọc
                         </button>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
 
             {/* Terminal console render */}
@@ -310,12 +448,143 @@ export default function ImportDebugPage() {
                                 <span style={{ color: '#38bdf8', fontWeight: 600 }}>{line.timestamp}</span>
                                 <span style={{ color: '#10b981', marginLeft: '0.5rem', fontWeight: 600 }}>{line.machineName}</span>
                                 <span style={{ color: '#a78bfa', marginLeft: '0.5rem' }}>({line.ip} / {line.ipwan})</span>
-                                <span style={{ color: '#94a3b8', marginLeft: '0.5rem', fontSize: '0.7rem', display: 'inline-block', whiteSpace: 'pre-wrap' }}>{line.rawJson}</span>
+                                <span style={{ color: '#94a3b8', marginLeft: '0.5rem', fontSize: '0.7rem', display: 'inline-block', whiteSpace: 'pre-wrap' }}>
+                                    {filterJson(line.rawJson, activeFields)}
+                                </span>
                             </div>
                         ))
                     )}
                 </div>
             </div>
+
+            <Dialog
+                open={isFilterModalOpen}
+                onClose={() => setIsFilterModalOpen(false)}
+                title="Chọn các trường dữ liệu cần trích xuất (MongoDB Fields)"
+            >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxHeight: '450px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                    {[
+                        {
+                            title: "Thông số Thiết bị (Device Info)",
+                            color: "#6366f1",
+                            fields: [
+                                { id: "name", label: "name" },
+                                { id: "ip", label: "ip" },
+                                { id: "ipwan", label: "ipwan" },
+                                { id: "statusapp", label: "statusapp" },
+                                { id: "mac_address", label: "mac_address" },
+                                { id: "network_speed", label: "network_speed" },
+                                { id: "PIDVMIX", label: "PIDVMIX" },
+                            ]
+                        },
+                        {
+                            title: "Hiệu năng PC (PC Performance)",
+                            color: "#3b82f6",
+                            fields: [
+                                { id: "ping", label: "ping" },
+                                { id: "ping_timeouts", label: "ping_timeouts" },
+                                { id: "temperature", label: "temperature" },
+                                { id: "memory", label: "memory" },
+                                { id: "gpu", label: "gpu" },
+                            ]
+                        },
+                        {
+                            title: "Thông số vMix (vMix Status)",
+                            color: "#10b981",
+                            fields: [
+                                { id: "vmix_recording", label: "vmix_recording" },
+                                { id: "vmix_streaming", label: "vmix_streaming" },
+                                { id: "vmix_external", label: "vmix_external" },
+                                { id: "resolution", label: "resolution" },
+                                { id: "vmixsend", label: "vmixsend" },
+                                { id: "vmixreceive", label: "vmixreceive" },
+                            ]
+                        },
+                        {
+                            title: "Luồng & Kết nối (SRT, Streams, Ffmpeg)",
+                            color: "#0ea5e9",
+                            fields: [
+                                { id: "SRT", label: "SRT (Full Array)" },
+                                { id: "SRT.title", label: "SRT.title" },
+                                { id: "SRT.nameSRT", label: "SRT.nameSRT" },
+                                { id: "SRT.port", label: "SRT.port" },
+                                { id: "SRT.quality", label: "SRT.quality" },
+                                { id: "SRT.status", label: "SRT.status" },
+                                { id: "SRT.type", label: "SRT.type" },
+                                { id: "SRT.hostname", label: "SRT.hostname" },
+                                { id: "SRT.stream_id", label: "SRT.stream_id" },
+                                { id: "stream", label: "stream" },
+                                { id: "stream_keys", label: "stream_keys" },
+                                { id: "stream_quality", label: "stream_quality" },
+                                { id: "streams", label: "streams" },
+                                { id: "ffmpeg", label: "ffmpeg" },
+                            ]
+                        },
+                        {
+                            title: "Metadata & Diagnostics",
+                            color: "#8b5cf6",
+                            fields: [
+                                { id: "generated_at", label: "generated_at" },
+                                { id: "config_source", label: "config_source" },
+                                { id: "config_error", label: "config_error" },
+                                { id: "log_error", label: "log_error" },
+                            ]
+                        }
+                    ].map((group) => (
+                        <div key={group.title} style={{ borderLeft: `3px solid ${group.color}`, paddingLeft: '0.75rem', marginBottom: '0.5rem' }}>
+                            <h4 style={{ fontSize: '0.82rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.6rem' }}>
+                                {group.title}
+                            </h4>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '0.5rem' }}>
+                                {group.fields.map((f) => {
+                                    const isChecked = draftFields[f.id] || false
+                                    return (
+                                        <label 
+                                            key={`chk-field-${f.id}`} 
+                                            style={{ 
+                                                display: 'flex', 
+                                                alignItems: 'center', 
+                                                gap: '0.45rem', 
+                                                fontSize: '0.78rem', 
+                                                color: isChecked ? '#6366f1' : '#334155', 
+                                                cursor: 'pointer',
+                                                fontWeight: isChecked ? 600 : 500,
+                                                transition: 'color 0.15s ease'
+                                            }}
+                                        >
+                                            <input 
+                                                type="checkbox" 
+                                                checked={isChecked} 
+                                                onChange={(e) => setDraftFields(prev => ({ ...prev, [f.id]: e.target.checked }))}
+                                                style={{ width: '14px', height: '14px', accentColor: '#6366f1', cursor: 'pointer' }}
+                                            />
+                                            <span>{f.label}</span>
+                                        </label>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem', borderTop: '1px solid rgba(0,0,0,0.1)', paddingTop: '1rem' }}>
+                    <button
+                        className="viewsync-outline-btn"
+                        type="button"
+                        onClick={() => setIsFilterModalOpen(false)}
+                        style={{ padding: '0.4rem 1rem', fontSize: '0.85rem' }}
+                    >
+                        Hủy
+                    </button>
+                    <button
+                        className="viewsync-primary-btn"
+                        type="button"
+                        onClick={applyFilters}
+                        style={{ padding: '0.4rem 1.25rem', fontSize: '0.85rem' }}
+                    >
+                        OK
+                    </button>
+                </div>
+            </Dialog>
         </>
     )
 }

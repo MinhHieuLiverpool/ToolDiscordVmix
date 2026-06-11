@@ -68,7 +68,7 @@ export default function DebugLogPage() {
                         disabled={filteredLogs.length === 0}
                         style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
                     >
-                        Copy Logs ({filteredLogs.length})
+                        Copy Logs
                     </button>
                     <button
                         className="viewsync-outline-btn"
