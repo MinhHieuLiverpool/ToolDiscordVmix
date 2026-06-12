@@ -312,26 +312,3 @@ export async function fetchStatisticHours(statisticsId: string): Promise<Statist
   )
   return response.data
 }
-
-export interface PingHistoryPoint {
-  ping: number | null
-  time: string
-}
-
-export interface PingHistoryResponse {
-  id: string
-  data: PingHistoryPoint[]
-  updated_at?: string
-}
-
-export async function fetchAllPingHistory(): Promise<PingHistoryResponse[]> {
-  const response = await apiClient.get<PingHistoryResponse[]>('/ping_history')
-  return response.data
-}
-
-export async function fetchPingHistory(statisticsId: string): Promise<PingHistoryResponse> {
-  const response = await apiClient.get<PingHistoryResponse>(
-    `/ping_history/${encodeURIComponent(statisticsId)}`,
-  )
-  return response.data
-}

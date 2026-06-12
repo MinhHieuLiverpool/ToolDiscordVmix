@@ -113,11 +113,9 @@ export default function MachineStatusCard({
                         {ramVal !== null ? `${ramVal.toFixed(0)}%` : '-'}
                     </div>
                 </div>
-                <div className={`metric-box ${item.data.ping === null || item.data.ping === undefined ? 'metric-box-danger' : ''}`}>
+                <div className="metric-box">
                     <div className="metric-label">Ping</div>
-                    <div className={`metric-value ${item.data.ping === null || item.data.ping === undefined ? 'metric-danger' : 'metric-ping'}`}>
-                        {item.data.ping !== null && item.data.ping !== undefined ? item.data.ping : 0}
-                    </div>
+                    <div className="metric-value metric-ping">{item.data.ping ?? '-'}</div>
                 </div>
             </div>
 

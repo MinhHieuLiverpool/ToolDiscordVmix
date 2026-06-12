@@ -127,8 +127,8 @@ export default function FilterBar({
                         className={`view-nav-btn ${activeView === 'daily' ? 'view-nav-active' : ''}`}
                         onClick={() => setActiveView('daily')}
                     >
-                        <span className="view-nav-label">Ping</span>
-                        <span className="view-nav-desc">Lịch sử</span>
+                        <span className="view-nav-label">Cả ngày</span>
+                        <span className="view-nav-desc">15 phút avg</span>
                     </button>
                 </div>
             </div>
