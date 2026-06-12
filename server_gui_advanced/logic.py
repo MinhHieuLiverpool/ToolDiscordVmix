@@ -288,7 +288,8 @@ class ServerDataGUILogicMixin:
         if self.auto_send_enabled:
             self.toggle_btn.configure(text="AUTO SEND: ON", fg_color="#4CAF50")
             print("✓ Auto-send to Discord: ENABLED")
-            self.webhook_entry.configure(state="disabled")
+            if hasattr(self, "webhook_entry") and self.webhook_entry.winfo_exists():
+                self.webhook_entry.configure(state="disabled")
             self.prefix_entry.configure(state="disabled")
             self.previous_data = self.get_data_snapshot()
             print(f"📸 Đã lưu snapshot ban đầu: {len(self.previous_data)} items")
@@ -298,7 +299,8 @@ class ServerDataGUILogicMixin:
         else:
             self.toggle_btn.configure(text="AUTO SEND: OFF", fg_color="#9E9E9E")
             print("✗ Auto-send to Discord: DISABLED")
-            self.webhook_entry.configure(state="normal")
+            if hasattr(self, "webhook_entry") and self.webhook_entry.winfo_exists():
+                self.webhook_entry.configure(state="normal")
             self.prefix_entry.configure(state="normal")
 
     def get_data_snapshot(self):
@@ -362,8 +364,15 @@ class ServerDataGUILogicMixin:
         ]
 
     def send_full_list_to_discord(self):
-        webhook = self.webhook_var.get().strip()
-        if not webhook or not self.selected_data:
+        webhooks = []
+        if hasattr(self, "settings_data") and "webhooks" in self.settings_data:
+            webhooks = self.settings_data["webhooks"]
+        if not webhooks:
+            fallback_url = self.webhook_var.get().strip() if hasattr(self, "webhook_var") else ""
+            if fallback_url:
+                webhooks = [{"type": "Discord", "url": fallback_url}]
+
+        if not webhooks or not self.selected_data:
             print("⚠ Không có webhook hoặc selected data để gửi")
             return
 
@@ -382,19 +391,42 @@ class ServerDataGUILogicMixin:
                         msg = f"[{prefix}][{row['name']}] SRT {row['status']} | IPWAN: {ipwan} | PORT: {row['port']}"
                         messages.append(msg)
 
-                payload = {"content": "\n".join(messages)}
-                resp = requests.post(webhook, json=payload, timeout=10)
-                if resp.status_code in [200, 204]:
-                    print(f"✓ Sent FULL LIST ({len(self.selected_data)} items) to Discord")
-                else:
-                    print(f"✗ Discord error: {resp.status_code}")
+                discord_payload = {"content": "\n".join(messages)}
+                seatalk_msg = self._build_seatalk_full_list(prefix)
 
-                # Also send to SeaTalk
-                try:
-                    seatalk_msg = self._build_seatalk_full_list(prefix)
-                    self._send_seatalk(seatalk_msg)
-                except Exception as e:
-                    print(f"⚠️ SeaTalk full list error: {e}")
+                for w_item in webhooks:
+                    w_type = w_item.get("type", "Discord")
+                    w_url = w_item.get("url", "").strip()
+                    if not w_url:
+                        continue
+
+                    if w_type == "Discord":
+                        try:
+                            resp = requests.post(w_url, json=discord_payload, timeout=10)
+                            if resp.status_code in [200, 204]:
+                                print(f"✓ Sent FULL LIST to Discord: {w_url[:30]}...")
+                            else:
+                                print(f"✗ Discord error {resp.status_code} for {w_url[:30]}...")
+                        except Exception as e:
+                            print(f"✗ Failed to send to Discord {w_url[:30]}: {e}")
+                    elif w_type == "Seatalk":
+                        try:
+                            content = seatalk_msg
+                            if len(content) > 3950:
+                                content = content[:3950] + "\n...*(truncated)*"
+                            payload = {
+                                "tag": "markdown",
+                                "markdown": {
+                                    "content": content
+                                }
+                            }
+                            resp = requests.post(w_url, json=payload, timeout=10)
+                            if resp.status_code == 200:
+                                print(f"✓ Sent FULL LIST to SeaTalk: {w_url[:30]}...")
+                            else:
+                                print(f"⚠️ SeaTalk error {resp.status_code} for {w_url[:30]}...")
+                        except Exception as e:
+                            print(f"✗ Failed to send to SeaTalk {w_url[:30]}: {e}")
             except Exception as e:
                 print(f"✗ Failed to send full list: {e}")
 
@@ -417,8 +449,8 @@ class ServerDataGUILogicMixin:
                             d = entry.get("data", {})
                             key = d.get("name", d.get("ip", "")) or d.get("ip", "")
                             if key not in seen:
-                                seen.add(key)
-                                unique.append(entry)
+                                  seen.add(key)
+                                  unique.append(entry)
                         data = unique
 
                         if not self.has_data_changed(self.data, data):
@@ -440,8 +472,15 @@ class ServerDataGUILogicMixin:
         if self.is_sending:
             return
 
-        webhook = self.webhook_var.get().strip()
-        if not webhook or not self.selected_data:
+        webhooks = []
+        if hasattr(self, "settings_data") and "webhooks" in self.settings_data:
+            webhooks = self.settings_data["webhooks"]
+        if not webhooks:
+            fallback_url = self.webhook_var.get().strip() if hasattr(self, "webhook_var") else ""
+            if fallback_url:
+                webhooks = [{"type": "Discord", "url": fallback_url}]
+
+        if not webhooks or not self.selected_data:
             return
 
         current_snapshot = self.get_data_snapshot()
@@ -489,19 +528,42 @@ class ServerDataGUILogicMixin:
                         msg = f"[{prefix}][{item['name']}] SRT {item['status']} | IPWAN: {item['ipwan']} | PORT: {item['port']}"
                         messages.append(msg)
 
-                    payload = {"content": "\n".join(messages)}
-                    resp = requests.post(webhook, json=payload, timeout=10)
-                    if resp.status_code in [200, 204]:
-                        print(f"✓ Sent {len(changed_items)} changed items to Discord")
-                    else:
-                        print(f"✗ Discord error: {resp.status_code}")
+                    discord_payload = {"content": "\n".join(messages)}
+                    seatalk_msg = self._build_seatalk_changes(prefix, changed_items)
 
-                    # Also send to SeaTalk
-                    try:
-                        seatalk_msg = self._build_seatalk_changes(prefix, changed_items)
-                        self._send_seatalk(seatalk_msg)
-                    except Exception as e:
-                        print(f"⚠️ SeaTalk change error: {e}")
+                    for w_item in webhooks:
+                        w_type = w_item.get("type", "Discord")
+                        w_url = w_item.get("url", "").strip()
+                        if not w_url:
+                            continue
+
+                        if w_type == "Discord":
+                            try:
+                                resp = requests.post(w_url, json=discord_payload, timeout=10)
+                                if resp.status_code in [200, 204]:
+                                    print(f"✓ Sent changes to Discord: {w_url[:30]}...")
+                                else:
+                                    print(f"✗ Discord error {resp.status_code} for {w_url[:30]}...")
+                            except Exception as e:
+                                print(f"✗ Failed to send changes to Discord {w_url[:30]}: {e}")
+                        elif w_type == "Seatalk":
+                            try:
+                                content = seatalk_msg
+                                if len(content) > 3950:
+                                    content = content[:3950] + "\n...*(truncated)*"
+                                payload = {
+                                    "tag": "markdown",
+                                    "markdown": {
+                                        "content": content
+                                    }
+                                }
+                                resp = requests.post(w_url, json=payload, timeout=10)
+                                if resp.status_code == 200:
+                                    print(f"✓ Sent changes to SeaTalk: {w_url[:30]}...")
+                                else:
+                                    print(f"⚠️ SeaTalk error {resp.status_code} for {w_url[:30]}...")
+                            except Exception as e:
+                                print(f"✗ Failed to send changes to SeaTalk {w_url[:30]}: {e}")
 
                 self.previous_data = current_snapshot
             except Exception as e:
@@ -1475,6 +1537,8 @@ class ServerDataGUILogicMixin:
                     for k, v in saved.items():
                         if k in default_settings and isinstance(v, dict):
                             default_settings[k].update(v)
+                        else:
+                            default_settings[k] = v
             except Exception as e:
                 print(f"⚠ Lỗi đọc file settings.json: {e}")
         self.settings_data = default_settings

@@ -22,16 +22,12 @@ class ServerDataGUIUIMixin:
         top_frame = ctk.CTkFrame(self.root)
         top_frame.pack(fill="x", padx=10, pady=5)
 
-        # Row 1: Webhook
+        # Row 1: Server and Prefix
         row1 = ctk.CTkFrame(top_frame, fg_color="transparent")
         row1.pack(fill="x", pady=2)
-        ctk.CTkLabel(row1, text="Discord Webhook:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
-        self.webhook_entry = ctk.CTkEntry(row1, textvariable=self.webhook_var, width=600, font=("Arial", 10))
-        self.webhook_entry.pack(side="left", padx=5, fill="x", expand=True)
-
-        ctk.CTkLabel(row1, text="Server:", font=("Arial", 10, "bold")).pack(side="left", padx=(8, 4))
-        self.server_entry = ctk.CTkEntry(row1, textvariable=self.server_url_var, width=240, font=("Arial", 10))
-        self.server_entry.pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(row1, text="Server:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
+        self.server_entry = ctk.CTkEntry(row1, textvariable=self.server_url_var, width=350, font=("Arial", 10))
+        self.server_entry.pack(side="left", padx=5)
         self.server_entry.bind("<Return>", lambda _e: self.apply_server_url(reconnect=True, announce=True))
         ctk.CTkButton(
             row1,
@@ -41,14 +37,15 @@ class ServerDataGUIUIMixin:
             fg_color="#2196F3",
             hover_color="#1976D2",
             font=("Arial", 10, "bold"),
-        ).pack(side="left", padx=(0, 3))
+        ).pack(side="left", padx=5)
 
-        # Row 2: Prefix and buttons
+        ctk.CTkLabel(row1, text="Prefix:", font=("Arial", 10, "bold")).pack(side="left", padx=(20, 5))
+        self.prefix_entry = ctk.CTkEntry(row1, textvariable=self.prefix_var, width=120, font=("Arial", 10))
+        self.prefix_entry.pack(side="left", padx=5)
+
+        # Row 2: buttons
         row2 = ctk.CTkFrame(top_frame, fg_color="transparent")
         row2.pack(fill="x", pady=5)
-        ctk.CTkLabel(row2, text="Prefix:", font=("Arial", 10, "bold")).pack(side="left", padx=5)
-        self.prefix_entry = ctk.CTkEntry(row2, textvariable=self.prefix_var, width=80, font=("Arial", 10))
-        self.prefix_entry.pack(side="left", padx=5)
 
         ctk.CTkButton(row2, text="🔍 Scan máy", command=self.open_scan_dialog, fg_color="#4CAF50", hover_color="#45a049", width=110, font=("Arial", 10, "bold")).pack(side="left", padx=3)
         self.toggle_btn = ctk.CTkButton(row2, text="AUTO SEND: OFF", command=self.toggle_auto_send, fg_color="#9E9E9E", hover_color="#757575", width=130, font=("Arial", 10, "bold"))
@@ -2130,10 +2127,43 @@ class ServerDataGUIUIMixin:
         hdr = ctk.CTkFrame(self.setting_frame, fg_color="#1a1a1a", height=38)
         hdr.pack(fill="x", padx=0, pady=(0, 2))
         hdr.pack_propagate(False)
-        ctk.CTkLabel(hdr, text="⚙️ Metric Validation Settings", font=("Arial", 11, "bold"), text_color="#2196F3").pack(side="left", padx=10)
+        ctk.CTkLabel(hdr, text="⚙️ App Settings & Webhooks", font=("Arial", 11, "bold"), text_color="#2196F3").pack(side="left", padx=10)
 
         container = ctk.CTkScrollableFrame(self.setting_frame, fg_color="#181818")
         container.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # ── 🔔 Webhooks Configuration Section ─────────────────────────────
+        self.webhook_section = ctk.CTkFrame(container, fg_color="#1d1d1d", corner_radius=8)
+        self.webhook_section.pack(fill="x", pady=(0, 15), padx=5)
+        
+        wh_title_bar = ctk.CTkFrame(self.webhook_section, fg_color="#2b2b2b", height=36, corner_radius=8)
+        wh_title_bar.pack(fill="x")
+        wh_title_bar.pack_propagate(False)
+        
+        ctk.CTkLabel(wh_title_bar, text="🔔 Notification Webhooks List", font=("Arial", 11, "bold"), text_color="#FFB300").pack(side="left", padx=15)
+        
+        # Add (+) Webhook button
+        ctk.CTkButton(
+            wh_title_bar, text="➕ Add Webhook", command=self.add_webhook_row,
+            fg_color="#4CAF50", hover_color="#45a049", width=120, height=26, font=("Arial", 9, "bold")
+        ).pack(side="right", padx=10)
+        
+        self.webhook_row_widgets = []
+
+        # Populate existing webhooks
+        existing_webhooks = self.settings_data.get("webhooks", [])
+        if not existing_webhooks:
+            legacy_webhook = self.settings_data.get("webhook", "")
+            if not legacy_webhook and hasattr(self, "webhook_var"):
+                legacy_webhook = self.webhook_var.get().strip()
+            if legacy_webhook:
+                existing_webhooks = [{"type": "Discord", "url": legacy_webhook}]
+        
+        for wh in existing_webhooks:
+            self.add_webhook_row(wh.get("type", "Discord"), wh.get("url", ""))
+
+        # ── 📈 Metric Validation Settings Section ──────────────────────────
+        ctk.CTkLabel(container, text="📈 Metric Validation Settings", font=("Arial", 11, "bold"), text_color="#90CAF9", anchor="w").pack(fill="x", pady=(10, 5), padx=10)
 
         # Column headers
         header_row = ctk.CTkFrame(container, fg_color="#1a1a1a", height=36)
@@ -2291,8 +2321,67 @@ class ServerDataGUIUIMixin:
             fg_color="#f44336", hover_color="#d32f2f", width=120, font=("Arial", 10, "bold")
         ).pack(side="left", padx=10)
 
+    def add_webhook_row(self, w_type="Discord", w_url=""):
+        row_frame = ctk.CTkFrame(self.webhook_section, fg_color="transparent")
+        row_frame.pack(fill="x", pady=5, padx=10)
+        
+        # Combobox for Type
+        type_var = ctk.StringVar(value=w_type)
+        cb_type = ctk.CTkComboBox(
+            row_frame, values=["Discord", "Seatalk"], width=120, font=("Arial", 10),
+            dropdown_font=("Arial", 10), variable=type_var,
+            corner_radius=6, border_width=1, border_color="#555555"
+        )
+        cb_type.pack(side="left", padx=5)
+        
+        # Entry for URL
+        url_entry = ctk.CTkEntry(
+            row_frame, placeholder_text="Enter Webhook URL...", font=("Arial", 10),
+            corner_radius=6, border_width=1, border_color="#555555"
+        )
+        url_entry.insert(0, w_url)
+        url_entry.pack(side="left", padx=5, fill="x", expand=True)
+        
+        # Delete button
+        btn_del = ctk.CTkButton(
+            row_frame, text="❌", width=36, height=28,
+            fg_color="#f44336", hover_color="#d32f2f",
+            command=lambda: self.remove_webhook_row(row_frame)
+        )
+        btn_del.pack(side="right", padx=5)
+        
+        self.webhook_row_widgets.append({
+            "frame": row_frame,
+            "cb_type": cb_type,
+            "url_entry": url_entry
+        })
+
+    def remove_webhook_row(self, row_frame):
+        for item in list(self.webhook_row_widgets):
+            if item["frame"] == row_frame:
+                row_frame.destroy()
+                self.webhook_row_widgets.remove(item)
+                break
 
     def save_settings_action(self):
+        # Collect webhooks
+        webhooks_list = []
+        for item in self.webhook_row_widgets:
+            w_type = item["cb_type"].get()
+            w_url = item["url_entry"].get().strip()
+            if w_url:
+                webhooks_list.append({"type": w_type, "url": w_url})
+        
+        self.settings_data["webhooks"] = webhooks_list
+        if webhooks_list:
+            self.settings_data["webhook"] = webhooks_list[0]["url"]
+            if hasattr(self, "webhook_var"):
+                self.webhook_var.set(webhooks_list[0]["url"])
+        else:
+            self.settings_data["webhook"] = ""
+            if hasattr(self, "webhook_var"):
+                self.webhook_var.set("")
+
         for key, w in self.setting_widgets.items():
             t = w["cb_type"].get()
             self.settings_data[key]["type"] = t
@@ -2318,6 +2407,14 @@ class ServerDataGUIUIMixin:
         if not messagebox.askyesno("Xác nhận", "Bạn có chắc chắn muốn đặt lại tất cả cài đặt giới hạn về mặc định?"):
             return
         
+        # Clear webhooks
+        for item in list(self.webhook_row_widgets):
+            item["frame"].destroy()
+        self.webhook_row_widgets.clear()
+        self.settings_data["webhooks"] = []
+        if hasattr(self, "webhook_var"):
+            self.webhook_var.set("")
+
         for key, w in self.setting_widgets.items():
             w["cb_type"].set("None")
             if w["is_status"]:

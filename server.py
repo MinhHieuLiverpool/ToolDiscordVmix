@@ -193,31 +193,85 @@ def _normalize_payload_list(raw_value):
 
 def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port: str, status: str,
                                quality: str = "", srt_type: str = "", hostname: str = ""):
-    """Gửi notification lên Discord (nếu có webhook)"""
-    if not DISCORD_WEBHOOK:
-        return
+    """Gửi notification lên Discord & SeaTalk (đọc từ settings.json)"""
+    import json
+    import os
+    import requests
     
-    try:
-        import requests
-        
-        label = srt_name if srt_name else machine_name
-        parts = [f"[{label}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"]
-        if srt_type:
-            parts.append(f"Type: {srt_type}")
-        if hostname:
-            parts.append(f"Host: {hostname}")
-        if quality:
-            parts.append(f"Quality: {quality}")
-        message = " | ".join(parts)
-        payload = {"content": message}
-        
-        response = requests.post(DISCORD_WEBHOOK, json=payload, timeout=5)
-        if response.status_code in [200, 204]:
-            print(f"✓ Discord notification sent for {label}")
+    webhooks = []
+    prefix = "SRT"
+    fpath = "C:\\VmixMonitor\\Setting\\settings.json"
+    if os.path.exists(fpath):
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            if isinstance(saved, dict):
+                if "webhooks" in saved:
+                    webhooks = saved["webhooks"]
+                elif "webhook" in saved and saved["webhook"]:
+                    webhooks = [{"type": "Discord", "url": saved["webhook"]}]
+                if "prefix" in saved and saved["prefix"]:
+                    prefix = saved["prefix"].strip()
+        except Exception as e:
+            print(f"⚠ Server: Error reading settings.json: {e}")
+            
+    if not webhooks:
+        if DISCORD_WEBHOOK:
+            webhooks = [{"type": "Discord", "url": DISCORD_WEBHOOK}]
         else:
-            print(f"⚠ Discord webhook failed: {response.status_code}")
-    except Exception as e:
-        print(f"✗ Discord notification error: {e}")
+            return
+
+    label = srt_name if srt_name else machine_name
+
+    for w_item in webhooks:
+        w_type = w_item.get("type", "Discord")
+        w_url = w_item.get("url", "").strip()
+        if not w_url:
+            continue
+
+        if w_type == "Discord":
+            try:
+                parts = [f"[{prefix}][{label}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"]
+                if srt_type:
+                    parts.append(f"Type: {srt_type}")
+                if hostname:
+                    parts.append(f"Host: {hostname}")
+                if quality:
+                    parts.append(f"Quality: {quality}")
+                message = " | ".join(parts)
+                payload = {"content": message}
+                
+                response = requests.post(w_url, json=payload, timeout=5)
+                if response.status_code in [200, 204]:
+                    print(f"✓ Discord notification sent for {label} to {w_url[:30]}...")
+                else:
+                    print(f"⚠ Discord webhook failed for {w_url[:30]}...: {response.status_code}")
+            except Exception as e:
+                print(f"✗ Discord notification error for {w_url[:30]}...: {e}")
+        elif w_type == "Seatalk":
+            try:
+                parts = [f"**[{prefix}][{label}]** SRT {status}\nIPWAN: {ipwan} | PORT: {port}"]
+                if srt_type:
+                    parts.append(f"Type: {srt_type}")
+                if hostname:
+                    parts.append(f"Host: {hostname}")
+                if quality:
+                    parts.append(f"Quality: {quality}")
+                content = "\n".join(parts)
+                
+                payload = {
+                    "tag": "markdown",
+                    "markdown": {
+                        "content": content
+                    }
+                }
+                response = requests.post(w_url, json=payload, timeout=5)
+                if response.status_code == 200:
+                    print(f"✓ SeaTalk notification sent for {label} to {w_url[:30]}...")
+                else:
+                    print(f"⚠ SeaTalk webhook failed for {w_url[:30]}...: {response.status_code}")
+            except Exception as e:
+                print(f"✗ SeaTalk notification error for {w_url[:30]}...: {e}")
 
 def get_all_logs():
     """Lấy tất cả logs từ in-memory cache để đạt hiệu năng cao nhất"""
