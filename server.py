@@ -528,20 +528,51 @@ async def _mongo_append_statistics(statistics_id: str, cpu_value, ram_value, gpu
 async def _mongo_append_ping(statistics_id: str, ping_value, timestamp: str):
     """Append ping sample to ping_history collection and keep a bounded history."""
     try:
-        if ping_value is not None:
+        if ping_value is not None and ping_value != "—" and ping_value != "":
             ping_val = float(ping_value)
         else:
             ping_val = None
     except (TypeError, ValueError):
         ping_val = None
 
-    sample = {
-        "ping": ping_val,
-        "time": timestamp,
-    }
-
     loop = asyncio.get_event_loop()
     try:
+        # Fetch the last sample from the history to prevent duplicate or redundant null entries
+        last_doc = await loop.run_in_executor(
+            None,
+            lambda: db['ping_history'].find_one(
+                {"id": statistics_id},
+                {"_id": 0, "data": {"$slice": -1}}
+            )
+        )
+
+        if last_doc and "data" in last_doc and len(last_doc["data"]) > 0:
+            last_sample = last_doc["data"][0]
+            last_ping = last_sample.get("ping")
+            last_time_str = last_sample.get("time", "")
+
+            # If both current and last recorded pings are None (stale/offline), skip appending
+            if ping_val is None and last_ping is None:
+                return
+
+            # Rate limit database writes to prevent duplicates in multi-worker environments
+            if last_time_str:
+                try:
+                    last_time = datetime.fromisoformat(last_time_str)
+                    now_vn = datetime.now(VIETNAM_TZ)
+                    if last_time.tzinfo is None:
+                        last_time = VIETNAM_TZ.localize(last_time)
+                    last_time = last_time.astimezone(VIETNAM_TZ)
+                    if (now_vn - last_time).total_seconds() < 8.0:
+                        return
+                except Exception:
+                    pass
+
+        sample = {
+            "ping": ping_val,
+            "time": timestamp,
+        }
+
         await loop.run_in_executor(
             None,
             lambda: db['ping_history'].update_one(
