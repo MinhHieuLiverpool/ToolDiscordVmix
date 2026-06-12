@@ -206,7 +206,7 @@ export default function StatusByTablePage({
       >
         {currentStreamList.length > 0 ? (
           <div className="dialog-detail-grid">
-            {currentStreamList.map(renderStreamCard)}
+            {currentStreamList.map((stream, idx) => renderStreamCard(stream, idx))}
           </div>
         ) : (
           <div className="dialog-empty-state">Không có dữ liệu stream.</div>
