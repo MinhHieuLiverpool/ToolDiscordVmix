@@ -1,6 +1,7 @@
 import { useMemo, useState, useCallback } from 'react'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { normalizeStreamKeysList, type BackendStreamKeyItem } from '../services/api'
+import { CopyButton } from '../components/DialogHelpers'
 
 interface MachineStreamKeyGroup {
     machineName: string
@@ -193,19 +194,25 @@ export default function UrlKeyPage() {
                                                     )}
                                                     <td style={{ fontWeight: 600 }}>{keyItem.stream || '-'}</td>
                                                     <td>
-                                                        <span
-                                                            className={`url-key-cell ${hasUrl ? 'url-key-active' : 'url-key-empty'}`}
-                                                            title={urlText}
-                                                        >
-                                                            {urlText}
-                                                        </span>
+                                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', maxWidth: '100%' }}>
+                                                            <span
+                                                                className={`url-key-cell ${hasUrl ? 'url-key-active' : 'url-key-empty'}`}
+                                                                title={urlText}
+                                                            >
+                                                                {urlText}
+                                                            </span>
+                                                            {hasUrl && <CopyButton text={urlText} />}
+                                                        </div>
                                                     </td>
                                                     <td>
-                                                        <span className="key-cell-mask" title={isRevealed ? keyText : undefined}>
-                                                            {hasKey
-                                                                ? (isRevealed ? keyText : maskKey(keyText))
-                                                                : '-'}
-                                                        </span>
+                                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', maxWidth: '100%' }}>
+                                                            <span className="key-cell-mask" title={isRevealed ? keyText : undefined}>
+                                                                {hasKey
+                                                                    ? (isRevealed ? keyText : maskKey(keyText))
+                                                                    : '-'}
+                                                            </span>
+                                                            {hasKey && <CopyButton text={keyText} />}
+                                                        </div>
                                                     </td>
                                                     <td style={{ textAlign: 'center' }}>
                                                         {hasKey && (

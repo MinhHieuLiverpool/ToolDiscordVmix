@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { BackendSrtItem, BackendStreamItem, BackendStreamKeyItem } from '../services/api'
 
 export function toOnOff(value: unknown): string {
@@ -7,12 +8,69 @@ export function toOnOff(value: unknown): string {
     return text || '-'
 }
 
-export function renderDetailLine(label: string, value: unknown, mono = false) {
+export function CopyButton({ text }: { text: string }) {
+    const [copied, setCopied] = useState(false)
+
+    const handleCopy = async (e: React.MouseEvent) => {
+        e.stopPropagation()
+        try {
+            await navigator.clipboard.writeText(text)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+        } catch (err) {
+            console.error('Failed to copy text: ', err)
+        }
+    }
+
+    return (
+        <button
+            type="button"
+            className={`copy-btn ${copied ? 'copied' : ''}`}
+            onClick={handleCopy}
+            title={copied ? 'Đã copy!' : 'Copy'}
+            style={{
+                background: 'rgba(148, 163, 184, 0.1)',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                padding: '4px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: copied ? '#10b981' : '#94a3b8',
+                transition: 'all 0.2s',
+                marginLeft: '6px',
+                verticalAlign: 'middle',
+                flexShrink: 0,
+            }}
+        >
+            {copied ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 12, height: 12 }}>
+                    <polyline points="20 6 9 17 4 12" />
+                </svg>
+            ) : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 12, height: 12 }}>
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+            )}
+        </button>
+    )
+}
+
+export function renderDetailLine(label: string, value: unknown, mono = false, copyable = false) {
     const text = String(value ?? '').trim() || '-'
+    const showCopy = copyable && text !== '-' && text !== ''
     return (
         <div className="dialog-detail-row" key={label}>
             <span className="dialog-detail-key">{label}</span>
-            <span className={`dialog-detail-value ${mono ? 'mono' : ''}`}>{text}</span>
+            <span 
+                className={`dialog-detail-value ${mono ? 'mono' : ''}`}
+                style={showCopy ? { display: 'inline-flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end', width: '100%', maxWidth: '70%' } : undefined}
+            >
+                <span style={showCopy ? { wordBreak: 'break-all', textAlign: 'right' } : undefined}>{text}</span>
+                {showCopy && <CopyButton text={text} />}
+            </span>
         </div>
     )
 }
@@ -111,8 +169,8 @@ export function renderStreamCard(stream: BackendStreamItem, index: number, strea
                 <span className="dialog-detail-card-title">{stream.stream || `Stream ${index + 1}`}</span>
                 <span className={`status-pill ${runtimeText === 'ON' ? 'pill-on' : 'pill-off'}`}>{runtimeText}</span>
             </div>
-            {hasUrl && renderDetailLine('URL', urlText, true)}
-            {hasKey && renderDetailLine('Stream Key', keyText, true)}
+            {hasUrl && renderDetailLine('URL', urlText, true, true)}
+            {hasKey && renderDetailLine('Stream Key', keyText, true, true)}
             {renderDetailLine('Health', healthText)}
             {renderDetailLine('Video Bitrate', formatBitrate(stream.vbit))}
             {renderDetailLine('Size', stream.size)}

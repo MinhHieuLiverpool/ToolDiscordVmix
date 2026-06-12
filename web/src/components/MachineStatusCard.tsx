@@ -49,10 +49,8 @@ export default function MachineStatusCard({
 
     const onOff = (v: boolean) => (v ? 'ON' : 'OFF')
     const fmtMbps = (value: number | null) => (value !== null ? `${value.toFixed(2)}` : '-')
-    const machineKeySeed = `${item.data.name || 'unknown'}|${item.data.ip || 'no-ip'}|${item.timestamp || 'no-ts'}|${index}`
     const [streamOpen, setStreamOpen] = useState(false)
     const [srtOpen, setSrtOpen] = useState(false)
-    const [streamKeysOpen, setStreamKeysOpen] = useState(false)
 
 
     return (
@@ -172,7 +170,7 @@ export default function MachineStatusCard({
                 </div>
             </div>
 
-            <div className="card-footer">
+            <div className="card-footer" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.25rem' }}>
                 <div className="card-footer-actions">
                     <button
                         type="button"
@@ -190,16 +188,8 @@ export default function MachineStatusCard({
                     >
                         Stream ({streamActiveCount}/{streamList.length})
                     </button>
-                    <button
-                        type="button"
-                        className="card-footer-btn"
-                        onClick={() => setStreamKeysOpen(true)}
-                        disabled={streamKeysList.length === 0}
-                    >
-                        Stream Key ({streamKeysList.length})
-                    </button>
                 </div>
-                <span className="card-timestamp">{timeText}</span>
+                <span className="card-timestamp" style={{ textAlign: 'right', display: 'block', marginTop: '0.15rem' }}>{timeText}</span>
             </div>
 
             <Dialog
@@ -230,34 +220,6 @@ export default function MachineStatusCard({
                     </div>
                 ) : (
                     <div className="dialog-empty-state">Không có dữ liệu stream.</div>
-                )}
-            </Dialog>
-
-            <Dialog
-                open={streamKeysOpen}
-                onClose={() => setStreamKeysOpen(false)}
-                title={`Stream Key · ${item.data.name || 'Unknown'}`}
-            >
-                {streamKeysList.length > 0 ? (
-                    <div className="dialog-detail-grid">
-                        {streamKeysList.map((keyItem, keyIndex) => (
-                            <div key={`${machineKeySeed}::streamkey::${keyIndex}`} className="dialog-detail-card">
-                                <div className="dialog-detail-card-header">
-                                    <span className="dialog-detail-card-title">{keyItem.stream || `Stream Key ${keyIndex + 1}`}</span>
-                                </div>
-                                <div className="dialog-detail-row">
-                                    <span className="dialog-detail-key">URL</span>
-                                    <span className="dialog-detail-value mono" style={{ wordBreak: 'break-all' }}>{keyItem.url || '-'}</span>
-                                </div>
-                                <div className="dialog-detail-row">
-                                    <span className="dialog-detail-key">Key</span>
-                                    <span className="dialog-detail-value mono" style={{ wordBreak: 'break-all' }}>{keyItem.key || '-'}</span>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="dialog-empty-state">Không có dữ liệu Stream Key.</div>
                 )}
             </Dialog>
 
