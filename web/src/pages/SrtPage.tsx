@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { normalizeSrtList, type BackendSrtItem } from '../services/api'
-import { toOnOff, renderTypePill, renderTitlePill } from '../components/DialogHelpers'
+import { toOnOff, renderTypePill } from '../components/DialogHelpers'
 
 interface MachineGroup {
     machineName: string
