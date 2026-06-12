@@ -1300,6 +1300,9 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
     def _find_latest_studiocoast_config(self) -> str | None:
         """Find the latest user.config file for vMix from LocalAppData\\StudioCoast_Pty_Ltd.
 
+        Searches ALL user profiles on the machine, not just the current user,
+        so the config is found even when vMix runs under a different account.
+
         Uses a cached path list to avoid expensive os.walk on every call.
         Full re-scan of the directory tree every _SC_CONFIG_TTL seconds (default 60s).
         Between re-scans, just picks the most-recently-modified file from the cached list.
@@ -1311,26 +1314,60 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
 
         # ── Re-discover paths if cache is stale or empty ───────────────────
         if not cached_paths or (now - cached_ts) >= ttl:
-            local_appdata = os.environ.get("LOCALAPPDATA")
-            if not local_appdata:
-                return None
-            studiocoast_dir = os.path.join(local_appdata, "StudioCoast_Pty_Ltd")
-            if not os.path.isdir(studiocoast_dir):
-                return None
-
             config_files: list[str] = []
-            for root_dir, _, filenames in os.walk(studiocoast_dir):
-                root_lower = root_dir.lower()
-                if "vmix64.exe_url_" in root_lower or "vmix.exe_url_" in root_lower:
-                    for f in filenames:
-                        if f.lower() == "user.config":
-                            config_files.append(os.path.join(root_dir, f))
 
+            # Collect all candidate StudioCoast directories across every user profile
+            studiocoast_dirs: list[str] = []
+
+            # 1) Current user's %LOCALAPPDATA% (always try first)
+            local_appdata = os.environ.get("LOCALAPPDATA")
+            if local_appdata:
+                sc = os.path.join(local_appdata, "StudioCoast_Pty_Ltd")
+                if os.path.isdir(sc):
+                    studiocoast_dirs.append(sc)
+
+            # 2) Scan all user profiles on the machine
+            #    e.g. C:\Users\<each_user>\AppData\Local\StudioCoast_Pty_Ltd
+            try:
+                sys_drive = os.environ.get("SystemDrive") or "C:"
+                users_root = os.path.join(sys_drive + os.sep, "Users")
+                if os.path.isdir(users_root):
+                    for user_dir in os.listdir(users_root):
+                        user_path = os.path.join(users_root, user_dir)
+                        if not os.path.isdir(user_path):
+                            continue
+                        sc = os.path.join(user_path, "AppData", "Local", "StudioCoast_Pty_Ltd")
+                        if os.path.isdir(sc) and sc not in studiocoast_dirs:
+                            studiocoast_dirs.append(sc)
+            except Exception:
+                pass
+
+            # Walk each StudioCoast directory for user.config files
+            for studiocoast_dir in studiocoast_dirs:
+                try:
+                    for root_dir, _, filenames in os.walk(studiocoast_dir):
+                        root_lower = root_dir.lower()
+                        if "vmix64.exe_url_" in root_lower or "vmix.exe_url_" in root_lower:
+                            for f in filenames:
+                                if f.lower() == "user.config":
+                                    full = os.path.join(root_dir, f)
+                                    if full not in config_files:
+                                        config_files.append(full)
+                except (PermissionError, OSError):
+                    continue
+
+            # Fallback: glob under each StudioCoast dir
             if not config_files:
-                # Fallback to general user.config under StudioCoast
-                config_files = glob.glob(
-                    os.path.join(studiocoast_dir, "**", "user.config"), recursive=True
-                )
+                for studiocoast_dir in studiocoast_dirs:
+                    try:
+                        config_files.extend(
+                            glob.glob(
+                                os.path.join(studiocoast_dir, "**", "user.config"),
+                                recursive=True,
+                            )
+                        )
+                    except (PermissionError, OSError):
+                        continue
 
             self._sc_config_paths = config_files
             self._sc_config_paths_ts = now
@@ -1384,8 +1421,39 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
         vmix_alive = getattr(self, "_proc_cache_alive", False)
         self._vmix_process_alive = vmix_alive
 
-        # ── Source 1: preset file from vMix API (cached path) ───────────────
+        # ── Source 0: manual override from user (Browse / paste) ────────────
         preset_root = None
+        preset_source_path = None
+        manual_path = getattr(self, "_manual_config_path", None)
+        if manual_path and os.path.isfile(manual_path):
+            try:
+                if manual_path.lower().endswith(".vmix"):
+                    preset_root = ET.parse(manual_path).getroot()
+                    preset_source_path = manual_path
+                else:
+                    # It's a .config file — skip preset parsing, go directly to config fallback
+                    if hasattr(self, "config_path_var"):
+                        self.config_path_var.set(manual_path)
+                    return self._parse_config_file_srt(manual_path, vmix_alive)
+            except Exception:
+                pass
+
+        # ── Source 1: user.config (StudioCoast) or current.config ──────────
+        #    Highest auto priority for SRT — contains actual saved SRT settings
+        if preset_root is None:
+            config_file = self._find_latest_studiocoast_config()
+            if not config_file or not os.path.isfile(config_file):
+                vmix_dir = self._vmix_data_dir()
+                fallback = os.path.join(vmix_dir, "settingbackups", "current.config")
+                if os.path.isfile(fallback):
+                    config_file = fallback
+
+            if config_file and os.path.isfile(config_file):
+                if hasattr(self, "config_path_var"):
+                    self.config_path_var.set(config_file)
+                return self._parse_config_file_srt(config_file, vmix_alive)
+
+        # ── Source 2: preset file from vMix API (cached path) ───────────────
         api_ttl = getattr(self, "_API_PRESET_TTL", 15.0)
         cached_api_path = getattr(self, "_api_preset_path", None)
 
@@ -1393,6 +1461,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
         if cached_api_path and os.path.isfile(cached_api_path) and (now - getattr(self, "_api_preset_ts", 0.0)) < api_ttl:
             try:
                 preset_root = ET.parse(cached_api_path).getroot()
+                preset_source_path = cached_api_path
             except Exception:
                 pass
 
@@ -1411,21 +1480,23 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                         self._api_preset_path = preset_path
                         try:
                             preset_root = ET.parse(preset_path).getroot()
+                            preset_source_path = preset_path
                         except Exception:
                             pass
             except Exception:
                 pass
 
-        # ── Source 2: preset from cached process cmdline ────────────────────
+        # ── Source 3: preset from cached process cmdline ────────────────────
         if preset_root is None:
             proc_preset = getattr(self, "_proc_cache_preset", None)
             if proc_preset and os.path.isfile(proc_preset):
                 try:
                     preset_root = ET.parse(proc_preset).getroot()
+                    preset_source_path = proc_preset
                 except Exception:
                     pass
 
-        # ── Source 3: fallback — glob for *.vmix files ─────────────────────
+        # ── Source 4: fallback — glob for *.vmix files (least reliable) ────
         if preset_root is None:
             try:
                 search_dirs = []
@@ -1444,11 +1515,15 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                 if candidates:
                     latest_file = max(candidates, key=os.path.getmtime)
                     preset_root = ET.parse(latest_file).getroot()
+                    preset_source_path = latest_file
             except Exception:
                 pass
 
         # ── Parse from preset XML (direct element access) ──────────────────────
         if preset_root is not None:
+            if hasattr(self, "config_path_var") and preset_source_path:
+                self.config_path_var.set(preset_source_path)
+
             for idx, ext_name in enumerate(
                 ("OutputsExternal", "OutputsExternal2", "OutputsExternal3", "OutputsExternal4"), start=1
             ):
@@ -1502,15 +1577,14 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                         entry["srt_enabled_label"] = "OFF"
                 return results
 
-        # ── Fallback: parse from user.config (StudioCoast) or current.config ───
-        config_file = self._find_latest_studiocoast_config()
-        if not config_file or not os.path.isfile(config_file):
-            vmix_dir = self._vmix_data_dir()
-            config_file = os.path.join(vmix_dir, "settingbackups", "current.config")
+        # No source found
+        if hasattr(self, "config_path_var"):
+            self.config_path_var.set("—")
+        return results
 
-        if not config_file or not os.path.isfile(config_file):
-            return results
-
+    def _parse_config_file_srt(self, config_file: str, vmix_alive: bool) -> list[dict]:
+        """Parse SRT external output settings from a .config file (user.config or current.config)."""
+        results: list[dict] = []
         try:
             content = self._read_file_shared(config_file)
             for idx, ext_name in enumerate(

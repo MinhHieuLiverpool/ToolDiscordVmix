@@ -41,6 +41,9 @@ declare global {
 }
 
 function extractVideoId(url: string): string | null {
+    const liveMatch = url.match(/(?:youtube\.com\/live\/)([^#&?]{11})/i)
+    if (liveMatch) return liveMatch[1]
+
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/
     const match = url.match(regExp)
     return match && match[2].length === 11 ? match[2] : null

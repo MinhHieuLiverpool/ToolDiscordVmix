@@ -44,6 +44,7 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
         self.port_list = []
         self.ping_timeout_count = 0
         self.vmix_api_port_var = tk.StringVar(value="8088")
+        self.config_path_var = tk.StringVar(value="—")
 
         import requests as _req
 
@@ -71,6 +72,7 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
         self._srt_scan_running = False
         self._vmix_process_alive = False
         self._srt_ext_latest_data = []
+        self._manual_config_path = None
 
         # ── Scan optimisation caches ──────────────────────────────
         # Cache discovered user.config paths (os.walk is expensive)

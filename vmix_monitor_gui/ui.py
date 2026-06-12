@@ -152,6 +152,15 @@ class VmixMonitorUIMixin:
         self.start_btn.pack(side=LEFT, padx=(0, 5))
         ttk.Button(btn_box, text="Check Server", command=self.check_server_status, bootstyle="info", width=15).pack(side=LEFT)
 
+        # Config file path row (editable — user can paste or browse)
+        path_box = ttk.Frame(ctrl_card)
+        path_box.pack(fill=X, pady=(10, 0))
+        ttk.Label(path_box, text="vMix Config/Preset:", font=("Segoe UI", 9, "bold"), bootstyle="secondary").pack(side=LEFT, padx=(0, 5))
+        self.config_path_entry = ttk.Entry(path_box, textvariable=self.config_path_var, font=("Consolas", 9), bootstyle="dark")
+        self.config_path_entry.pack(side=LEFT, fill=X, expand=YES, padx=(0, 5))
+        ttk.Button(path_box, text="📂 Browse", command=self._browse_config_file, bootstyle="warning-outline", width=10).pack(side=LEFT, padx=(0, 3))
+        ttk.Button(path_box, text="✖ Auto", command=self._clear_manual_config, bootstyle="secondary-outline", width=8).pack(side=LEFT)
+
         self.status_label = ttk.Label(ctrl_card, text="● Stopped", font=("Segoe UI", 10, "bold"), bootstyle="secondary")
         self.status_label.pack(side=BOTTOM, pady=(10, 0))
 
@@ -697,3 +706,29 @@ class VmixMonitorUIMixin:
         # This will be implemented in LogicMixin to have access to full snapshot
         if hasattr(self, "_handle_stream_selection"):
             self._handle_stream_selection()
+
+    def _browse_config_file(self):
+        """Open file dialog to manually select a vMix config/preset file."""
+        from tkinter import filedialog
+
+        filepath = filedialog.askopenfilename(
+            title="Chọn file cấu hình vMix",
+            filetypes=[
+                ("vMix Preset", "*.vmix"),
+                ("Config Files", "*.config"),
+                ("All Files", "*.*"),
+            ],
+        )
+        if filepath:
+            self.config_path_var.set(filepath)
+            self._manual_config_path = filepath
+            self.log(f"📂 Đã chọn config thủ công: {filepath}")
+
+    def _clear_manual_config(self):
+        """Clear the manual config override and return to auto-scan mode."""
+        self._manual_config_path = None
+        self.config_path_var.set("—")
+        # Force re-scan by clearing cache
+        self._sc_config_paths = []
+        self._sc_config_paths_ts = 0.0
+        self.log("🔄 Đã chuyển về chế độ tự động quét config.")
