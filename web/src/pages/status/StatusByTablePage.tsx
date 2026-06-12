@@ -120,7 +120,9 @@ export default function StatusByTablePage({
                           {Number(item.data.statusapp ?? 0) === 1 ? 'ON' : 'OFF'}
                         </span>
                       </td>
-                      <td>{String(item.data.ping ?? '-')}</td>
+                      <td style={item.data.ping === null || item.data.ping === undefined ? { color: '#ef4444', fontWeight: 800 } : undefined}>
+                        {item.data.ping !== null && item.data.ping !== undefined ? String(item.data.ping) : '0'}
+                      </td>
                       <td>{String(item.data.ping_timeouts ?? 0)}</td>
                       <td>{formatNumber(item.data.temperature ?? item.data.cpu)}%</td>
                       <td>{formatNumber(item.data.memory ?? item.data.ram)}%</td>

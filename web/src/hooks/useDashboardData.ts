@@ -3,13 +3,13 @@ import { BACKEND_WS_URL } from '../config/constants'
 import {
     fetchAllLogs,
     fetchStatistics,
-    fetchAllStatisticHours,
-    fetchStatisticHours,
     normalizeSrtList,
+    fetchPingHistory,
+    fetchAllPingHistory,
 } from '../services/api'
 import type {
     BackendLogItem,
-    StatisticHoursResponse,
+    PingHistoryResponse,
 } from '../services/api'
 import type { DeviceFilter, MachineMetrics, MetricPoint, TimeFilter } from '../types'
 import { toNumber } from '../types'
@@ -125,9 +125,10 @@ export function useDashboardData() {
         const cpu = toNumber(row?.data.temperature ?? row?.data.cpu) ?? 0
         const ram = toNumber(row?.data.memory) ?? 0
         const gpu = toNumber(row?.data.gpu) ?? 0
+        const ping = toNumber(row?.data.ping)
         const timeMs = Date.now()
         const nowLabel = new Date().toLocaleTimeString('vi-VN', { hour12: false })
-        return { id, label, history: [{ timeLabel: nowLabel, cpu, ram, gpu, timeMs }] }
+        return { id, label, history: [{ timeLabel: nowLabel, cpu, ram, gpu, ping, timeMs }] }
     }, [latestRowByMachineId])
 
     const totalOnline = useMemo(
@@ -398,6 +399,44 @@ export function useDashboardData() {
         }
     }, [activeView, realtimeMap])
 
+    const prevDailyRowsRef = useRef<BackendLogItem[]>([])
+
+    useEffect(() => {
+        if (activeView !== 'daily') return
+        if (!dailyInitialLoadedRef.current) return
+        if (rows === prevDailyRowsRef.current) return
+        prevDailyRowsRef.current = rows
+
+        setDailyMap((prev) => {
+            const next = new Map(prev)
+            const nowMs = Date.now()
+            const nowLabel = new Date().toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
+            rows.forEach((item) => {
+                const id = buildMachineId(item)
+                if (!id) return
+
+                const ping = toNumber(item.data.ping)
+                const newPoint: MetricPoint = { timeLabel: nowLabel, cpu: 0, ram: 0, gpu: 0, ping, timeMs: nowMs }
+
+                const existing = next.get(id)
+                if (existing) {
+                    const lastPoint = existing.history[existing.history.length - 1]
+                    // Throttle to at most once per 9.5s
+                    if (lastPoint && lastPoint.timeMs && nowMs - lastPoint.timeMs < 9500) return
+                    const updatedHistory = [...existing.history, newPoint].slice(-300)
+                    next.set(id, { ...existing, history: updatedHistory })
+                } else {
+                    const name = String(item.data.name || 'Unknown')
+                    const ip = String(item.data.ip || '')
+                    next.set(id, { id, label: `${name} (${ip})`, history: [newPoint] })
+                }
+            })
+
+            return next
+        })
+    }, [rows, activeView])
+
     /* ═══════════════════════════════════════════════════════════
      * DAILY — Load 1 lần duy nhất
      * ═══════════════════════════════════════════════════════════ */
@@ -413,37 +452,44 @@ export function useDashboardData() {
                     setDailyMap(new Map())
                     return
                 }
-                const doc: StatisticHoursResponse = await fetchStatisticHours(deviceFilter)
+                const doc: PingHistoryResponse = await fetchPingHistory(deviceFilter)
                 const opt = options.find((o) => o.id === deviceFilter)
                 const label = opt?.label ?? doc.id
                 const history: MetricPoint[] = (doc.data || []).map((p) => {
-                    const d = new Date(p.window_start)
+                    const d = new Date(p.time)
+                    const timeMs = Number.isNaN(d.getTime()) ? Date.now() : d.getTime()
                     const timeLabel = Number.isNaN(d.getTime())
-                        ? String(p.window_start || '').slice(11, 16)
-                        : d.toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit' })
-                        return { timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0, gpu: p.avg_gpu ?? 0 }
+                        ? String(p.time || '').slice(11, 19)
+                        : d.toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                    return { timeLabel, cpu: 0, ram: 0, gpu: 0, ping: p.ping, timeMs }
                 })
                 const metric = history.length > 0
                     ? { id: doc.id, label, history }
                     : buildFallbackMetric(doc.id, label)
                 setDailyMap(new Map([[doc.id, metric]]))
             } else {
-                const docs: StatisticHoursResponse[] = await fetchAllStatisticHours()
+                const docs: PingHistoryResponse[] = await fetchAllPingHistory()
                 const next = new Map<string, MachineMetrics>()
                 for (const doc of docs) {
-                    const opt = options.find((o) => o.id === doc.id)
-                    const label = opt?.label ?? doc.id
-                    const history: MetricPoint[] = (doc.data || []).map((p) => {
-                        const d = new Date(p.window_start)
-                        const timeLabel = Number.isNaN(d.getTime())
-                            ? String(p.window_start || '').slice(11, 16)
-                            : d.toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit' })
-                            return { timeLabel, cpu: p.avg_cpu ?? 0, ram: p.avg_ram ?? 0, gpu: p.avg_gpu ?? 0 }
+                    const matchedOpts = options.filter((o) => {
+                        const optIp = o.id.split(':')[0]
+                        return optIp === doc.id || o.id === doc.id
                     })
-                    const metric = history.length > 0
-                        ? { id: doc.id, label, history }
-                        : buildFallbackMetric(doc.id, label)
-                    next.set(doc.id, metric)
+                    const history: MetricPoint[] = (doc.data || []).map((p) => {
+                        const d = new Date(p.time)
+                        const timeMs = Number.isNaN(d.getTime()) ? Date.now() : d.getTime()
+                        const timeLabel = Number.isNaN(d.getTime())
+                            ? String(p.time || '').slice(11, 19)
+                            : d.toLocaleTimeString('vi-VN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                        return { timeLabel, cpu: 0, ram: 0, gpu: 0, ping: p.ping, timeMs }
+                    })
+                    matchedOpts.forEach((opt) => {
+                        const hasHistory = history.length > 0
+                        next.set(opt.id, hasHistory
+                            ? { id: opt.id, label: opt.label, history }
+                            : buildFallbackMetric(opt.id, opt.label)
+                        )
+                    })
                 }
                 for (const opt of options) {
                     if (!next.has(opt.id)) {
@@ -453,7 +499,7 @@ export function useDashboardData() {
                 setDailyMap(next)
             }
         } catch (err) {
-            console.error('Daily stats error', err)
+            console.error('Daily ping stats load error', err)
         } finally {
             setDailyLoading(false)
         }

@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import FilterBar from '../components/FilterBar'
 import ChartSection from '../components/ChartSection'
@@ -13,6 +15,32 @@ export default function StatisticsPage() {
         currentLoading,
         loadData,
     } = useDashboardContext()
+
+    const location = useLocation()
+    const navigate = useNavigate()
+
+    // Sync URL path changes to context state
+    useEffect(() => {
+        if (location.pathname === '/statistics/ping') {
+            if (activeView !== 'daily') {
+                setActiveView('daily')
+            }
+        } else if (location.pathname === '/statistics/realtime' || location.pathname === '/statistics') {
+            if (activeView !== 'realtime') {
+                setActiveView('realtime')
+            }
+        }
+    }, [location.pathname, activeView, setActiveView])
+
+    // Custom setActiveView handler to navigate to the correct URL path
+    const handleSetActiveView = (view: 'realtime' | 'daily') => {
+        setActiveView(view)
+        if (view === 'daily') {
+            navigate('/statistics/ping')
+        } else {
+            navigate('/statistics/realtime')
+        }
+    }
 
     return (
         <>
@@ -31,8 +59,8 @@ export default function StatisticsPage() {
                             </>
                         ) : (
                             <>
-                                <span className="accent-text">Cả ngày</span>
-                                <span className="section-desc"> — lịch sử trung bình 15 phút</span>
+                                <span className="accent-text">Ping</span>
+                                <span className="section-desc"> — lịch sử ping (ms)</span>
                             </>
                         )}
                     </h3>
@@ -40,7 +68,7 @@ export default function StatisticsPage() {
                         deviceFilter={deviceFilter}
                         setDeviceFilter={setDeviceFilter}
                         activeView={activeView}
-                        setActiveView={setActiveView}
+                        setActiveView={handleSetActiveView}
                         machineOptions={onlineMachineOptions}
                         onRefresh={() => void loadData()}
                     />

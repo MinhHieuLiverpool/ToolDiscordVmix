@@ -14,6 +14,7 @@ export type MetricPoint = {
     cpu: number
     ram: number
     gpu?: number
+    ping?: number | null
     timeMs?: number
     extras?: DailyExtras
 }

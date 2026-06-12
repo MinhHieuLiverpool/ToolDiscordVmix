@@ -1195,6 +1195,18 @@
     color: #38bdf8;
   }
 
+  .stat-ping-live {
+    background: rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.25);
+    color: #10b981;
+  }
+
+  .stat-ping-timeout {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.25);
+    color: #ef4444;
+  }
+
   /* ── Account page ── */
   .account-grid {
     display: grid;

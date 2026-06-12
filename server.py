@@ -71,9 +71,11 @@ try:
     statistics_collection = db['statistics']
     statistics_ts_collection = db[STATISTICS_TS_COLLECTION]
     statistics_hours_collection = db['statistic_hours']
+    ping_history_collection = db['ping_history']
     accounts_collection.create_index("username_key", unique=True)
     roles_collection.create_index("role_key", unique=True)
     statistics_collection.create_index("id", unique=True)
+    ping_history_collection.create_index("id", unique=True)
     if USE_TIMESERIES_STATS:
         existing_collections = set(db.list_collection_names())
         if STATISTICS_TS_COLLECTION not in existing_collections:
@@ -276,14 +278,48 @@ def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port
                 print(f"✗ SeaTalk notification error for {w_url[:30]}...: {e}")
 
 def get_all_logs():
-    """Lấy tất cả logs từ in-memory cache để đạt hiệu năng cao nhất"""
+    """Lấy tất cả logs từ in-memory cache để đạt hiệu năng cao nhất, đồng thời set ping=None nếu máy offline hoặc stale"""
     entries = []
     # Sắp xếp theo last_updated giảm dần
     sorted_items = sorted(_data_cache.values(), key=lambda x: x.get("last_updated", ""), reverse=True)
+    now_vn = datetime.now(VIETNAM_TZ)
+    cutoff = now_vn - timedelta(seconds=30)
+
     for doc in sorted_items:
+        if not isinstance(doc, dict):
+            continue
+        doc_copy = dict(doc)
+
+        # Check if machine is offline or stale
+        is_offline = False
+        try:
+            status_app_val = int(doc_copy.get("statusapp", 0) or 0)
+        except (TypeError, ValueError):
+            status_app_val = 0
+
+        if status_app_val != 1:
+            is_offline = True
+        else:
+            last_updated_str = str(doc_copy.get("last_updated", "") or "")
+            if not last_updated_str:
+                is_offline = True
+            else:
+                try:
+                    last_updated = datetime.fromisoformat(last_updated_str)
+                    if last_updated.tzinfo is None:
+                        last_updated = VIETNAM_TZ.localize(last_updated)
+                    last_updated = last_updated.astimezone(VIETNAM_TZ)
+                    if last_updated < cutoff:
+                        is_offline = True
+                except Exception:
+                    is_offline = True
+
+        if is_offline:
+            doc_copy["ping"] = None
+
         entries.append({
-            "timestamp": doc.get("last_updated", ""),
-            "data": doc
+            "timestamp": doc_copy.get("last_updated", ""),
+            "data": doc_copy
         })
     return entries
 
@@ -487,6 +523,38 @@ async def _mongo_append_statistics(statistics_id: str, cpu_value, ram_value, gpu
         )
     except Exception as e:
         print(f"✗ MongoDB statistics append error ({statistics_id}): {e}")
+
+
+async def _mongo_append_ping(statistics_id: str, ping_value, timestamp: str):
+    """Append ping sample to ping_history collection and keep a bounded history."""
+    try:
+        if ping_value is not None:
+            ping_val = float(ping_value)
+        else:
+            ping_val = None
+    except (TypeError, ValueError):
+        ping_val = None
+
+    sample = {
+        "ping": ping_val,
+        "time": timestamp,
+    }
+
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(
+            None,
+            lambda: db['ping_history'].update_one(
+                {"id": statistics_id},
+                {
+                    "$set": {"updated_at": timestamp},
+                    "$push": {"data": {"$each": [sample], "$slice": -300}},
+                },
+                upsert=True,
+            )
+        )
+    except Exception as e:
+        print(f"✗ MongoDB ping append error ({statistics_id}): {e}")
 
 
 async def _mongo_insert_statistics_ts(statistics_id: str, cpu_value, ram_value, gpu_value, timestamp: str):
@@ -1595,6 +1663,50 @@ async def delete_role(payload: dict):
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 
+@app.get("/ping_history")
+async def get_all_ping_history():
+    """Lấy lịch sử ping của tất cả các máy."""
+    try:
+        loop = asyncio.get_event_loop()
+        docs = await loop.run_in_executor(
+            None,
+            lambda: list(db['ping_history'].find(
+                {},
+                {"_id": 0, "id": 1, "data": 1, "updated_at": 1}
+            ))
+        )
+        return JSONResponse(content=docs)
+    except Exception as e:
+        print(f"✗ Get all ping history error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+
+@app.get("/ping_history/{statistics_id:path}")
+async def get_ping_history(statistics_id: str):
+    """Lấy lịch sử ping của một máy cụ thể."""
+    try:
+        # Extract IP or name without port
+        target_id = statistics_id.split(":")[0] if ":" in statistics_id else statistics_id
+
+        loop = asyncio.get_event_loop()
+        doc = await loop.run_in_executor(
+            None,
+            lambda: db['ping_history'].find_one(
+                {"id": target_id},
+                {"_id": 0, "id": 1, "data": 1, "updated_at": 1}
+            )
+        )
+        if not doc:
+            return JSONResponse(content={"id": statistics_id, "data": [], "updated_at": ""})
+        
+        # Override returned id to match requested statistics_id so frontend pairs it
+        doc["id"] = statistics_id
+        return JSONResponse(content=doc)
+    except Exception as e:
+        print(f"✗ Get ping history error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+
 @app.get("/speedtest")
 async def run_speedtest():
     """Run speedtest-cli and return parsed JSON results."""
@@ -1946,13 +2058,20 @@ async def flush_statistics_from_cache():
                 if last_updated < cutoff:
                     continue
 
-                srt_doc = doc.get("SRT", {})
-                if not isinstance(srt_doc, dict):
-                    srt_doc = {}
-                statistics_id = _build_statistics_id(doc.get("ip"), srt_doc.get("port", ""), machine_name)
+                srt_list = doc.get("SRT", [])
+                srt_port = ""
+                if isinstance(srt_list, list) and len(srt_list) > 0:
+                    first_srt = srt_list[0]
+                    if isinstance(first_srt, dict):
+                        srt_port = first_srt.get("port", "")
+                elif isinstance(srt_list, dict):
+                    srt_port = srt_list.get("port", "")
+
+                statistics_id = _build_statistics_id(doc.get("ip"), srt_port, machine_name)
                 cpu_value = doc.get("temperature", doc.get("cpu"))
                 ram_value = doc.get("memory", doc.get("ram"))
                 gpu_value = doc.get("gpu")
+                ping_value = doc.get("ping")
 
                 sample = {
                     "cpu": cpu_value,
@@ -1974,23 +2093,75 @@ async def flush_statistics_from_cache():
         except Exception as e:
             print(f"✗ Error in flush_statistics_from_cache: {e}")
 
+
+async def flush_ping_from_cache():
+    """Persist one ping sample per machine every 10 seconds from in-memory cache."""
+    while True:
+        try:
+            await asyncio.sleep(10)
+            now_vn = datetime.now(VIETNAM_TZ)
+            timestamp = now_vn.isoformat()
+            cutoff = now_vn - timedelta(seconds=30)  # stale cutoff at 30 seconds
+
+            for machine_name, doc in list(_data_cache.items()):
+                if not isinstance(doc, dict):
+                    continue
+
+                machine_ip = str(doc.get("ip") or "").strip()
+                ping_id = machine_ip if machine_ip else machine_name
+
+                # Check if machine is offline or stale
+                is_offline = False
+                try:
+                    status_app_val = int(doc.get("statusapp", 0) or 0)
+                except (TypeError, ValueError):
+                    status_app_val = 0
+
+                if status_app_val != 1:
+                    is_offline = True
+                else:
+                    last_updated_str = str(doc.get("last_updated", "") or "")
+                    if not last_updated_str:
+                        is_offline = True
+                    else:
+                        try:
+                            last_updated = datetime.fromisoformat(last_updated_str)
+                            if last_updated.tzinfo is None:
+                                last_updated = VIETNAM_TZ.localize(last_updated)
+                            last_updated = last_updated.astimezone(VIETNAM_TZ)
+                            if last_updated < cutoff:
+                                is_offline = True
+                        except Exception:
+                            is_offline = True
+
+                if is_offline:
+                    ping_value = None
+                else:
+                    ping_value = doc.get("ping")
+
+                asyncio.create_task(_mongo_append_ping(ping_id, ping_value, timestamp))
+        except Exception as e:
+            print(f"✗ Error in flush_ping_from_cache: {e}")
+
+
 async def _daily_cleanup_task():
-    """Xóa sạch dữ liệu thống kê vào 3:00 sáng mỗi ngày"""
+    """Xóa sạch dữ liệu thống kê vào 2:30 sáng mỗi ngày"""
     global _realtime_stats_cache, _stats_1m_buffer, _stats_5m_buffer, _realtime_stats_updated
     last_cleaned_date = None
     
     while True:
         try:
             now = datetime.now()
-            # Kiểm tra xem có đúng 3:00 sáng không
-            if now.hour == 3 and now.minute == 0 and last_cleaned_date != now.date():
-                print(f"🧹 [CLEANUP] Bắt đầu dọn dẹp dữ liệu định kỳ (3:00 AM {now.date()})...")
+            # Kiểm tra xem có đúng 2:30 sáng không
+            if now.hour == 2 and now.minute == 30 and last_cleaned_date != now.date():
+                print(f"🧹 [CLEANUP] Bắt đầu dọn dẹp dữ liệu định kỳ (2:30 AM {now.date()})...")
                 
                 # 1. Xóa trong MongoDB
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, lambda: statistics_collection.delete_many({}))
                 await loop.run_in_executor(None, lambda: statistics_hours_collection.delete_many({}))
                 await loop.run_in_executor(None, lambda: statistics_ts_collection.delete_many({}))
+                await loop.run_in_executor(None, lambda: db['ping_history'].delete_many({}))
                 
                 # 2. Xóa trong Redis (nếu có)
                 if _redis_enabled and _redis_client is not None:
@@ -2008,7 +2179,7 @@ async def _daily_cleanup_task():
                 _realtime_stats_updated.clear()
                 
                 last_cleaned_date = now.date()
-                print("✓ [CLEANUP] Đã xóa sạch statistic, statistic_hours và statistics_ts.")
+                print("✓ [CLEANUP] Đã xóa sạch statistic, statistic_hours, statistics_ts và ping_history.")
             
             await asyncio.sleep(30) # Check mỗi 30 giây
         except Exception as e:
@@ -2074,12 +2245,14 @@ async def startup_event():
         print(f"✗ Cache preload error: {e}")
     asyncio.create_task(check_inactive_machines())
     asyncio.create_task(flush_statistics_from_cache())
+    asyncio.create_task(flush_ping_from_cache())
     asyncio.create_task(rollup_statistics_scheduler())
-    asyncio.create_task(_daily_cleanup_task()) # Chạy task dọn dẹp 3h sáng
+    asyncio.create_task(_daily_cleanup_task()) # Chạy task dọn dẹp 2h30 sáng
     print("✓ Background task started: Auto-OFF inactive machines (1 min timeout)")
     print(f"✓ Background task started: Statistics cache flush every {_stats_flush_interval_sec}s")
+    print("✓ Background task started: Ping cache flush every 10s")
     print(f"✓ Background task started: Tiered rollup every {_TIERED_ROLLUP_INTERVAL_SEC}s (raw→1m→5m→15m→hours)")
-    print("✓ Background task started: Daily cleanup scheduled at 03:00 AM")
+    print("✓ Background task started: Daily cleanup scheduled at 02:30 AM")
 
 def run_server():
     import uvicorn

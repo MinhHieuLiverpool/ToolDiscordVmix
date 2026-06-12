@@ -38,7 +38,9 @@ function App() {
           <Route path="/stream" element={<StreamPage />} />
           <Route path="/url-key" element={<UrlKeyPage />} />
           <Route path="/ffmpeg" element={<FfmpegPage />} />
-          <Route path="/statistics" element={<StatisticsPage />} />
+          <Route path="/statistics" element={<Navigate to="/statistics/realtime" replace />} />
+          <Route path="/statistics/realtime" element={<StatisticsPage />} />
+          <Route path="/statistics/ping" element={<StatisticsPage />} />
           <Route path="/vmix-monitor" element={<VmixMonitorPage />} />
           <Route path="/viewsync" element={<ViewSyncPage />} />
           <Route path="/speedtest" element={<SpeedtestPage />} />

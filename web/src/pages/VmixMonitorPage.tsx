@@ -84,7 +84,12 @@ function MachineMonitorCard({ item, index }: { item: BackendLogItem; index: numb
                 <MetricBadge label="CPU" value={cpuVal !== null ? `${cpuVal.toFixed(0)}` : '-'} unit="%" isHigh={cpuHigh} />
                 <MetricBadge label="RAM" value={ramVal !== null ? `${ramVal.toFixed(0)}` : '-'} unit="%" isHigh={ramHigh} />
                 <MetricBadge label="GPU" value={gpuVal !== null ? `${gpuVal.toFixed(0)}` : '-'} unit="%" isHigh={gpuHigh} />
-                <MetricBadge label="PING" value={String(item.data.ping ?? '0')} unit="ms" />
+                <MetricBadge 
+                    label="PING" 
+                    value={item.data.ping !== null && item.data.ping !== undefined ? String(item.data.ping) : '0'} 
+                    unit="ms" 
+                    isHigh={item.data.ping === null || item.data.ping === undefined}
+                />
             </div>
 
             {/* Vmix Status - with distinct colors */}
