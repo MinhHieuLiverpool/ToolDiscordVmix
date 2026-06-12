@@ -400,11 +400,13 @@ async def receive_data(data: dict):
         prev_srt_list = _normalize_payload_list(prev.get('SRT', []))
         prev_stream_list = _normalize_payload_list(prev.get('stream', []))
         prev_stream_keys_list = _normalize_payload_list(prev.get('stream_keys', []))
-        prev_srt_map = {s.get('port', ''): s for s in prev_srt_list if isinstance(s, dict)}
+        prev_srt_map = {str(s.get('port', '')).strip(): s for s in prev_srt_list if isinstance(s, dict)}
         for srt_item in srt_list:
             if not isinstance(srt_item, dict):
                 continue
-            port_val = srt_item.get('port', '')
+            port_val = str(srt_item.get('port', '')).strip()
+            if not port_val or port_val in ('-', '—', 'None', 'null'):
+                continue
             new_status = srt_item.get('status', '')
             prev_srt_entry = prev_srt_map.get(port_val, {})
             old_status = prev_srt_entry.get('status', '')

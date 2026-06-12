@@ -324,10 +324,13 @@ class ServerDataGUILogicMixin:
     def _build_discord_rows(self, d):
         """Build per-row Discord payload data using nameSRT when available."""
         if d.get("ptz", False):
+            p_val = str(d.get("port", "")).strip()
+            if not p_val or p_val in ("-", "—", "None", "null"):
+                return []
             return [
                 {
                     "name": d.get("name", ""),
-                    "port": str(d.get("port", "")),
+                    "port": p_val,
                     "status": d.get("status", ""),
                 }
             ]
@@ -343,10 +346,13 @@ class ServerDataGUILogicMixin:
 
         rows = []
         for s in srt_items:
+            p_val = str(s.get("port", "")).strip()
+            if not p_val or p_val in ("-", "—", "None", "null"):
+                continue
             rows.append(
                 {
                     "name": str(s.get("nameSRT", "")).strip() or base_name,
-                    "port": str(s.get("port", "")),
+                    "port": p_val,
                     "status": s.get("status", d.get("status", "")),
                 }
             )
@@ -355,10 +361,13 @@ class ServerDataGUILogicMixin:
             return rows
 
         srt = get_first_srt(d)
+        p_val = str(get_srt_ports_str(d) or d.get("port", "")).strip()
+        if not p_val or p_val in ("-", "—", "None", "null"):
+            return []
         return [
             {
                 "name": base_name,
-                "port": str(get_srt_ports_str(d) or d.get("port", "")),
+                "port": p_val,
                 "status": srt.get("status", d.get("status", "")),
             }
         ]

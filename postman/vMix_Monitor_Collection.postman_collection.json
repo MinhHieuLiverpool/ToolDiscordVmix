@@ -1,0 +1,449 @@
+{
+	"info": {
+		"_postman_id": "c1f10c95-3cae-4f51-a20c-c9c41d1a8e1b",
+		"name": "vMix Monitor Server APIs",
+		"description": "Collection of all API endpoints for the vMix Monitor Server backend, configured to work with the companion Environment file.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health Check",
+			"item": [
+				{
+					"name": "Root Plain Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "JSON Health Stats",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"health"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "JSON Health Stats (Alias)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/healthz",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"healthz"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Logs & Machines",
+			"item": [
+				{
+					"name": "Receive vMix Data",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"{{machineName}}\",\n  \"ip\": \"{{machineIp}}\",\n  \"ipwan\": \"1.2.3.4\",\n  \"statusapp\": 1,\n  \"ping\": 15,\n  \"ping_timeouts\": 0,\n  \"temperature\": 35.5,\n  \"memory\": 55.4,\n  \"gpu\": 12.0,\n  \"PIDVMIX\": \"12345\",\n  \"vmix_recording\": false,\n  \"vmix_streaming\": true,\n  \"vmix_external\": true,\n  \"resolution\": \"1920x1080\",\n  \"SRT\": [\n    {\n      \"port\": \"10001\",\n      \"status\": \"ON\",\n      \"nameSRT\": \"Cam 1\",\n      \"type\": \"Caller\",\n      \"hostname\": \"localhost\",\n      \"stream_id\": \"cam1-stream\",\n      \"quality\": \"Good\"\n    }\n  ],\n  \"stream\": [],\n  \"stream_keys\": [],\n  \"ffmpeg\": []\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Logs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/logs",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"logs"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Log by IP",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/get_by_ip?ip={{machineIp}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"get_by_ip"
+							],
+							"query": [
+								{
+									"key": "ip",
+									"value": "{{machineIp}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Machine Name",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"old_name\": \"{{machineName}}\",\n  \"new_name\": \"VMIX-MACHINE-NEW\",\n  \"ip\": \"{{machineIp}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/update_name",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"update_name"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Machine IP",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"{{machineName}}\",\n  \"old_ip\": \"{{machineIp}}\",\n  \"new_ip\": \"192.168.1.99\",\n  \"port\": 8088\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/update_ip",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"update_ip"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Machine Log",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"{{machineName}}\",\n  \"ip\": \"{{machineIp}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/delete",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"delete"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Selection List",
+			"item": [
+				{
+					"name": "Save Selected List",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"selected_data\": [\n    {\n      \"timestamp\": \"2026-06-12T08:00:00Z\",\n      \"data\": {\n        \"name\": \"{{machineName}}\",\n        \"ip\": \"{{machineIp}}\"\n      }\n    }\n  ]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/save_selected_list",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"save_selected_list"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Load Selected List",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/load_selected_list",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"load_selected_list"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Accounts & Auth",
+			"item": [
+				{
+					"name": "List Web Accounts",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/accounts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"accounts"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Web Account",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/create_account",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"create_account"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"login"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Web Account",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"{{username}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/delete_account",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"delete_account"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Statistics",
+			"item": [
+				{
+					"name": "Get Realtime Statistics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/statistics/{{statisticsId}}?limit=60",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"statistics",
+								"{{statisticsId}}"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "60"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Hourly Statistics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/statistic_hours",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"statistic_hours"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Hourly Statistics for Machine",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/statistic_hours/{{statisticsId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"statistic_hours",
+								"{{statisticsId}}"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Tools",
+			"item": [
+				{
+					"name": "Run Speedtest",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/speedtest",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"speedtest"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}
