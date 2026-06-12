@@ -489,7 +489,6 @@ async def _mongo_append_statistics(statistics_id: str, cpu_value, ram_value, gpu
         print(f"✗ MongoDB statistics append error ({statistics_id}): {e}")
 
 
-<<<<<<< HEAD
 async def _mongo_append_ping(statistics_id: str, ping_value, timestamp: str):
     """Append ping sample to ping_history collection and keep a bounded history."""
     try:
@@ -553,8 +552,6 @@ async def _mongo_append_ping(statistics_id: str, ping_value, timestamp: str):
         print(f"✗ MongoDB ping append error ({statistics_id}): {e}")
 
 
-=======
->>>>>>> parent of 5f48e8e (push statistic ping)
 async def _mongo_insert_statistics_ts(statistics_id: str, cpu_value, ram_value, gpu_value, timestamp: str):
     """Insert one CPU/RAM/GPU sample into MongoDB time series collection."""
     if not USE_TIMESERIES_STATS or not _timeseries_available:

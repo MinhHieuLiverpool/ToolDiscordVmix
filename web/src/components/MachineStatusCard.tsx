@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react'
 import { toNumber } from '../types'
 import {
-    normalizeFfmpegList,
     normalizeSrtList,
     normalizeStreamList,
+    normalizeStreamKeysList,
     type BackendLogItem,
-    type BackendFfmpegItem,
 } from '../services/api'
 import Dialog from './ui/Dialog'
 import { renderSrtCard, renderStreamCard } from './DialogHelpers'
@@ -21,7 +20,7 @@ export default function MachineStatusCard({
 
     const srtList = normalizeSrtList(item.data.SRT)
     const streamList = normalizeStreamList(item.data.stream)
-    const ffmpegList = normalizeFfmpegList(item.data.ffmpeg)
+    const streamKeysList = normalizeStreamKeysList(item.data.stream_keys)
 
     const appOn = Number(item.data.statusapp) === 1
     const srtOnlineCount = srtList.filter((s) => isOn(s.status)).length
@@ -53,14 +52,7 @@ export default function MachineStatusCard({
     const machineKeySeed = `${item.data.name || 'unknown'}|${item.data.ip || 'no-ip'}|${item.timestamp || 'no-ts'}|${index}`
     const [streamOpen, setStreamOpen] = useState(false)
     const [srtOpen, setSrtOpen] = useState(false)
-    const [ffmpegOpen, setFfmpegOpen] = useState(false)
-
-    const ffmpegItems = useMemo(() => {
-        return ffmpegList.map((ffmpegItem, ffmpegIndex) => ({
-            ...ffmpegItem,
-            _key: `${machineKeySeed}::ffmpeg::${ffmpegIndex}`,
-        }))
-    }, [ffmpegList, machineKeySeed])
+    const [streamKeysOpen, setStreamKeysOpen] = useState(false)
 
 
     return (
@@ -201,10 +193,10 @@ export default function MachineStatusCard({
                     <button
                         type="button"
                         className="card-footer-btn"
-                        onClick={() => setFfmpegOpen(true)}
-                        disabled={ffmpegList.length === 0}
+                        onClick={() => setStreamKeysOpen(true)}
+                        disabled={streamKeysList.length === 0}
                     >
-                        FFMPEG ({ffmpegList.length})
+                        Stream Key ({streamKeysList.length})
                     </button>
                 </div>
                 <span className="card-timestamp">{timeText}</span>
@@ -231,7 +223,10 @@ export default function MachineStatusCard({
             >
                 {streamList.length > 0 ? (
                     <div className="dialog-detail-grid">
-                        {streamList.map(renderStreamCard)}
+                        {streamList.map((stream, idx) => {
+                            const matchedKey = streamKeysList.find((sk) => sk.stream === stream.stream)
+                            return renderStreamCard(stream, idx, matchedKey)
+                        })}
                     </div>
                 ) : (
                     <div className="dialog-empty-state">Không có dữ liệu stream.</div>
@@ -239,38 +234,30 @@ export default function MachineStatusCard({
             </Dialog>
 
             <Dialog
-                open={ffmpegOpen}
-                onClose={() => setFfmpegOpen(false)}
-                title={`FFmpeg · ${item.data.name || 'Unknown'}`}
+                open={streamKeysOpen}
+                onClose={() => setStreamKeysOpen(false)}
+                title={`Stream Key · ${item.data.name || 'Unknown'}`}
             >
-                {ffmpegItems.length > 0 ? (
+                {streamKeysList.length > 0 ? (
                     <div className="dialog-detail-grid">
-                        {ffmpegItems.map((ffmpegItem, ffmpegIndex) => (
-                            <div key={ffmpegItem._key} className="dialog-detail-card">
+                        {streamKeysList.map((keyItem, keyIndex) => (
+                            <div key={`${machineKeySeed}::streamkey::${keyIndex}`} className="dialog-detail-card">
                                 <div className="dialog-detail-card-header">
-                                    <span className="dialog-detail-card-title">FFmpeg {ffmpegIndex + 1}</span>
+                                    <span className="dialog-detail-card-title">{keyItem.stream || `Stream Key ${keyIndex + 1}`}</span>
                                 </div>
                                 <div className="dialog-detail-row">
-                                    <span className="dialog-detail-key">Name</span>
-                                    <span className="dialog-detail-value">{String((ffmpegItem as BackendFfmpegItem).name ?? '-')}</span>
+                                    <span className="dialog-detail-key">URL</span>
+                                    <span className="dialog-detail-value mono" style={{ wordBreak: 'break-all' }}>{keyItem.url || '-'}</span>
                                 </div>
                                 <div className="dialog-detail-row">
-                                    <span className="dialog-detail-key">PID</span>
-                                    <span className="dialog-detail-value mono">{String((ffmpegItem as BackendFfmpegItem).pid ?? '-')}</span>
-                                </div>
-                                <div className="dialog-detail-row">
-                                    <span className="dialog-detail-key">Send</span>
-                                    <span className="dialog-detail-value">{String((ffmpegItem as BackendFfmpegItem).send ?? '-')}</span>
-                                </div>
-                                <div className="dialog-detail-row">
-                                    <span className="dialog-detail-key">Recv</span>
-                                    <span className="dialog-detail-value">{String((ffmpegItem as BackendFfmpegItem).recv ?? '-')}</span>
+                                    <span className="dialog-detail-key">Key</span>
+                                    <span className="dialog-detail-value mono" style={{ wordBreak: 'break-all' }}>{keyItem.key || '-'}</span>
                                 </div>
                             </div>
                         ))}
                     </div>
                 ) : (
-                    <div className="dialog-empty-state">Không có dữ liệu FFmpeg.</div>
+                    <div className="dialog-empty-state">Không có dữ liệu Stream Key.</div>
                 )}
             </Dialog>
 

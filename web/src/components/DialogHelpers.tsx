@@ -1,4 +1,4 @@
-import type { BackendSrtItem, BackendStreamItem } from '../services/api'
+import type { BackendSrtItem, BackendStreamItem, BackendStreamKeyItem } from '../services/api'
 
 export function toOnOff(value: unknown): string {
     const text = String(value || '').toUpperCase()
@@ -97,15 +97,22 @@ export function renderSrtCard(srt: BackendSrtItem, index: number) {
     )
 }
 
-export function renderStreamCard(stream: BackendStreamItem, index: number) {
+export function renderStreamCard(stream: BackendStreamItem, index: number, streamKey?: BackendStreamKeyItem) {
     const runtimeText = toOnOff(stream.runtime)
     const healthText = String(stream.health || '-').toUpperCase()
+    const urlText = streamKey?.url || '-'
+    const keyText = streamKey?.key || '-'
+    const hasUrl = urlText !== '-' && urlText !== '(trong)'
+    const hasKey = keyText !== '-' && keyText !== '' && keyText !== '(trong)'
+
     return (
         <div key={`stream-${index}`} className="dialog-detail-card">
             <div className="dialog-detail-card-header">
                 <span className="dialog-detail-card-title">{stream.stream || `Stream ${index + 1}`}</span>
                 <span className={`status-pill ${runtimeText === 'ON' ? 'pill-on' : 'pill-off'}`}>{runtimeText}</span>
             </div>
+            {hasUrl && renderDetailLine('URL', urlText, true)}
+            {hasKey && renderDetailLine('Stream Key', keyText, true)}
             {renderDetailLine('Health', healthText)}
             {renderDetailLine('Video Bitrate', formatBitrate(stream.vbit))}
             {renderDetailLine('Size', stream.size)}
