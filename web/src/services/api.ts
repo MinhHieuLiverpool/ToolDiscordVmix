@@ -165,11 +165,25 @@ export interface LoginResponse {
   success: boolean
   username?: string
   message?: string
+  role?: string
+  permissions?: string[]
 }
 
 export interface BackendAccountItem {
   username?: string
   password?: string
+  created_at?: string
+  email?: string
+  phone?: string
+  is_locked?: boolean
+  role?: string
+}
+
+export interface BackendRoleItem {
+  role_key: string
+  name: string
+  description: string
+  permissions: string[]
   created_at?: string
 }
 
@@ -213,6 +227,64 @@ export async function loginAccount(username: string, password: string): Promise<
 
 export async function fetchAccounts(): Promise<BackendAccountItem[]> {
   const response = await apiClient.get<BackendAccountItem[]>(API_ENDPOINTS.accounts)
+  return response.data
+}
+
+export async function createAccount(payload: {
+  username: string
+  password?: string
+  email?: string
+  phone?: string
+  role?: string
+}): Promise<{ success: boolean; username?: string; message?: string }> {
+  const response = await apiClient.post('/create_account', payload)
+  return response.data
+}
+
+export async function updateAccount(payload: {
+  username: string
+  password?: string
+  email?: string
+  phone?: string
+  is_locked?: boolean
+  role?: string
+}): Promise<{ success: boolean; username?: string; message?: string }> {
+  const response = await apiClient.post('/update_account', payload)
+  return response.data
+}
+
+export async function deleteAccount(username: string): Promise<{ success: boolean; deleted?: number; message?: string }> {
+  const response = await apiClient.post('/delete_account', { username })
+  return response.data
+}
+
+export async function fetchRoles(): Promise<BackendRoleItem[]> {
+  const response = await apiClient.get<BackendRoleItem[]>('/roles')
+  return response.data
+}
+
+export async function createRole(payload: {
+  role_key: string
+  name: string
+  description: string
+  permissions: string[]
+}): Promise<{ success: boolean; role_key?: string; message?: string }> {
+  const response = await apiClient.post('/create_role', payload)
+  return response.data
+}
+
+export async function updateRole(payload: {
+  role_key: string
+  name?: string
+  description?: string
+  permissions?: string[]
+}): Promise<{ success: boolean; role_key?: string; message?: string }> {
+  const response = await apiClient.post('/update_role', payload)
+  return response.data
+}
+
+export async function deleteRole(role_key: string): Promise<{ success: boolean; deleted?: number; message?: string }> {
+  const response = await apiClient.post('/delete_role', { role_key })
   return response.data
 }
 

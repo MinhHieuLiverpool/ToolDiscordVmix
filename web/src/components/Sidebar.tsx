@@ -1,5 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { useState } from 'react'
+import { getUserPermissions } from '../services/auth'
 
 const NAV_ITEMS = [
     {
@@ -175,6 +176,23 @@ export default function Sidebar() {
     const [collapsed, setCollapsed] = useState(false)
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ Stream: true, 'Người dùng': true })
 
+    const permissions = getUserPermissions()
+
+    const filteredNavItems = NAV_ITEMS.map((item) => {
+        if ('children' in item && item.children) {
+            const filteredChildren = item.children.filter((child) => permissions.includes(child.label))
+            if (filteredChildren.length === 0) return null
+            return {
+                ...item,
+                children: filteredChildren,
+            }
+        }
+        if (permissions.includes(item.label)) {
+            return item
+        }
+        return null
+    }).filter((item): item is typeof NAV_ITEMS[number] => item !== null)
+
     const toggleGroup = (label: string) => {
         setExpandedGroups((prev) => ({ ...prev, [label]: !prev[label] }))
     }
@@ -289,7 +307,7 @@ export default function Sidebar() {
             {/* Navigation */}
             <nav className="sidebar-nav">
                 <div className="sidebar-nav-label">{collapsed ? '—' : 'MENU'}</div>
-                {NAV_ITEMS.map((item) => renderNavItem(item))}
+                {filteredNavItems.map((item) => renderNavItem(item))}
             </nav>
 
             {/* Bottom section */}

@@ -67,10 +67,12 @@ try:
     collection = db[COLLECTION_NAME]
     selected_collection = db['selected_list']  # Collection mới cho selected list
     accounts_collection = db['web_accounts']
+    roles_collection = db['web_roles']
     statistics_collection = db['statistics']
     statistics_ts_collection = db[STATISTICS_TS_COLLECTION]
     statistics_hours_collection = db['statistic_hours']
     accounts_collection.create_index("username_key", unique=True)
+    roles_collection.create_index("role_key", unique=True)
     statistics_collection.create_index("id", unique=True)
     if USE_TIMESERIES_STATS:
         existing_collections = set(db.list_collection_names())
@@ -1282,10 +1284,22 @@ async def list_accounts():
         docs = list(
             accounts_collection.find(
                 {},
-                {"_id": 0, "username": 1, "password": 1, "created_at": 1}
+                {"_id": 0, "username": 1, "password": 1, "created_at": 1, "email": 1, "phone": 1, "is_locked": 1, "role": 1}
             ).sort("username", 1)
         )
-        return JSONResponse(content=docs)
+        # Normalize returned documents
+        processed_docs = []
+        for doc in docs:
+            processed_docs.append({
+                "username": doc.get("username", ""),
+                "password": doc.get("password", ""),
+                "created_at": doc.get("created_at", ""),
+                "email": doc.get("email", ""),
+                "phone": doc.get("phone", ""),
+                "is_locked": bool(doc.get("is_locked", False)),
+                "role": doc.get("role", "")
+            })
+        return JSONResponse(content=processed_docs)
     except Exception as e:
         print(f"✗ List accounts error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
@@ -1306,10 +1320,14 @@ async def login_account(payload: dict):
 
         doc = accounts_collection.find_one(
             {"username_key": username.lower()},
-            {"_id": 0, "username": 1, "password": 1, "password_hash": 1},
+            {"_id": 0, "username": 1, "password": 1, "password_hash": 1, "is_locked": 1, "role": 1},
         )
         if not doc:
             return JSONResponse(content={"success": False, "message": "invalid credentials"}, status_code=401)
+
+        # Check if locked
+        if doc.get("is_locked", False):
+            return JSONResponse(content={"success": False, "message": "Tài khoản đã bị khóa"}, status_code=403)
 
         provided_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
         stored_plain = str(doc.get("password", ""))
@@ -1319,7 +1337,23 @@ async def login_account(payload: dict):
         if not valid:
             return JSONResponse(content={"success": False, "message": "invalid credentials"}, status_code=401)
 
-        return JSONResponse(content={"success": True, "username": doc.get("username", username)})
+        # Retrieve permissions based on user's role
+        role_name = doc.get("role", "")
+        permissions = []
+        if role_name:
+            if role_name == "admin":
+                permissions = ["Tổng quan", "SRT", "Thông số Stream", "URL & Key", "FFmpeg", "Thống kê", "Vmix Monitor", "ViewSync", "Speedtest", "Debug Log", "Tài khoản", "Phân quyền"]
+            else:
+                role_doc = roles_collection.find_one({"role_key": role_name.lower()})
+                if role_doc:
+                    permissions = role_doc.get("permissions", [])
+
+        return JSONResponse(content={
+            "success": True, 
+            "username": doc.get("username", username),
+            "role": role_name,
+            "permissions": permissions
+        })
     except Exception as e:
         print(f"✗ Login account error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
@@ -1330,6 +1364,9 @@ async def create_account(payload: dict):
     try:
         username = str(payload.get("username", "")).strip()
         password = str(payload.get("password", "")).strip()
+        email = str(payload.get("email", "")).strip()
+        phone = str(payload.get("phone", "")).strip()
+        role = str(payload.get("role", "")).strip()
 
         if not username:
             return JSONResponse(content={"success": False, "message": "username is required"}, status_code=400)
@@ -1346,7 +1383,14 @@ async def create_account(payload: dict):
             if not existing.get("password"):
                 accounts_collection.update_one(
                     {"_id": existing["_id"]},
-                    {"$set": {"password": password, "password_hash": password_hash}}
+                    {"$set": {
+                        "password": password, 
+                        "password_hash": password_hash,
+                        "email": email,
+                        "phone": phone,
+                        "role": role,
+                        "is_locked": False
+                    }}
                 )
                 return JSONResponse(content={"success": True, "username": username, "updated": True}, status_code=200)
             return JSONResponse(content={"success": False, "message": "username already exists"}, status_code=409)
@@ -1358,6 +1402,10 @@ async def create_account(payload: dict):
                 "password": password,
                 "password_hash": password_hash,
                 "created_at": created_at,
+                "email": email,
+                "phone": phone,
+                "role": role,
+                "is_locked": False,
             })
         except Exception:
             return JSONResponse(content={"success": False, "message": "username already exists"}, status_code=409)
@@ -1365,6 +1413,57 @@ async def create_account(payload: dict):
         return JSONResponse(content={"success": True, "username": username, "created_at": created_at}, status_code=201)
     except Exception as e:
         print(f"✗ Create account error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/update_account")
+async def update_account(payload: dict):
+    """Cập nhật thông tin tài khoản web."""
+    try:
+        username = str(payload.get("username", "")).strip()
+        if not username:
+            return JSONResponse(content={"success": False, "message": "username is required"}, status_code=400)
+
+        username_key = username.lower()
+        existing = accounts_collection.find_one({"username_key": username_key})
+        if not existing:
+            return JSONResponse(content={"success": False, "message": "account not found"}, status_code=404)
+
+        # Master admin account protection checks
+        if username_key == "admin":
+            if payload.get("is_locked") is True:
+                return JSONResponse(content={"success": False, "message": "Không thể khóa tài khoản master admin"}, status_code=400)
+            if "role" in payload and str(payload.get("role")).strip() != "admin":
+                return JSONResponse(content={"success": False, "message": "Không thể thay đổi vai trò tài khoản master admin"}, status_code=400)
+
+        update_fields = {}
+        
+        # Check if password is to be updated
+        if "password" in payload:
+            password = str(payload.get("password", "")).strip()
+            if password:  # Only change if not empty
+                if len(password) < 4:
+                    return JSONResponse(content={"success": False, "message": "password must be at least 4 characters"}, status_code=400)
+                update_fields["password"] = password
+                update_fields["password_hash"] = hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+        if "email" in payload:
+            update_fields["email"] = str(payload.get("email", "")).strip()
+
+        if "phone" in payload:
+            update_fields["phone"] = str(payload.get("phone", "")).strip()
+
+        if "role" in payload:
+            update_fields["role"] = str(payload.get("role", "")).strip()
+
+        if "is_locked" in payload:
+            update_fields["is_locked"] = bool(payload.get("is_locked", False))
+
+        if update_fields:
+            accounts_collection.update_one({"username_key": username_key}, {"$set": update_fields})
+
+        return JSONResponse(content={"success": True, "username": username})
+    except Exception as e:
+        print(f"✗ Update account error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 @app.post("/delete_account")
@@ -1375,12 +1474,124 @@ async def delete_account(payload: dict):
         if not username:
             return JSONResponse(content={"success": False, "message": "username is required"}, status_code=400)
 
+        # Master admin account protection checks
+        if username.lower() == "admin":
+            return JSONResponse(content={"success": False, "message": "Không thể xóa tài khoản master admin"}, status_code=400)
+
         result = accounts_collection.delete_one({"username_key": username.lower()})
         if result.deleted_count > 0:
             return JSONResponse(content={"success": True, "deleted": 1, "username": username})
         return JSONResponse(content={"success": False, "deleted": 0, "message": "account not found"}, status_code=404)
     except Exception as e:
         print(f"✗ Delete account error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+
+@app.get("/roles")
+async def list_roles():
+    """Lấy danh sách vai trò web."""
+    try:
+        docs = list(
+            roles_collection.find(
+                {},
+                {"_id": 0, "role_key": 1, "name": 1, "description": 1, "permissions": 1, "created_at": 1}
+            ).sort("role_key", 1)
+        )
+        return JSONResponse(content=docs)
+    except Exception as e:
+        print(f"✗ List roles error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+
+@app.post("/create_role")
+async def create_role(payload: dict):
+    """Tạo vai trò web mới."""
+    try:
+        role_key = str(payload.get("role_key", "")).strip().lower()
+        name = str(payload.get("name", "")).strip()
+        description = str(payload.get("description", "")).strip()
+        permissions = payload.get("permissions", [])
+
+        if not role_key:
+            return JSONResponse(content={"success": False, "message": "role_key is required"}, status_code=400)
+        if not name:
+            return JSONResponse(content={"success": False, "message": "name is required"}, status_code=400)
+
+        existing = roles_collection.find_one({"role_key": role_key})
+        if existing:
+            return JSONResponse(content={"success": False, "message": "role_key already exists"}, status_code=409)
+
+        created_at = datetime.now(VIETNAM_TZ).isoformat()
+        roles_collection.insert_one({
+            "role_key": role_key,
+            "name": name,
+            "description": description,
+            "permissions": permissions,
+            "created_at": created_at
+        })
+        return JSONResponse(content={"success": True, "role_key": role_key, "created_at": created_at}, status_code=201)
+    except Exception as e:
+        print(f"✗ Create role error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+
+@app.post("/update_role")
+async def update_role(payload: dict):
+    """Cập nhật thông tin vai trò web."""
+    try:
+        role_key = str(payload.get("role_key", "")).strip().lower()
+        if not role_key:
+            return JSONResponse(content={"success": False, "message": "role_key is required"}, status_code=400)
+
+        existing = roles_collection.find_one({"role_key": role_key})
+        if not existing:
+            return JSONResponse(content={"success": False, "message": "role not found"}, status_code=404)
+
+        if role_key == "admin":
+            return JSONResponse(content={"success": False, "message": "Không thể chỉnh sửa vai trò default admin"}, status_code=400)
+
+        update_fields = {}
+        if "name" in payload:
+            update_fields["name"] = str(payload.get("name", "")).strip()
+        if "description" in payload:
+            update_fields["description"] = str(payload.get("description", "")).strip()
+        if "permissions" in payload:
+            update_fields["permissions"] = payload.get("permissions", [])
+
+        if update_fields:
+            roles_collection.update_one({"role_key": role_key}, {"$set": update_fields})
+
+        return JSONResponse(content={"success": True, "role_key": role_key})
+    except Exception as e:
+        print(f"✗ Update role error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+
+@app.post("/delete_role")
+async def delete_role(payload: dict):
+    """Xóa vai trò web."""
+    try:
+        role_key = str(payload.get("role_key", "")).strip().lower()
+        if not role_key:
+            return JSONResponse(content={"success": False, "message": "role_key is required"}, status_code=400)
+
+        if role_key == "admin":
+            return JSONResponse(content={"success": False, "message": "Không thể xóa vai trò default admin"}, status_code=400)
+
+        # Kiểm tra xem có tài khoản nào đang gán vai trò này không
+        account_using = accounts_collection.find_one({"role": role_key})
+        if account_using:
+            return JSONResponse(
+                content={"success": False, "message": f"Không thể xóa vai trò này vì đang có tài khoản sử dụng ({account_using.get('username')})"},
+                status_code=400
+            )
+
+        result = roles_collection.delete_one({"role_key": role_key})
+        if result.deleted_count > 0:
+            return JSONResponse(content={"success": True, "deleted": 1, "role_key": role_key})
+        return JSONResponse(content={"success": False, "deleted": 0, "message": "role not found"}, status_code=404)
+    except Exception as e:
+        print(f"✗ Delete role error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 
@@ -1806,8 +2017,48 @@ async def _daily_cleanup_task():
 
 @app.on_event("startup")
 async def startup_event():
-    """Preload cache từ MongoDB, khởi động background tasks"""
+    """Preload cache từ MongoDB, khởi động background tasks, seed admin role & account"""
     _init_redis_cache()
+    
+    # Seeding defaults
+    try:
+        # 1. Seed admin role
+        admin_role = roles_collection.find_one({"role_key": "admin"})
+        if not admin_role:
+            roles_collection.insert_one({
+                "role_key": "admin",
+                "name": "Admin",
+                "description": "Quản trị viên toàn quyền hệ thống",
+                "permissions": ["Tổng quan", "SRT", "Thông số Stream", "URL & Key", "FFmpeg", "Thống kê", "Vmix Monitor", "ViewSync", "Speedtest", "Debug Log", "Tài khoản", "Phân quyền"],
+                "created_at": datetime.now(VIETNAM_TZ).isoformat()
+            })
+            print("✓ Seeded default admin role successfully!")
+
+        # 2. Seed master admin user
+        admin_user = accounts_collection.find_one({"username_key": "admin"})
+        admin_hash = hashlib.sha256("admin123".encode("utf-8")).hexdigest()
+        if not admin_user:
+            accounts_collection.insert_one({
+                "username": "admin",
+                "username_key": "admin",
+                "password": "admin123",
+                "password_hash": admin_hash,
+                "role": "admin",
+                "created_at": datetime.now(VIETNAM_TZ).isoformat(),
+                "email": "admin@vmix.monitor",
+                "phone": "0123456789",
+                "is_locked": False
+            })
+            print("✓ Seeded master admin account successfully!")
+        else:
+            # Force role and lock state to make sure admin is always admin and unlocked
+            accounts_collection.update_one(
+                {"username_key": "admin"},
+                {"$set": {"role": "admin", "is_locked": False, "password": "admin123", "password_hash": admin_hash}}
+            )
+    except Exception as seed_err:
+        print(f"✗ Seeding roles/admin failed: {seed_err}")
+
     loop = asyncio.get_event_loop()
     try:
         docs = await loop.run_in_executor(
