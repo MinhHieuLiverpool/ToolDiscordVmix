@@ -312,3 +312,27 @@ export async function fetchStatisticHours(statisticsId: string): Promise<Statist
   )
   return response.data
 }
+
+export interface BandwidthHistoryItem {
+  timestamp: string
+  sender: number
+  receiver: number
+}
+
+export interface BandwidthDoc {
+  ipwan: string
+  date: string
+  sender_max: number
+  receiver_max: number
+  sender_min?: number
+  receiver_min?: number
+  last_updated: string
+  history: BandwidthHistoryItem[]
+}
+
+export async function fetchBandwidthStats(date?: string): Promise<BandwidthDoc[]> {
+  const response = await apiClient.get<BandwidthDoc[]>('/bandwidth', {
+    params: { date }
+  })
+  return response.data
+}

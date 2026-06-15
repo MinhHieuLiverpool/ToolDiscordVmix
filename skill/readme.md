@@ -26,11 +26,12 @@ Tài liệu này ghi lại chi tiết các thay đổi cấu trúc, vá lỗi v�
 
 ---
 
-## 3. Tinh Gọn và Cải Tiến Giao Diện Client
-* **Vấn đề**: Khung cấu hình thủ công "Add New Port" chiếm nhiều diện tích và không còn cần thiết, các thông tin Local IP và Server URL nằm rời rạc ngoài Header.
+## 3. Tinh Gọn và Cải Tiến Giao Diện Client & Dashboard
+* **Vấn đề**: Khung cấu hình thủ công "Add New Port" chiếm nhiều diện tích và không còn cần thiết, các thông tin Local IP và Server URL nằm rời rạc ngoài Header. Đồng thời, thanh chứa các nút chức năng ở đầu Dashboard bị tràn/vỡ giao diện khi thu nhỏ cửa sổ.
 * **Khắc phục**:
   * Ẩn khung **Add New Port** khỏi giao diện (vẫn giữ khai báo ngầm để tránh lỗi logic gọi phần tử).
   * Di chuyển các cấu hình **Local IP**, **WAN IP** mới tích hợp, và **Server URL** cùng nút **Apply** vào trong khung **Monitoring Controls** trên cùng 1 dòng ngang (canh lề phải), giúp giao diện Client cực kỳ tinh gọn và chuyên nghiệp.
+  * Tích hợp khung cuộn ngang `CTkScrollableFrame` cho hàng nút điều khiển trên cùng của Dashboard trong [server_gui_advanced/ui.py](file:///d:/ToolDiscordVmix/server_gui_advanced/ui.py), giúp giao diện tự động co giãn và hiển thị thanh cuộn ngang khi cửa sổ bị thu nhỏ (responsive), trong khi nhãn trạng thái kết nối vẫn được giữ cố định ở bên phải.
 
 ---
 
@@ -46,3 +47,17 @@ Tài liệu này ghi lại chi tiết các thay đổi cấu trúc, vá lỗi v�
 * **Vấn đề**: Sau khi build exe ở chế độ `--noconsole` hoặc `--windowed`, biến hệ thống `sys.stdout` trả về `None`, dẫn đến gọi hàm `sys.stdout.write` trong trình in log bị lỗi `'NoneType' object has no attribute 'write'` và crash app.
 * **Khắc phục**:
   * Thêm đoạn kiểm tra `if not sys.stdout: return` tại đầu hàm `safe_print` trong [server_gui_advanced/logic.py](file:///d:/ToolDiscordVmix/server_gui_advanced/logic.py) để bỏ qua việc ghi console khi đóng gói EXE dạng Windowed.
+
+---
+
+## 6. Sửa Lỗi Cập Nhật Trạng Thái ON/OFF Cho Thiết Bị PTZ
+* **Vấn đề**: Khi thêm camera PTZ thủ công, trạng thái của thiết bị (được biểu diễn dưới dạng trạng thái SRT trong bảng thiết bị được chọn) luôn bị kẹt ở màu đỏ `OFF` do hệ thống ép trạng thái về `OFF` khi `statusapp == 0` (thiết bị PTZ không chạy app giám sát vMix).
+* **Khắc phục**:
+  * **Phía Client/Dashboard (UI & Logic)**:
+    * Cập nhật hàm `_build_row_data` trong [server_gui_advanced/ui.py](file:///d:/ToolDiscordVmix/server_gui_advanced/ui.py): Bỏ qua ràng buộc `statusapp == 0` đối với thiết bị được đánh dấu là PTZ (`d.get("ptz", False)`). Trạng thái PTZ bây giờ sẽ hiển thị chính xác kết quả ping (`ON` hoặc `OFF`). Cột trạng thái ứng dụng (App Status) vẫn được hiển thị `OFF` như bình thường.
+    * Cập nhật hàm `_ptz_ping_loop` trong [server_gui_advanced/logic.py](file:///d:/ToolDiscordVmix/server_gui_advanced/logic.py): Tích hợp cơ chế tự động lấy `ipwan` thay thế làm địa chỉ ping nếu trường `ip` nội bộ bị bỏ trống.
+    * Đồng bộ danh sách lưu trữ: Gọi hàm `save_selected_to_database()` khi:
+      * Thêm thiết bị PTZ thủ công mới (trong `ui.py`).
+      * Xoá thiết bị khỏi danh sách được chọn (trong `logic.py`).
+      * Load danh sách từ file cấu hình JSON bên ngoài vào (trong `logic.py`).
+

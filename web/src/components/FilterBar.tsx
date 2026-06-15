@@ -8,6 +8,8 @@ export default function FilterBar({
     setActiveView,
     machineOptions,
     onRefresh,
+    dailyLabel = 'Cả ngày',
+    dailyDesc = '15 phút avg',
 }: {
     deviceFilter: DeviceFilter
     setDeviceFilter: (v: DeviceFilter) => void
@@ -15,6 +17,8 @@ export default function FilterBar({
     setActiveView: (v: TimeFilter) => void
     machineOptions: { id: string; label: string }[]
     onRefresh: () => void
+    dailyLabel?: string
+    dailyDesc?: string
 }) {
     const [dropdownOpen, setDropdownOpen] = useState(false)
     const [searchTerm, setSearchTerm] = useState('')
@@ -127,8 +131,8 @@ export default function FilterBar({
                         className={`view-nav-btn ${activeView === 'daily' ? 'view-nav-active' : ''}`}
                         onClick={() => setActiveView('daily')}
                     >
-                        <span className="view-nav-label">Cả ngày</span>
-                        <span className="view-nav-desc">15 phút avg</span>
+                        <span className="view-nav-label">{dailyLabel}</span>
+                        <span className="view-nav-desc">{dailyDesc}</span>
                     </button>
                 </div>
             </div>

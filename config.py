@@ -4,6 +4,8 @@ MONGODB_URI = "mongodb+srv://thanhhieu16082004:minhhieu16082004@cluster0.yars4po
 DATABASE_NAME = "vmix_monitor"
 COLLECTION_NAME = "logs"
 
+
+
 # Discord Webhook
 DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1448559948408684669/s6plN6AIy9IFBo6coyNCF9YmmHIfIIVe-tEntpPnArRGI0JdIyl1pCz10rL5TyTP1JV6"
 PREFIX = "SRT"

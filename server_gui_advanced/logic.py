@@ -699,6 +699,7 @@ class ServerDataGUILogicMixin:
             if rd.get("ptz", False):
                 ptz_key = f"{rd.get('name','')}:{rd.get('port','')}"
                 self._stop_ptz_ping(ptz_key)
+            self.save_selected_to_database()
             self.update_all_table()
             self.update_selected_table()
 
@@ -1183,7 +1184,9 @@ class ServerDataGUILogicMixin:
                 if ptz_entry is None:
                     break
 
-                ip = ptz_entry.get("data", {}).get("ip", "")
+                ip = ptz_entry.get("data", {}).get("ip", "").strip()
+                if not ip:
+                    ip = ptz_entry.get("data", {}).get("ipwan", "").strip()
                 if not ip:
                     time.sleep(5)
                     continue
@@ -1299,6 +1302,7 @@ class ServerDataGUILogicMixin:
                             self.selected_data.append(ptz_entry)
                             ptz_count += 1
                             self._start_ptz_ping(f"{name}:{port}")
+                    self.save_selected_to_database()
                     self.update_selected_table()
                     if ptz_count > 0:
                         print(f"✓ Loaded {ptz_count} PTZ entries from file")

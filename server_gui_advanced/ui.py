@@ -47,18 +47,26 @@ class ServerDataGUIUIMixin:
         row2 = ctk.CTkFrame(top_frame, fg_color="transparent")
         row2.pack(fill="x", pady=5)
 
-        ctk.CTkButton(row2, text="🔍 Scan máy", command=self.open_scan_dialog, fg_color="#4CAF50", hover_color="#45a049", width=110, font=("Arial", 10, "bold")).pack(side="left", padx=3)
-        self.toggle_btn = ctk.CTkButton(row2, text="AUTO SEND: OFF", command=self.toggle_auto_send, fg_color="#9E9E9E", hover_color="#757575", width=130, font=("Arial", 10, "bold"))
+        # Connection status (fixed on the right)
+        self.status_label = ctk.CTkLabel(row2, text="⚪ Disconnected", font=("Arial", 9, "bold"), text_color="#9E9E9E")
+        self.status_label.pack(side="right", padx=10)
+
+        # Scrollable container for the buttons on the left
+        btn_scroll = ctk.CTkScrollableFrame(row2, orientation="horizontal", height=40, fg_color="transparent")
+        btn_scroll.pack(side="left", fill="x", expand=True, padx=3)
+
+        ctk.CTkButton(btn_scroll, text="🔍 Scan máy", command=self.open_scan_dialog, fg_color="#4CAF50", hover_color="#45a049", width=110, font=("Arial", 10, "bold")).pack(side="left", padx=3)
+        self.toggle_btn = ctk.CTkButton(btn_scroll, text="AUTO SEND: OFF", command=self.toggle_auto_send, fg_color="#9E9E9E", hover_color="#757575", width=130, font=("Arial", 10, "bold"))
         self.toggle_btn.pack(side="left", padx=3)
-        ctk.CTkButton(row2, text="🗑️ Clear", command=self.clear_selected, fg_color="#f44336", hover_color="#d32f2f", width=90).pack(side="left", padx=3)
-        ctk.CTkButton(row2, text="💾 Save", command=self.save_selected_to_file, fg_color="#9C27B0", hover_color="#7B1FA2", width=90).pack(side="left", padx=3)
-        ctk.CTkButton(row2, text="📂 Open", command=self.load_selected_from_file, fg_color="#673AB7", hover_color="#512DA8", width=90).pack(side="left", padx=3)
-        ctk.CTkButton(row2, text="🌐 Web", command=self.open_web_dialog, fg_color="#00ACC1", hover_color="#00838F", width=90, font=("Arial", 10, "bold")).pack(side="left", padx=3)
-        ctk.CTkButton(row2, text="➕ Add PTZ", command=self.add_ptz_manual, fg_color="#FF9800", hover_color="#F57C00", width=100, font=("Arial", 10, "bold")).pack(side="left", padx=3)
-        ctk.CTkButton(row2, text="🔑 StreamKey", command=self.open_stream_keys_dialog, fg_color="#26A69A", hover_color="#1F857A", width=110, font=("Arial", 10, "bold")).pack(side="left", padx=3)
+        ctk.CTkButton(btn_scroll, text="🗑️ Clear", command=self.clear_selected, fg_color="#f44336", hover_color="#d32f2f", width=90).pack(side="left", padx=3)
+        ctk.CTkButton(btn_scroll, text="💾 Save", command=self.save_selected_to_file, fg_color="#9C27B0", hover_color="#7B1FA2", width=90).pack(side="left", padx=3)
+        ctk.CTkButton(btn_scroll, text="📂 Open", command=self.load_selected_from_file, fg_color="#673AB7", hover_color="#512DA8", width=90).pack(side="left", padx=3)
+        ctk.CTkButton(btn_scroll, text="🌐 Web", command=self.open_web_dialog, fg_color="#00ACC1", hover_color="#00838F", width=90, font=("Arial", 10, "bold")).pack(side="left", padx=3)
+        ctk.CTkButton(btn_scroll, text="➕ Add PTZ", command=self.add_ptz_manual, fg_color="#FF9800", hover_color="#F57C00", width=100, font=("Arial", 10, "bold")).pack(side="left", padx=3)
+        ctk.CTkButton(btn_scroll, text="🔑 StreamKey", command=self.open_stream_keys_dialog, fg_color="#26A69A", hover_color="#1F857A", width=110, font=("Arial", 10, "bold")).pack(side="left", padx=3)
 
         self.setting_nav_btn = ctk.CTkButton(
-            row2,
+            btn_scroll,
             text="⚙️ Setting",
             command=self.toggle_setting_page,
             fg_color="#607D8B",
@@ -69,7 +77,7 @@ class ServerDataGUIUIMixin:
         self.setting_nav_btn.pack(side="left", padx=3)
 
         self.import_log_nav_btn = ctk.CTkButton(
-            row2,
+            btn_scroll,
             text="📄 Import Log",
             command=self.toggle_import_log_page,
             fg_color="#FF5722",
@@ -79,12 +87,8 @@ class ServerDataGUIUIMixin:
         )
         self.import_log_nav_btn.pack(side="left", padx=3)
 
-        self.debug_nav_btn = ctk.CTkButton(row2, text="🐞 Debug", command=self.toggle_debug_page, fg_color="#7e57c2", hover_color="#5e35b1", width=95, font=("Arial", 10, "bold"))
+        self.debug_nav_btn = ctk.CTkButton(btn_scroll, text="🐞 Debug", command=self.toggle_debug_page, fg_color="#7e57c2", hover_color="#5e35b1", width=95, font=("Arial", 10, "bold"))
         self.debug_nav_btn.pack(side="left", padx=3)
-
-        # Connection status
-        self.status_label = ctk.CTkLabel(row2, text="⚪ Disconnected", font=("Arial", 9, "bold"), text_color="#9E9E9E")
-        self.status_label.pack(side="right", padx=10)
 
         # Main content area with draggable splitter between table and vmPing
         self.vertical_splitter = self._create_vertical_splitter()
@@ -578,7 +582,10 @@ class ServerDataGUIUIMixin:
 
         if d.get("ptz", False) or not srt_list:
             raw_status = d.get("status", "—")
-            display_status = "OFF" if statusapp == 0 else raw_status
+            if d.get("ptz", False):
+                display_status = raw_status if raw_status else "OFF"
+            else:
+                display_status = "OFF" if statusapp == 0 else raw_status
             srt_rows = [{
                 "status": display_status,
                 "port": d.get("port", "—"),
@@ -1096,6 +1103,7 @@ class ServerDataGUIUIMixin:
                     return
 
             self.selected_data.append(ptz_entry)
+            self.save_selected_to_database()
             self.update_selected_table()
             ptz_key = f"{name}:{port}"
             self._start_ptz_ping(ptz_key)

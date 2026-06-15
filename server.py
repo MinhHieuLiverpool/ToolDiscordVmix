@@ -44,6 +44,8 @@ if not COLLECTION_NAME:
 if not DISCORD_WEBHOOK:
     DISCORD_WEBHOOK = getattr(_config, 'DISCORD_WEBHOOK', '') if _config else ''
 
+
+
 # Port configuration
 PORT = int(os.getenv('PORT', 8000))
 REDIS_URL = os.getenv('REDIS_URL', '').strip()
@@ -71,9 +73,16 @@ try:
     statistics_collection = db['statistics']
     statistics_ts_collection = db[STATISTICS_TS_COLLECTION]
     statistics_hours_collection = db['statistic_hours']
+    
+    # WAN IP Bandwidth Collection
+    bandwidth_collection = db['bandwidth_statistic']
+    
     accounts_collection.create_index("username_key", unique=True)
     roles_collection.create_index("role_key", unique=True)
     statistics_collection.create_index("id", unique=True)
+    bandwidth_collection.create_index([("ipwan", 1), ("date", 1)], unique=True)
+
+
     if USE_TIMESERIES_STATS:
         existing_collections = set(db.list_collection_names())
         if STATISTICS_TS_COLLECTION not in existing_collections:
@@ -135,6 +144,11 @@ _redis_stats_max_points = int(os.getenv("STATS_MAX_POINTS", "300"))
 # ── In-memory cache ─────────────────────────────────────────────────────────────────
 # Key: machine_name, Value: document dict
 _data_cache: dict = {}
+
+# Cache for WAN IP bandwidth stats of the current day
+# Key: ipwan, Value: { "date": "DD-MM-YYYY", "sender_max": float, "receiver_max": float, "sender_min": float, "receiver_min": float }
+_ipwan_bandwidth_cache: dict = {}
+
 
 # Realtime statistics fallback cache.
 # Key: statistics_id, Value: deque of samples [{cpu, ram, time}, ...]
@@ -333,6 +347,28 @@ async def get_all_data():
     """GET endpoint - lấy tất cả dữ liệu"""
     return JSONResponse(content=_to_json_safe(get_all_logs()))
 
+@app.get("/bandwidth")
+async def get_bandwidth_stats(date: str = None):
+    """Lấy dữ liệu băng thông của các IP WAN cho một ngày (DD-MM-YYYY)"""
+    try:
+        if not date:
+            date = datetime.now(VIETNAM_TZ).strftime("%d-%m-%Y")
+        
+        loop = asyncio.get_event_loop()
+        docs = await loop.run_in_executor(
+            None,
+            lambda: list(bandwidth_collection.find({"date": date}))
+        )
+        
+        for doc in docs:
+            doc.pop("_id", None)
+            
+        return JSONResponse(content=_to_json_safe(docs))
+    except Exception as e:
+        print(f"✗ Get bandwidth stats error: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
 @app.post("/")
 async def receive_data(data: dict):
     """Nhận dữ liệu từ vMix"""
@@ -395,6 +431,50 @@ async def receive_data(data: dict):
         }
         _data_cache[machine_name] = document
 
+        # WAN IP Bandwidth peak monitoring
+        ipwan = data.get('ipwan', '')
+        if ipwan:
+            async def process_ipwan_peak():
+                try:
+                    today_str = datetime.now(VIETNAM_TZ).strftime("%d-%m-%Y")
+                    cached = await _async_get_cached_ipwan_stats(ipwan, today_str)
+                    total_sender, total_receiver = _get_ipwan_totals(ipwan)
+                    
+                    # Update min values in cache if active (> 0)
+                    if total_sender > 0.0 and (cached["sender_min"] == 0.0 or total_sender < cached["sender_min"]):
+                        cached["sender_min"] = total_sender
+                    if total_receiver > 0.0 and (cached["receiver_min"] == 0.0 or total_receiver < cached["receiver_min"]):
+                        cached["receiver_min"] = total_receiver
+
+                    # Check for peak override
+                    is_peak = False
+                    if total_sender > cached["sender_max"]:
+                        cached["sender_max"] = total_sender
+                        is_peak = True
+                    if total_receiver > cached["receiver_max"]:
+                        cached["receiver_max"] = total_receiver
+                        is_peak = True
+                        
+                    if is_peak:
+                        print(f"🔥 [PEAK DETECTED] {ipwan} - Sender: {total_sender} Mbps (Max: {cached['sender_max']}), Receiver: {total_receiver} Mbps (Max: {cached['receiver_max']})")
+                        await _mongo_upsert_ipwan_bandwidth(
+                            ipwan=ipwan,
+                            today_str=today_str,
+                            sender=total_sender,
+                            receiver=total_receiver,
+                            sender_max=cached["sender_max"],
+                            receiver_max=cached["receiver_max"],
+                            sender_min=cached["sender_min"],
+                            receiver_min=cached["receiver_min"],
+                            timestamp=timestamp,
+                            push_history=True
+                        )
+                except Exception as ex:
+                    print(f"✗ Error processing IP WAN peak for {ipwan}: {ex}")
+
+            asyncio.create_task(process_ipwan_peak())
+
+
         ip_val = data.get('ip', '')
         statistics_id = _build_statistics_id(ip_val, data.get('port', ''), machine_name)
 
@@ -448,7 +528,142 @@ async def receive_data(data: dict):
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
+async def _async_get_cached_ipwan_stats(ipwan: str, today_str: str) -> dict:
+    """Get or load/initialize the bandwidth cache entry asynchronously."""
+    cached = _ipwan_bandwidth_cache.get(ipwan)
+    if cached and cached.get("date") == today_str:
+        return cached
+
+    doc_id = f"{ipwan}_{today_str}"
+    loop = asyncio.get_event_loop()
+    try:
+        doc = await loop.run_in_executor(
+            None,
+            lambda: bandwidth_collection.find_one({"_id": doc_id})
+        )
+        if doc:
+            entry = {
+                "date": today_str,
+                "sender_max": float(doc.get("sender_max", 0.0)),
+                "receiver_max": float(doc.get("receiver_max", 0.0)),
+                "sender_min": float(doc.get("sender_min", 0.0)),
+                "receiver_min": float(doc.get("receiver_min", 0.0))
+            }
+        else:
+            entry = {
+                "date": today_str,
+                "sender_max": 0.0,
+                "receiver_max": 0.0,
+                "sender_min": 0.0,
+                "receiver_min": 0.0
+            }
+    except Exception as e:
+        print(f"✗ Error loading WAN IP stats from MongoDB: {e}")
+        entry = {
+            "date": today_str,
+            "sender_max": 0.0,
+            "receiver_max": 0.0,
+            "sender_min": 0.0,
+            "receiver_min": 0.0
+        }
+
+    _ipwan_bandwidth_cache[ipwan] = entry
+    return entry
+
+
+def _get_ipwan_totals(ipwan: str) -> tuple:
+    """Calculate total sender_mbps and receiver_mbps for all active machines sharing the same ipwan."""
+    if not ipwan:
+        return 0.0, 0.0
+
+    total_sender = 0.0
+    total_receiver = 0.0
+    now_vn = datetime.now(VIETNAM_TZ)
+    # A machine is considered active if it sent updates in the last 1 minute
+    cutoff = now_vn - timedelta(minutes=1)
+
+    for doc in _data_cache.values():
+        if not isinstance(doc, dict):
+            continue
+        if doc.get("ipwan") != ipwan:
+            continue
+        if doc.get("statusapp", 0) != 1:
+            continue
+
+        last_up_str = str(doc.get("last_updated", "") or "")
+        if not last_up_str:
+            continue
+
+        try:
+            last_up = datetime.fromisoformat(last_up_str)
+            if last_up.tzinfo is None:
+                last_up = VIETNAM_TZ.localize(last_up)
+            last_up = last_up.astimezone(VIETNAM_TZ)
+            
+            if last_up >= cutoff:
+                sender_val = doc.get("sender_mbps")
+                receiver_val = doc.get("receiver_mbps")
+                
+                try:
+                    total_sender += float(sender_val) if sender_val is not None else 0.0
+                except (ValueError, TypeError):
+                    pass
+                try:
+                    total_receiver += float(receiver_val) if receiver_val is not None else 0.0
+                except (ValueError, TypeError):
+                    pass
+        except Exception:
+            continue
+
+    return round(total_sender, 2), round(total_receiver, 2)
+
+
+async def _mongo_upsert_ipwan_bandwidth(ipwan: str, today_str: str, sender: float, receiver: float, sender_max: float, receiver_max: float, sender_min: float, receiver_min: float, timestamp: str, push_history: bool):
+    """Write/Update the IP WAN bandwidth document in MongoDB."""
+    doc_id = f"{ipwan}_{today_str}"
+    
+    update_query = {
+        "$set": {
+            "ipwan": ipwan,
+            "date": today_str,
+            "sender_max": sender_max,
+            "receiver_max": receiver_max,
+            "sender_min": sender_min,
+            "receiver_min": receiver_min,
+            "last_updated": timestamp
+        }
+    }
+    
+    if push_history:
+        update_query["$push"] = {
+            "history": {
+                "$each": [{
+                    "timestamp": timestamp,
+                    "sender": sender,
+                    "receiver": receiver
+                }],
+                "$slice": -500  # limit history list to 500 items
+            }
+        }
+        
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(
+            None,
+            lambda: bandwidth_collection.update_one(
+                {"_id": doc_id},
+                update_query,
+                upsert=True
+            )
+        )
+    except Exception as e:
+        print(f"✗ MongoDB IP WAN bandwidth upsert error ({ipwan}): {e}")
+
+
+
+
 async def _mongo_upsert(name: str, document: dict):
+
     """Ghi MongoDB bất đồng bộ – chạy trong thread pool, không block event loop"""
     loop = asyncio.get_event_loop()
     try:
@@ -1980,6 +2195,63 @@ async def check_inactive_machines():
             print(f"✗ Error in check_inactive_machines: {e}")
 
 
+async def ipwan_bandwidth_monitor_task():
+    """Background task: ghi tổng băng thông sender & receiver của các ipwan mỗi 3 phút."""
+    print("✓ Background task started: WAN IP Bandwidth monitoring every 3 minutes")
+    while True:
+        try:
+            await asyncio.sleep(180)  # Wait 3 minutes (180 seconds)
+            
+            now_vn = datetime.now(VIETNAM_TZ)
+            today_str = now_vn.strftime("%d-%m-%Y")
+            timestamp = now_vn.isoformat()
+            
+            # Find all unique ipwans currently active or present in _data_cache
+            ipwans = set()
+            for doc in _data_cache.values():
+                if isinstance(doc, dict):
+                    ipwan_val = doc.get("ipwan")
+                    if ipwan_val:
+                        ipwans.add(ipwan_val)
+            
+            for ipwan in ipwans:
+                # Get total bandwidth of all active stations under this ipwan
+                total_sender, total_receiver = _get_ipwan_totals(ipwan)
+                
+                # Fetch/initialize cached values
+                cached = await _async_get_cached_ipwan_stats(ipwan, today_str)
+                
+                # Update max values in cache
+                if total_sender > cached["sender_max"]:
+                    cached["sender_max"] = total_sender
+                if total_receiver > cached["receiver_max"]:
+                    cached["receiver_max"] = total_receiver
+                    
+                # Update min values in cache (only for non-zero active bandwidth)
+                if total_sender > 0.0 and (cached["sender_min"] == 0.0 or total_sender < cached["sender_min"]):
+                    cached["sender_min"] = total_sender
+                if total_receiver > 0.0 and (cached["receiver_min"] == 0.0 or total_receiver < cached["receiver_min"]):
+                    cached["receiver_min"] = total_receiver
+                
+                # Write/Update the record in MongoDB and append to history
+                await _mongo_upsert_ipwan_bandwidth(
+                    ipwan=ipwan,
+                    today_str=today_str,
+                    sender=total_sender,
+                    receiver=total_receiver,
+                    sender_max=cached["sender_max"],
+                    receiver_max=cached["receiver_max"],
+                    sender_min=cached["sender_min"],
+                    receiver_min=cached["receiver_min"],
+                    timestamp=timestamp,
+                    push_history=True
+                )
+                
+        except Exception as e:
+            print(f"✗ Error in ipwan_bandwidth_monitor_task: {e}")
+
+
+
 async def flush_statistics_from_cache():
     """Persist one statistics sample per machine every N seconds from in-memory cache."""
     while True:
@@ -2135,14 +2407,39 @@ async def startup_event():
         print(f"✓ Cache preloaded: {len(_data_cache)} machines from MongoDB")
     except Exception as e:
         print(f"✗ Cache preload error: {e}")
+
+    # Preload WAN IP bandwidth cache for today
+    try:
+        today_str = datetime.now(VIETNAM_TZ).strftime("%d-%m-%Y")
+        wan_docs = await loop.run_in_executor(
+            None,
+            lambda: list(bandwidth_collection.find({"date": today_str}))
+        )
+        for doc in wan_docs:
+            ipwan = doc.get("ipwan")
+            if ipwan:
+                _ipwan_bandwidth_cache[ipwan] = {
+                    "date": today_str,
+                    "sender_max": float(doc.get("sender_max", 0.0)),
+                    "receiver_max": float(doc.get("receiver_max", 0.0)),
+                    "sender_min": float(doc.get("sender_min", 0.0)),
+                    "receiver_min": float(doc.get("receiver_min", 0.0))
+                }
+        print(f"✓ WAN IP bandwidth cache preloaded: {len(_ipwan_bandwidth_cache)} IPs for date {today_str}")
+    except Exception as preload_err:
+        print(f"✗ WAN IP bandwidth cache preload error: {preload_err}")
+
     asyncio.create_task(check_inactive_machines())
     asyncio.create_task(flush_statistics_from_cache())
     asyncio.create_task(rollup_statistics_scheduler())
+    asyncio.create_task(ipwan_bandwidth_monitor_task())
     asyncio.create_task(_daily_cleanup_task()) # Chạy task dọn dẹp 3h sáng
     print("✓ Background task started: Auto-OFF inactive machines (1 min timeout)")
     print(f"✓ Background task started: Statistics cache flush every {_stats_flush_interval_sec}s")
     print(f"✓ Background task started: Tiered rollup every {_TIERED_ROLLUP_INTERVAL_SEC}s (raw→1m→5m→15m→hours)")
+    print("✓ Background task started: WAN IP Bandwidth monitoring every 3 minutes")
     print("✓ Background task started: Daily cleanup scheduled at 03:00 AM")
+
 
 def run_server():
     import uvicorn
