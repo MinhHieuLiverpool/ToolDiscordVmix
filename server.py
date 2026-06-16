@@ -369,6 +369,35 @@ async def get_bandwidth_stats(date: str = None):
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
+def _zero_out_metrics_if_offline(doc: dict):
+    """Clean all metrics to 0 or OFF when the app is offline (statusapp != 1)"""
+    if doc.get("statusapp", 0) != 1:
+        doc["ping"] = 0
+        doc["ping_timeouts"] = 0
+        doc["temperature"] = 0
+        doc["cpu"] = 0
+        doc["ram"] = 0
+        doc["memory"] = 0
+        doc["gpu"] = 0
+        doc["sender_mbps"] = 0
+        doc["receiver_mbps"] = 0
+        doc["vmixsend"] = 0
+        doc["vmixreceive"] = 0
+        doc["vmix_recording"] = False
+        doc["vmix_streaming"] = False
+        doc["vmix_external"] = False
+        doc["PIDVMIX"] = ""
+        doc["ffmpeg"] = []
+        
+        # Set all SRT streams to OFF
+        srt_list = doc.get("SRT", [])
+        if isinstance(srt_list, list):
+            for srt_item in srt_list:
+                if isinstance(srt_item, dict):
+                    srt_item["status"] = "OFF"
+    return doc
+
+
 @app.post("/")
 async def receive_data(data: dict):
     """Nhận dữ liệu từ vMix"""
@@ -429,6 +458,7 @@ async def receive_data(data: dict):
             "last_updated": timestamp,
             "timestamp":   timestamp,
         }
+        _zero_out_metrics_if_offline(document)
         _data_cache[machine_name] = document
 
         # WAN IP Bandwidth peak monitoring
@@ -2182,6 +2212,7 @@ async def check_inactive_machines():
                                     except Exception as ne:
                                         print(f"⚠ Failed to send Discord notify for offline SRT {name}: {ne}")
 
+                        _zero_out_metrics_if_offline(_data_cache[name])
                         updated_count += 1
                         print(f"⏱️  Auto-OFF: {name} - No activity for 1 minute")
                         asyncio.create_task(_mongo_upsert(name, _data_cache[name]))

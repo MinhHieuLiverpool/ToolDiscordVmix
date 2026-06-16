@@ -5,6 +5,7 @@ import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { fetchBandwidthStats } from '../services/api'
 import type { BandwidthDoc } from '../services/api'
+import { useDashboardContext } from '../hooks/useDashboardContext'
 
 // Register ECharts modules
 echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
@@ -18,9 +19,10 @@ interface IpwanBandwidthCardProps {
     doc: BandwidthDoc
     selectedDate: string
     timeFilter: '7h' | '24h'
+    realTimeBw?: { sender: number; receiver: number }
 }
 
-function IpwanBandwidthCard({ doc, selectedDate, timeFilter }: IpwanBandwidthCardProps) {
+function IpwanBandwidthCard({ doc, selectedDate, timeFilter, realTimeBw }: IpwanBandwidthCardProps) {
     const chartRef = useRef<HTMLDivElement>(null)
     const chartInstance = useRef<echarts.ECharts | null>(null)
 
@@ -30,10 +32,21 @@ function IpwanBandwidthCard({ doc, selectedDate, timeFilter }: IpwanBandwidthCar
 
     // Get all points from the database and sort by timestamp, filling gaps with 0
     const chartData = useMemo(() => {
-        const history = doc.history || []
+        let history = doc.history || []
         
         const todayStr = new Date().toLocaleDateString('en-CA') // YYYY-MM-DD
         const isToday = selectedDate === todayStr
+
+        if (isToday && realTimeBw) {
+            history = [
+                ...history,
+                {
+                    timestamp: new Date().toISOString(),
+                    sender: realTimeBw.sender,
+                    receiver: realTimeBw.receiver,
+                }
+            ]
+        }
 
         let endTime: number
         if (isToday) {
@@ -94,16 +107,31 @@ function IpwanBandwidthCard({ doc, selectedDate, timeFilter }: IpwanBandwidthCar
             minTime: startTime,
             maxTime: endTime,
         }
-    }, [doc, selectedDate, timeFilter])
+    }, [doc, selectedDate, timeFilter, realTimeBw])
 
     // Calculate stats
     const stats = useMemo(() => {
-        const history = doc.history || []
+        let history = doc.history || []
+        
+        const todayStr = new Date().toLocaleDateString('en-CA') // YYYY-MM-DD
+        const isToday = selectedDate === todayStr
+
+        if (isToday && realTimeBw) {
+            history = [
+                ...history,
+                {
+                    timestamp: new Date().toISOString(),
+                    sender: realTimeBw.sender,
+                    receiver: realTimeBw.receiver,
+                }
+            ]
+        }
+
         const senders = history.map((h) => h.sender)
         const receivers = history.map((h) => h.receiver)
 
-        const maxSend = doc.sender_max || (senders.length > 0 ? Math.max(...senders) : 0)
-        const maxRecv = doc.receiver_max || (receivers.length > 0 ? Math.max(...receivers) : 0)
+        const maxSend = Math.max(doc.sender_max || 0, ...senders)
+        const maxRecv = Math.max(doc.receiver_max || 0, ...receivers)
 
         const minSend = doc.sender_min || (senders.filter((s) => s > 0).length > 0 ? Math.min(...senders.filter((s) => s > 0)) : 0)
         const minRecv = doc.receiver_min || (receivers.filter((r) => r > 0).length > 0 ? Math.min(...receivers.filter((r) => r > 0)) : 0)
@@ -111,14 +139,14 @@ function IpwanBandwidthCard({ doc, selectedDate, timeFilter }: IpwanBandwidthCar
         const avgSend = senders.length > 0 ? senders.reduce((a, b) => a + b, 0) / senders.length : 0
         const avgRecv = receivers.length > 0 ? receivers.reduce((a, b) => a + b, 0) / receivers.length : 0
 
-        const currSend = senders.length > 0 ? senders[senders.length - 1] : 0
-        const currRecv = receivers.length > 0 ? receivers[receivers.length - 1] : 0
+        const currSend = realTimeBw ? realTimeBw.sender : (senders.length > 0 ? senders[senders.length - 1] : 0)
+        const currRecv = realTimeBw ? realTimeBw.receiver : (receivers.length > 0 ? receivers[receivers.length - 1] : 0)
 
         return {
             upload: { max: maxSend, min: minSend, avg: avgSend, curr: currSend },
             download: { max: maxRecv, min: minRecv, avg: avgRecv, curr: currRecv },
         }
-    }, [doc])
+    }, [doc, selectedDate, realTimeBw])
 
     const chartOption = useMemo(() => {
         return {
@@ -306,7 +334,12 @@ function IpwanBandwidthCard({ doc, selectedDate, timeFilter }: IpwanBandwidthCar
                     <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#6366f1' }} />
                     Mạng IP WAN: {doc.ipwan}
                 </h3>
-                <div style={{ display: 'flex', gap: '0.8rem', fontSize: '0.68rem', color: '#64748b' }}>
+                <div style={{ display: 'flex', gap: '0.8rem', fontSize: '0.68rem', color: '#64748b', alignItems: 'center' }}>
+                    {selectedDate === new Date().toLocaleDateString('en-CA') && (
+                        <span style={{ marginRight: '0.5rem' }}>
+                            Hiện tại: <strong style={{ color: '#10b981' }}>↑{stats.upload.curr.toFixed(2)} / ↓{stats.download.curr.toFixed(2)} Mbps</strong>
+                        </span>
+                    )}
                     <span>Upload Max: <strong style={{ color: '#4f46e5' }}>{stats.upload.max.toFixed(2)} Mbps</strong></span>
                     <span>Download Max: <strong style={{ color: '#d97706' }}>{stats.download.max.toFixed(2)} Mbps</strong></span>
                 </div>
@@ -350,6 +383,8 @@ function IpwanBandwidthCard({ doc, selectedDate, timeFilter }: IpwanBandwidthCar
 }
 
 export default function BandwidthChartSection({ deviceFilter, machines }: BandwidthChartSectionProps) {
+    const { wsStatus } = useDashboardContext()
+
     const [selectedDate, setSelectedDate] = useState(() => {
         const d = new Date()
         return d.toLocaleDateString('en-CA')
@@ -367,24 +402,75 @@ export default function BandwidthChartSection({ deviceFilter, machines }: Bandwi
         return ''
     }, [selectedDate])
 
-    const loadStats = async () => {
+    const loadStats = async (silent = false) => {
         if (!apiDate) return
-        setLoading(true)
+        if (!silent) {
+            setLoading(true)
+        }
         setError(null)
         try {
             const data = await fetchBandwidthStats(apiDate)
             setBandwidthData(data)
         } catch (err) {
             console.error('Error fetching bandwidth stats:', err)
-            setError('Không thể tải dữ liệu băng thông.')
+            if (!silent) {
+                setError('Không thể tải dữ liệu băng thông.')
+            }
         } finally {
-            setLoading(false)
+            if (!silent) {
+                setLoading(false)
+            }
         }
     }
 
     useEffect(() => {
-        void loadStats()
-    }, [apiDate])
+        void loadStats(false)
+
+        const todayStr = new Date().toLocaleDateString('en-CA')
+        const isToday = selectedDate === todayStr
+
+        let intervalId: number | undefined
+        if (isToday) {
+            intervalId = window.setInterval(() => {
+                void loadStats(true)
+            }, 15000)
+        }
+
+        return () => {
+            if (intervalId) {
+                window.clearInterval(intervalId)
+            }
+        }
+    }, [apiDate, selectedDate])
+
+    const realTimeBwMap = useMemo(() => {
+        const map = new Map<string, { sender: number; receiver: number }>()
+        machines.forEach((m) => {
+            const latest = m.latestItem?.data
+            if (!latest) return
+            const ipwan = latest.ipwan
+            if (!ipwan) return
+            
+            // Check statusapp: active machines are statusapp === 1
+            if (Number(latest.statusapp) !== 1) return
+            
+            const lastUpdatedStr = m.latestItem?.timestamp || latest.last_updated
+            if (!lastUpdatedStr) return
+            const lastUpdated = new Date(lastUpdatedStr).getTime()
+            const oneMinAgo = Date.now() - 60000
+            if (lastUpdated < oneMinAgo) return
+            
+            const sender = Number(latest.sender_mbps || 0)
+            const receiver = Number(latest.receiver_mbps || 0)
+            
+            const curr = map.get(ipwan) || { sender: 0, receiver: 0 }
+            map.set(ipwan, {
+                sender: curr.sender + sender,
+                receiver: curr.receiver + receiver,
+            })
+        })
+        return map
+    }, [machines])
 
     const filteredBandwidthDocs = useMemo(() => {
         if (deviceFilter === '__all__') {
@@ -395,6 +481,7 @@ export default function BandwidthChartSection({ deviceFilter, machines }: Bandwi
         if (!targetIpwan) return []
         return bandwidthData.filter((doc) => doc.ipwan === targetIpwan)
     }, [bandwidthData, deviceFilter, machines])
+
 
     return (
         <div className="bandwidth-section">
@@ -418,6 +505,24 @@ export default function BandwidthChartSection({ deviceFilter, machines }: Bandwi
                                 outline: 'none',
                             }}
                         />
+                        {selectedDate === new Date().toLocaleDateString('en-CA') && wsStatus === 'connected' && (
+                            <div
+                                className="header-ws-badge header-ws-ok"
+                                style={{
+                                    padding: '0.25rem 0.6rem',
+                                    fontSize: '0.65rem',
+                                    borderRadius: '6px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.3rem',
+                                    fontWeight: 700,
+                                    marginLeft: '0.5rem',
+                                }}
+                            >
+                                <span className="header-ws-dot ws-pulse" />
+                                REALTIME LIVE
+                            </div>
+                        )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <label style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569' }}>Khung giờ:</label>
@@ -472,6 +577,8 @@ export default function BandwidthChartSection({ deviceFilter, machines }: Bandwi
                 </button>
             </div>
 
+
+
             {loading && (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem 0', color: '#6366f1', fontWeight: 700 }}>
                     Đang tải dữ liệu băng thông...
@@ -498,6 +605,7 @@ export default function BandwidthChartSection({ deviceFilter, machines }: Bandwi
                             doc={doc}
                             selectedDate={selectedDate}
                             timeFilter={timeFilter}
+                            realTimeBw={realTimeBwMap.get(doc.ipwan)}
                         />
                     ))}
                 </div>

@@ -39,7 +39,7 @@ _USE_COLOR = sys.stdout.isatty() or os.environ.get("TERM") not in (None, "")
 _R = "\033[91m" if _USE_COLOR else ""
 _G = "\033[92m" if _USE_COLOR else ""
 _Y = "\033[93m" if _USE_COLOR else ""
-_C = "\033[96m" if _USE_COzLOR else ""
+_C = "\033[96m" if _USE_COLOR else ""
 _B = "\033[1m"  if _USE_COLOR else ""
 _X = "\033[0m"  if _USE_COLOR else ""
 
