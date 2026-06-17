@@ -834,7 +834,7 @@ class VmixMonitorLogicMixin:
 
     def is_network_offline(self) -> bool:
         with self._ping_lock:
-            return (self._ping_ms is None) or (self.ping_timeout_count > 0)
+            return (self._ping_ms is None) or (self.ping_timeout_count > 10)
 
     def measure_ping(self, host="8.8.8.8") -> float | None:
         try:
