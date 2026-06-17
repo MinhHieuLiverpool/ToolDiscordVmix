@@ -347,6 +347,23 @@ async def get_all_data():
     """GET endpoint - lấy tất cả dữ liệu"""
     return JSONResponse(content=_to_json_safe(get_all_logs()))
 
+@app.post("/api/mobile-logs")
+async def save_mobile_log(payload: dict):
+    try:
+        payload_copy = dict(payload)
+        if "timestamp" not in payload_copy:
+            payload_copy["timestamp"] = datetime.now(VIETNAM_TZ).isoformat()
+        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: db['mobile-logs'].insert_one(payload_copy)
+        )
+        return {"status": "success", "message": "Log saved successfully"}
+    except Exception as e:
+        print(f"✗ Save mobile log error: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
 @app.get("/bandwidth")
 async def get_bandwidth_stats(date: str = None):
     """Lấy dữ liệu băng thông của các IP WAN cho một ngày (DD-MM-YYYY)"""

@@ -41,19 +41,26 @@ export function useDeviceStats() {
     setIsScanning(false);
   };
 
-  const updateMetrics = async () => {
+  const updateMetrics = async (currentWanIp?: string) => {
+    let currentStats: DeviceStats | null = null;
+    let currentCpuLoad = 0;
+    let currentPing = '-';
+
     if (DeviceMonitor) {
       setIsFallbackMode(false);
       try {
         const data: DeviceStats = await DeviceMonitor.getDeviceStats();
+        currentStats = data;
         setStats(data);
 
         const cpuUsage: number = await DeviceMonitor.getCpuUsage();
-        setCpuLoad(Math.round(cpuUsage));
+        currentCpuLoad = Math.round(cpuUsage);
+        setCpuLoad(currentCpuLoad);
 
         if (data.gatewayIp) {
           const pingTimeStr: string = await DeviceMonitor.pingGateway(data.gatewayIp);
-          setPingStatus(pingTimeStr === 'Timeout' ? 'Timeout' : `${pingTimeStr} ms`);
+          currentPing = pingTimeStr === 'Timeout' ? 'Timeout' : `${pingTimeStr} ms`;
+          setPingStatus(currentPing);
           
           if (pingTimeStr !== 'Timeout') {
             const numValue = parseFloat(pingTimeStr);
@@ -89,18 +96,56 @@ export function useDeviceStats() {
         txSpeedMbps: parseFloat((0.5 + Math.random() * 4.5).toFixed(2)),
         rxSpeedMbps: parseFloat((1.0 + Math.random() * 24.0).toFixed(2)),
       };
+      currentStats = mockStats;
       setStats(mockStats);
 
-      const simulatedCpu = 12 + Math.floor(Math.random() * 25);
-      setCpuLoad(simulatedCpu);
+      currentCpuLoad = 12 + Math.floor(Math.random() * 25);
+      setCpuLoad(currentCpuLoad);
 
       const simulatedPing = 1 + Math.floor(Math.random() * 6);
-      setPingStatus(`${simulatedPing} ms`);
+      currentPing = `${simulatedPing} ms`;
+      setPingStatus(currentPing);
       
       setPingHistory(prev => {
         const updated = [...prev, simulatedPing];
         return updated.slice(-10);
       });
+    }
+
+    // Post metrics to backend
+    if (currentStats) {
+      try {
+        const payload = {
+          deviceName: getDeviceModel(),
+          wanIp: currentWanIp || wanIp,
+          pingStatus: currentPing,
+          cpuLoad: currentCpuLoad,
+          localIp: currentStats.localIp || '-',
+          macAddress: currentStats.macAddress || '-',
+          gatewayIp: currentStats.gatewayIp || '-',
+          cpuModel: currentStats.cpuModel || '-',
+          cpuCores: currentStats.cpuCores || 0,
+          ramTotal: currentStats.ramTotal || 0,
+          ramFree: currentStats.ramFree || 0,
+          ramUsed: currentStats.ramUsed || 0,
+          ramUsagePercent: currentStats.ramUsagePercent || 0,
+          txSpeedMbps: currentStats.txSpeedMbps || 0,
+          rxSpeedMbps: currentStats.rxSpeedMbps || 0,
+          timestamp: new Date().toISOString(),
+        };
+
+        fetch('http://localhost:8000/api/mobile-logs', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        }).catch(err => {
+          console.log('Error posting mobile stats (silent):', err.message);
+        });
+      } catch (postErr) {
+        console.error('Failed to construct or send mobile log post:', postErr);
+      }
     }
   };
 
@@ -110,12 +155,17 @@ export function useDeviceStats() {
     setScanTime(0);
 
     try {
-      fetch('https://api.ipify.org?format=json')
-        .then(res => res.json())
-        .then(data => setWanIp(data.ip || '-'))
-        .catch(() => setWanIp('-'));
+      let activeWanIp = '-';
+      try {
+        const res = await fetch('https://api.ipify.org?format=json');
+        const data = await res.json();
+        activeWanIp = data.ip || '-';
+        setWanIp(activeWanIp);
+      } catch (err) {
+        setWanIp('-');
+      }
 
-      await updateMetrics();
+      await updateMetrics(activeWanIp);
       setIsScanning(true);
 
       // 1s timer stopwatch
