@@ -249,9 +249,8 @@ export function useDeviceStats() {
           timestamp: new Date().toISOString(),
         };
 
-        const hostUri = Constants.expoConfig?.hostUri;
-        const hostIp = hostUri ? hostUri.split(':')[0] : '10.0.2.2';
-        const apiUrl = `http://${hostIp}:8001/api/mobile-logs`;
+        // API URL for Mobile Logs (using Render production server)
+        const apiUrl = 'https://mobile-monitor.onrender.com/api/mobile-logs';
 
         fetch(apiUrl, {
           method: 'POST',
@@ -291,9 +290,8 @@ export function useDeviceStats() {
       // Start native background loop if running as built APK (DeviceMonitor available)
       if (DeviceMonitor) {
         try {
-          const hostUri = Constants.expoConfig?.hostUri;
-          const hostIp = hostUri ? hostUri.split(':')[0] : '10.0.2.2';
-          const apiUrl = `http://${hostIp}:8001/api/mobile-logs`;
+          // API URL for Mobile Logs (using Render production server)
+          const apiUrl = 'https://mobile-monitor.onrender.com/api/mobile-logs';
           DeviceMonitor.startBackgroundLoop(apiUrl, savedServerIpRef.current || '', activeWanIp);
         } catch (err) {
           console.error('Failed to start native background loop:', err);
