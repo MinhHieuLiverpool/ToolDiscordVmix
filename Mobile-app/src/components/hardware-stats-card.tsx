@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, View, Text, Dimensions } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { DeviceStats } from '../types/monitor';
 
 const { width } = Dimensions.get('window');
@@ -19,7 +20,10 @@ export function HardwareStatsCard({ stats, cpuLoad }: HardwareStatsCardProps) {
 
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Hardware Specifications</Text>
+      <View style={styles.cardHeader}>
+        <MaterialCommunityIcons name="chip" size={20} color="#0ea5e9" />
+        <Text style={styles.cardTitle}>Hardware Specifications</Text>
+      </View>
 
       {/* CPU Section */}
       <Text style={styles.sectionHeader}>CPU Info</Text>
@@ -102,11 +106,16 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 1,
   },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
   cardTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#0ea5e9',
-    marginBottom: 12,
   },
   metricRow: {
     flexDirection: 'row',

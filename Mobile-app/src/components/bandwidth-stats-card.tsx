@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, View, Text } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { DeviceStats } from '../types/monitor';
 
 interface BandwidthStatsCardProps {
@@ -14,12 +15,16 @@ export function BandwidthStatsCard({ stats }: BandwidthStatsCardProps) {
 
   return (
     <View style={styles.card}>
-      <Text style={styles.cardTitle}>Bandwidth Telemetry</Text>
+      <View style={styles.cardHeader}>
+        <MaterialCommunityIcons name="swap-vertical" size={20} color="#0ea5e9" />
+        <Text style={styles.cardTitle}>Bandwidth Telemetry</Text>
+      </View>
       
       <View style={styles.gridContainer}>
         {/* Sender / Upload Box */}
         <View style={styles.speedBox}>
-          <Text style={styles.speedLabel}>▲ SENDER (UPLOAD)</Text>
+          <MaterialCommunityIcons name="arrow-up-bold" size={22} color="#0ea5e9" />
+          <Text style={styles.speedLabel}>SENDER (UPLOAD)</Text>
           <Text style={[styles.speedValue, { color: '#0ea5e9' }]}>
             {formatSpeed(stats?.txSpeedMbps)}
           </Text>
@@ -27,7 +32,8 @@ export function BandwidthStatsCard({ stats }: BandwidthStatsCardProps) {
 
         {/* Receiver / Download Box */}
         <View style={styles.speedBox}>
-          <Text style={styles.speedLabel}>▼ RECEIVER (DOWNLOAD)</Text>
+          <MaterialCommunityIcons name="arrow-down-bold" size={22} color="#10b981" />
+          <Text style={styles.speedLabel}>RECEIVER (DOWNLOAD)</Text>
           <Text style={[styles.speedValue, { color: '#10b981' }]}>
             {formatSpeed(stats?.rxSpeedMbps)}
           </Text>
@@ -51,11 +57,16 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 1,
   },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
   cardTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#0ea5e9',
-    marginBottom: 16,
   },
   gridContainer: {
     flexDirection: 'row',

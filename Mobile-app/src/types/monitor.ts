@@ -1,6 +1,5 @@
 export interface DeviceStats {
   localIp: string;
-  macAddress: string;
   gatewayIp: string;
   cpuModel: string;
   cpuCores: number;
@@ -10,6 +9,13 @@ export interface DeviceStats {
   ramUsagePercent: number;
   txSpeedMbps: number;
   rxSpeedMbps: number;
+}
+
+export interface BatteryInfo {
+  batteryLevel: number;
+  isCharging: boolean;
+  chargeSource: string;
+  temperature: number;
 }
 
 export interface PingDetails {

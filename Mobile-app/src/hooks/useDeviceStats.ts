@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { NativeModules } from 'react-native';
+import { NativeModules, AppState } from 'react-native';
 import * as Device from 'expo-device';
-import { DeviceStats } from '../types/monitor';
+import Constants from 'expo-constants';
+import { DeviceStats, BatteryInfo } from '../types/monitor';
 
 const { DeviceMonitor } = NativeModules;
 
@@ -9,16 +10,29 @@ export function useDeviceStats() {
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [stats, setStats] = useState<DeviceStats | null>(null);
   const [wanIp, setWanIp] = useState<string>('-');
-  const [pingStatus, setPingStatus] = useState<string>('-');
+  const [pingGateway, setPingGateway] = useState<string>('-');
+  const [ping8888, setPing8888] = useState<string>('-');
+  const [savedServerIp, setSavedServerIp] = useState<string>('');
+  const savedServerIpRef = useRef<string>('');
+  const [serverPing, setServerPing] = useState<string>('-');
   const [cpuLoad, setCpuLoad] = useState<number>(0);
-  const [pingHistory, setPingHistory] = useState<number[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [isFallbackMode, setIsFallbackMode] = useState<boolean>(false);
   const [scanTime, setScanTime] = useState<number>(0);
   const [deviceName, setDeviceName] = useState<string>('Detecting...');
+  const [batteryInfo, setBatteryInfo] = useState<BatteryInfo>({
+    batteryLevel: -1,
+    isCharging: false,
+    chargeSource: '-',
+    temperature: 0,
+  });
+  const [networkType, setNetworkType] = useState<string>('-');
+  const [fps, setFps] = useState<number>(0);
+  const [packetLoss, setPacketLoss] = useState<number>(-1);
 
   const metricsIntervalRef = useRef<any>(null);
   const timerIntervalRef = useRef<any>(null);
+  const isScanningRef = useRef<boolean>(false);
 
   const getDeviceModel = () => {
     const brand = Device.brand ? Device.brand.toUpperCase() : '';
@@ -38,13 +52,27 @@ export function useDeviceStats() {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
     }
+    if (DeviceMonitor) {
+      try {
+        DeviceMonitor.stopBackgroundLoop();
+      } catch (err) {
+        console.error('Failed to stop native background loop:', err);
+      }
+    }
+    isScanningRef.current = false;
     setIsScanning(false);
   };
 
   const updateMetrics = async (currentWanIp?: string) => {
     let currentStats: DeviceStats | null = null;
     let currentCpuLoad = 0;
-    let currentPing = '-';
+    let currentPingGateway = '-';
+    let currentPing8888 = '-';
+    let currentServerPing = '-';
+    let currentBattery: BatteryInfo = { batteryLevel: -1, isCharging: false, chargeSource: '-', temperature: 0 };
+    let currentNetworkType = '-';
+    let currentFps = 0;
+    let currentPacketLoss = -1;
 
     if (DeviceMonitor) {
       setIsFallbackMode(false);
@@ -57,21 +85,78 @@ export function useDeviceStats() {
         currentCpuLoad = Math.round(cpuUsage);
         setCpuLoad(currentCpuLoad);
 
+        // Ping gateway
         if (data.gatewayIp) {
-          const pingTimeStr: string = await DeviceMonitor.pingGateway(data.gatewayIp);
-          currentPing = pingTimeStr === 'Timeout' ? 'Timeout' : `${pingTimeStr} ms`;
-          setPingStatus(currentPing);
-          
-          if (pingTimeStr !== 'Timeout') {
-            const numValue = parseFloat(pingTimeStr);
-            if (!isNaN(numValue)) {
-              setPingHistory(prev => {
-                const updated = [...prev, numValue];
-                return updated.slice(-10);
-              });
-            }
+          try {
+            const pingTimeStr: string = await DeviceMonitor.pingGateway(data.gatewayIp);
+            currentPingGateway = pingTimeStr === 'Timeout' ? 'Timeout' : `${pingTimeStr} ms`;
+          } catch {
+            currentPingGateway = 'Error';
           }
+          setPingGateway(currentPingGateway);
         }
+
+        // Ping 8.8.8.8
+        try {
+          const ping8Result: string = await DeviceMonitor.pingGateway('8.8.8.8');
+          currentPing8888 = ping8Result === 'Timeout' ? 'Timeout' : `${ping8Result} ms`;
+        } catch {
+          currentPing8888 = 'Error';
+        }
+        setPing8888(currentPing8888);
+
+        // Ping custom server IP
+        if (savedServerIpRef.current && savedServerIpRef.current.trim().length > 0) {
+          try {
+            const serverPingResult: string = await DeviceMonitor.pingGateway(savedServerIpRef.current.trim());
+            currentServerPing = serverPingResult === 'Timeout' ? 'Timeout' : `${serverPingResult} ms`;
+          } catch {
+            currentServerPing = 'Error';
+          }
+          setServerPing(currentServerPing);
+        }
+
+        // Battery info
+        try {
+          const battery = await DeviceMonitor.getBatteryInfo();
+          currentBattery = {
+            batteryLevel: battery.batteryLevel,
+            isCharging: battery.isCharging,
+            chargeSource: battery.chargeSource,
+            temperature: battery.temperature,
+          };
+        } catch {
+          // keep defaults
+        }
+        setBatteryInfo(currentBattery);
+
+        // Network type
+        try {
+          const netType: string = await DeviceMonitor.getNetworkType();
+          currentNetworkType = netType;
+        } catch {
+          currentNetworkType = 'Unknown';
+        }
+        setNetworkType(currentNetworkType);
+
+        // FPS
+        try {
+          const fpsVal: number = await DeviceMonitor.getFps();
+          currentFps = fpsVal;
+        } catch {
+          currentFps = 0;
+        }
+        setFps(currentFps);
+
+        // Packet loss (runs in background, non-blocking via native thread)
+        try {
+          const loss: number = await DeviceMonitor.getPacketLoss('8.8.8.8');
+          currentPacketLoss = loss;
+        } catch {
+          currentPacketLoss = -1;
+        }
+        setPacketLoss(currentPacketLoss);
+
       } catch (err) {
         console.error('Error fetching native metrics:', err);
       }
@@ -85,7 +170,6 @@ export function useDeviceStats() {
 
       const mockStats: DeviceStats = {
         localIp: '192.168.1.15',
-        macAddress: '02:00:00:00:00:00 (Expo Go)',
         gatewayIp: '192.168.1.1',
         cpuModel: Device.modelName || 'Simulated Processor',
         cpuCores: Device.supportedCpuArchitectures?.length || 8,
@@ -102,26 +186,50 @@ export function useDeviceStats() {
       currentCpuLoad = 12 + Math.floor(Math.random() * 25);
       setCpuLoad(currentCpuLoad);
 
-      const simulatedPing = 1 + Math.floor(Math.random() * 6);
-      currentPing = `${simulatedPing} ms`;
-      setPingStatus(currentPing);
-      
-      setPingHistory(prev => {
-        const updated = [...prev, simulatedPing];
-        return updated.slice(-10);
-      });
+      const simulatedPingGw = 1 + Math.floor(Math.random() * 6);
+      currentPingGateway = `${simulatedPingGw} ms`;
+      setPingGateway(currentPingGateway);
+
+      const simulatedPing8 = 10 + Math.floor(Math.random() * 30);
+      currentPing8888 = `${simulatedPing8} ms`;
+      setPing8888(currentPing8888);
+
+      if (savedServerIpRef.current && savedServerIpRef.current.trim().length > 0) {
+        const simulatedServerPing = 15 + Math.floor(Math.random() * 50);
+        currentServerPing = `${simulatedServerPing} ms`;
+        setServerPing(currentServerPing);
+      }
+
+      currentBattery = {
+        batteryLevel: 60 + Math.floor(Math.random() * 30),
+        isCharging: Math.random() > 0.5,
+        chargeSource: Math.random() > 0.5 ? 'USB' : 'AC',
+        temperature: 28 + Math.random() * 10,
+      };
+      setBatteryInfo(currentBattery);
+
+      currentNetworkType = 'WiFi';
+      setNetworkType(currentNetworkType);
+
+      currentFps = 55 + Math.floor(Math.random() * 6);
+      setFps(currentFps);
+
+      currentPacketLoss = Math.random() > 0.8 ? Math.floor(Math.random() * 5) : 0;
+      setPacketLoss(currentPacketLoss);
     }
 
-    // Post metrics to backend
-    if (currentStats) {
+    // Post metrics to backend (only via JS fetch if DeviceMonitor is not present, i.e., fallback/Expo Go mode)
+    if (currentStats && !DeviceMonitor) {
       try {
         const payload = {
           deviceName: getDeviceModel(),
           wanIp: currentWanIp || wanIp,
-          pingStatus: currentPing,
+          pingGateway: currentPingGateway,
+          ping8888: currentPing8888,
+          serverIp: savedServerIpRef.current || '',
+          serverPing: currentServerPing,
           cpuLoad: currentCpuLoad,
           localIp: currentStats.localIp || '-',
-          macAddress: currentStats.macAddress || '-',
           gatewayIp: currentStats.gatewayIp || '-',
           cpuModel: currentStats.cpuModel || '-',
           cpuCores: currentStats.cpuCores || 0,
@@ -131,17 +239,28 @@ export function useDeviceStats() {
           ramUsagePercent: currentStats.ramUsagePercent || 0,
           txSpeedMbps: currentStats.txSpeedMbps || 0,
           rxSpeedMbps: currentStats.rxSpeedMbps || 0,
+          batteryLevel: currentBattery.batteryLevel,
+          isCharging: currentBattery.isCharging,
+          chargeSource: currentBattery.chargeSource,
+          temperature: currentBattery.temperature,
+          networkType: currentNetworkType,
+          fps: currentFps,
+          packetLoss: currentPacketLoss,
           timestamp: new Date().toISOString(),
         };
 
-        fetch('http://localhost:8000/api/mobile-logs', {
+        const hostUri = Constants.expoConfig?.hostUri;
+        const hostIp = hostUri ? hostUri.split(':')[0] : '10.0.2.2';
+        const apiUrl = `http://${hostIp}:8001/api/mobile-logs`;
+
+        fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(payload),
         }).catch(err => {
-          console.log('Error posting mobile stats (silent):', err.message);
+          console.log(`Error posting mobile stats (silent) to ${apiUrl}:`, err.message);
         });
       } catch (postErr) {
         console.error('Failed to construct or send mobile log post:', postErr);
@@ -166,7 +285,20 @@ export function useDeviceStats() {
       }
 
       await updateMetrics(activeWanIp);
+      isScanningRef.current = true;
       setIsScanning(true);
+
+      // Start native background loop if running as built APK (DeviceMonitor available)
+      if (DeviceMonitor) {
+        try {
+          const hostUri = Constants.expoConfig?.hostUri;
+          const hostIp = hostUri ? hostUri.split(':')[0] : '10.0.2.2';
+          const apiUrl = `http://${hostIp}:8001/api/mobile-logs`;
+          DeviceMonitor.startBackgroundLoop(apiUrl, savedServerIpRef.current || '', activeWanIp);
+        } catch (err) {
+          console.error('Failed to start native background loop:', err);
+        }
+      }
 
       // 1s timer stopwatch
       timerIntervalRef.current = setInterval(() => {
@@ -186,24 +318,46 @@ export function useDeviceStats() {
   };
 
   // Detect device model name on mount
+  // NOTE: We intentionally do NOT stop scanning on unmount so it continues in background
   useEffect(() => {
     setDeviceName(getDeviceModel());
+  }, []);
+
+  // Listen for app state changes - keep scanning in background
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      // Scanning continues regardless of app state (foreground/background)
+      // The intervals remain active on Android
+    });
     return () => {
-      stopScanning();
+      subscription.remove();
     };
   }, []);
+
+  const saveServerIp = (ip: string) => {
+    savedServerIpRef.current = ip;
+    setSavedServerIp(ip);
+    setServerPing('-');
+  };
 
   return {
     isScanning,
     stats,
     wanIp,
-    pingStatus,
+    pingGateway,
+    ping8888,
+    savedServerIp,
+    saveServerIp,
+    serverPing,
     cpuLoad,
-    pingHistory,
     loading,
     isFallbackMode,
     scanTime,
     deviceName,
+    batteryInfo,
+    networkType,
+    fps,
+    packetLoss,
     startScanning,
     stopScanning,
   };

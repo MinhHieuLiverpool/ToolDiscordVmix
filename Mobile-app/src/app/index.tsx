@@ -1,30 +1,42 @@
 import React from 'react';
-import { StyleSheet, ScrollView, SafeAreaView, View, Text } from 'react-native';
+import { StyleSheet, ScrollView, View, Text, StatusBar } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDeviceStats } from '../hooks/useDeviceStats';
 import { ScanControlCard } from '../components/scan-control-card';
 import { NetworkStatsCard } from '../components/network-stats-card';
 import { BandwidthStatsCard } from '../components/bandwidth-stats-card';
 import { GatewayPingCard } from '../components/gateway-ping-card';
 import { HardwareStatsCard } from '../components/hardware-stats-card';
+import { BatteryStatsCard } from '../components/battery-stats-card';
+import { PerformanceStatsCard } from '../components/performance-stats-card';
 
 export default function HomeScreen() {
   const {
     isScanning,
     stats,
     wanIp,
-    pingStatus,
+    pingGateway,
+    ping8888,
+    savedServerIp,
+    saveServerIp,
+    serverPing,
     cpuLoad,
-    pingHistory,
     loading,
     isFallbackMode,
     scanTime,
     deviceName,
+    batteryInfo,
+    networkType,
+    fps,
+    packetLoss,
     startScanning,
     stopScanning,
   } = useDeviceStats();
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      
       {/* Light Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>MobileMonitor</Text>
@@ -42,8 +54,8 @@ export default function HomeScreen() {
         </View>
       )}
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Modular Circular Scan Controls */}
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        {/* Scan Controls */}
         <ScanControlCard
           isScanning={isScanning}
           loading={loading}
@@ -53,23 +65,41 @@ export default function HomeScreen() {
           onStop={stopScanning}
         />
 
-        {/* Modular Network Metrics */}
+        {/* Network Specs */}
         <NetworkStatsCard
           stats={isScanning ? stats : null}
           wanIp={isScanning ? wanIp : '-'}
+          networkType={isScanning ? networkType : '-'}
         />
 
-        {/* Modular Bandwidth Telemetry */}
+        {/* Bandwidth Telemetry */}
         <BandwidthStatsCard
           stats={isScanning ? stats : null}
         />
 
-        {/* Modular Diagnostics Ping */}
+        {/* Ping Diagnostics */}
         <GatewayPingCard
-          pingStatus={isScanning ? pingStatus : '-'}
+          pingGateway={isScanning ? pingGateway : '-'}
+          ping8888={isScanning ? ping8888 : '-'}
+          savedServerIp={savedServerIp}
+          serverPing={isScanning ? serverPing : '-'}
+          onSaveServerIp={saveServerIp}
         />
 
-        {/* Modular Hardware Specifications */}
+        {/* Performance Monitor */}
+        <PerformanceStatsCard
+          fps={fps}
+          packetLoss={packetLoss}
+          isScanning={isScanning}
+        />
+
+        {/* Battery & Temperature */}
+        <BatteryStatsCard
+          batteryInfo={batteryInfo}
+          isScanning={isScanning}
+        />
+
+        {/* Hardware Specifications */}
         <HardwareStatsCard
           stats={isScanning ? stats : null}
           cpuLoad={isScanning ? cpuLoad : 0}
