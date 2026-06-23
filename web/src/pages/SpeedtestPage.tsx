@@ -28,6 +28,7 @@ export default function SpeedtestPage() {
                     className="w-full h-full border-0 absolute inset-0"
                     title="OpenSpeedTest Widget"
                     allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
+                    sandbox="allow-scripts allow-same-origin"
                 />
             </div>
         </div>
