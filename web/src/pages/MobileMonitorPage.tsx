@@ -104,9 +104,7 @@ function MobileDeviceCard({ item, index }: { item: MobileLogItem; index: number 
 
   return (
       <div
-          className={`bg-white dark:bg-slate-900/45 rounded-lg border-y-0 border-r-0 border-l-[3px] border-solid p-2 shadow-sm transition-all duration-300 hover:shadow-md relative overflow-hidden ${
-              isOnline ? 'border-l-emerald-500' : 'border-l-slate-300 dark:border-l-slate-700'
-          }`}
+          className="bg-white dark:bg-slate-900/45 rounded-none p-2 shadow-sm transition-all duration-300 hover:shadow-md relative overflow-hidden"
           style={{ animationDelay: `${index * 40}ms` }}
       >
           {/* Header */}
@@ -370,7 +368,7 @@ export default function MobileMonitorPage() {
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2">
           {Array.from({ length: 10 }).map((_, i) => (
-            <div key={`skel-${i}`} className="bg-white dark:bg-slate-900/40 border border-slate-100 dark:border-slate-800/80 rounded-xl p-3 h-80 shimmer-loading" />
+            <div key={`skel-${i}`} className="bg-white dark:bg-slate-900/40 rounded-none p-3 h-80 shimmer-loading" />
           ))}
         </div>
       </div>
