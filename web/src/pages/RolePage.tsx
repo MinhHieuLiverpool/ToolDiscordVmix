@@ -12,6 +12,7 @@ const AVAILABLE_PERMISSIONS = [
     'FFmpeg',
     'Thống kê',
     'Vmix Monitor',
+    'Mobile Monitor',
     'ViewSync',
     'Speedtest',
     'Debug Log',

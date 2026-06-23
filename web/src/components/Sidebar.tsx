@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { useState } from 'react'
-import { getUserPermissions } from '../services/auth'
+import { getUserPermissions, getUserRole } from '../services/auth'
 
 const NAV_ITEMS = [
     {
@@ -77,6 +77,16 @@ const NAV_ITEMS = [
                 <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
                 <line x1="8" y1="21" x2="16" y2="21" />
                 <line x1="12" y1="17" x2="12" y2="21" />
+            </svg>
+        ),
+    },
+    {
+        to: '/mobile-monitor',
+        label: 'Mobile Monitor',
+        icon: (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+                <line x1="12" y1="18" x2="12.01" y2="18" />
             </svg>
         ),
     },
@@ -161,17 +171,19 @@ export default function Sidebar() {
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ Stream: true, 'Người dùng': true })
 
     const permissions = getUserPermissions()
+    const userRole = getUserRole().toLowerCase()
+    const isAdmin = userRole === 'admin'
 
     const filteredNavItems = NAV_ITEMS.map((item) => {
         if ('children' in item && item.children) {
-            const filteredChildren = item.children.filter((child) => permissions.includes(child.label))
+            const filteredChildren = item.children.filter((child) => permissions.includes(child.label) || isAdmin)
             if (filteredChildren.length === 0) return null
             return {
                 ...item,
                 children: filteredChildren,
             }
         }
-        if (permissions.includes(item.label)) {
+        if (permissions.includes(item.label) || isAdmin) {
             return item
         }
         return null

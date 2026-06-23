@@ -75,8 +75,8 @@ async def save_mobile_log(payload: dict):
                 device_id = payload_copy.get("wanIp") or "unknown"
             
         payload_copy["_id"] = device_id
-        if "timestamp" not in payload_copy:
-            payload_copy["timestamp"] = datetime.now(VIETNAM_TZ).isoformat()
+        # Luôn sử dụng thời gian nhận của server (UTC) để tránh lệch múi giờ / lệch kim đồng hồ trên thiết bị di động
+        payload_copy["timestamp"] = datetime.now(pytz.utc).isoformat()
         
         # Ghi đè thay đổi giá trị của thiết bị nếu đã tồn tại, ngược lại tạo mới
         collection.replace_one({"_id": device_id}, payload_copy, upsert=True)
