@@ -67,6 +67,12 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
     return model;
   };
 
+  const getSimulatedDeviceId = () => {
+    const brand = (Device.brand || 'expo').toLowerCase();
+    const model = (Device.modelName || 'simulator').toLowerCase().replace(/\s+/g, '_');
+    return `sim_device_${brand}_${model}`;
+  };
+
   const stopScanning = () => {
     if (metricsIntervalRef.current) {
       clearInterval(metricsIntervalRef.current);
@@ -193,6 +199,7 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
       const freeRam = totalRam - usedRam;
 
       const mockStats: DeviceStats = {
+        deviceId: getSimulatedDeviceId(),
         localIp: '192.168.1.15',
         gatewayIp: '192.168.1.1',
         cpuModel: Device.modelName || 'Simulated Processor',
@@ -246,6 +253,7 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
     if (currentStats && !DeviceMonitor) {
       try {
         const payload = {
+          deviceId: currentStats.deviceId || getSimulatedDeviceId(),
           deviceName: getDeviceModel(),
           wanIp: currentWanIp || wanIp,
           pingGateway: currentPingGateway,

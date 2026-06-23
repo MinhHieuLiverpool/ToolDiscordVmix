@@ -67,18 +67,20 @@ async def save_mobile_log(payload: dict):
     try:
         payload_copy = dict(payload)
         
-        # Đặt id là IP máy (localIp), fallback sang wanIp hoặc unknown
-        device_ip = payload_copy.get("localIp")
-        if not device_ip or device_ip == "-":
-            device_ip = payload_copy.get("wanIp") or "unknown"
+        # Đặt id là deviceId, fallback sang IP máy (localIp), wanIp hoặc unknown
+        device_id = payload_copy.get("deviceId")
+        if not device_id or device_id == "-":
+            device_id = payload_copy.get("localIp")
+            if not device_id or device_id == "-":
+                device_id = payload_copy.get("wanIp") or "unknown"
             
-        payload_copy["_id"] = device_ip
+        payload_copy["_id"] = device_id
         if "timestamp" not in payload_copy:
             payload_copy["timestamp"] = datetime.now(VIETNAM_TZ).isoformat()
         
-        # Ghi đè thay đổi giá trị của IP máy nếu đã tồn tại, ngược lại tạo mới
-        collection.replace_one({"_id": device_ip}, payload_copy, upsert=True)
-        return {"status": "success", "message": f"Log for {device_ip} saved/updated successfully"}
+        # Ghi đè thay đổi giá trị của thiết bị nếu đã tồn tại, ngược lại tạo mới
+        collection.replace_one({"_id": device_id}, payload_copy, upsert=True)
+        return {"status": "success", "message": f"Log for {device_id} saved/updated successfully"}
     except Exception as e:
         print(f"✗ Save mobile log error: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})

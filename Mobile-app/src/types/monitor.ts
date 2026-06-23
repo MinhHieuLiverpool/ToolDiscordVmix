@@ -1,4 +1,5 @@
 export interface DeviceStats {
+  deviceId?: string;
   localIp: string;
   gatewayIp: string;
   cpuModel: string;
