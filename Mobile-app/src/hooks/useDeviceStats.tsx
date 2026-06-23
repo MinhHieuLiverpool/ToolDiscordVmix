@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { NativeModules, AppState } from 'react-native';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
@@ -6,7 +6,31 @@ import { DeviceStats, BatteryInfo } from '../types/monitor';
 
 const { DeviceMonitor } = NativeModules;
 
-export function useDeviceStats() {
+interface DeviceStatsContextType {
+  isScanning: boolean;
+  stats: DeviceStats | null;
+  wanIp: string;
+  pingGateway: string;
+  ping8888: string;
+  savedServerIp: string;
+  saveServerIp: (ip: string) => void;
+  serverPing: string;
+  cpuLoad: number;
+  loading: boolean;
+  isFallbackMode: boolean;
+  scanTime: number;
+  deviceName: string;
+  batteryInfo: BatteryInfo;
+  networkType: string;
+  fps: number;
+  packetLoss: number;
+  startScanning: () => Promise<void>;
+  stopScanning: () => void;
+}
+
+const DeviceStatsContext = createContext<DeviceStatsContextType | undefined>(undefined);
+
+export function DeviceStatsProvider({ children }: { children: React.ReactNode }) {
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [stats, setStats] = useState<DeviceStats | null>(null);
   const [wanIp, setWanIp] = useState<string>('-');
@@ -316,7 +340,6 @@ export function useDeviceStats() {
   };
 
   // Detect device model name on mount
-  // NOTE: We intentionally do NOT stop scanning on unmount so it continues in background
   useEffect(() => {
     setDeviceName(getDeviceModel());
   }, []);
@@ -338,25 +361,37 @@ export function useDeviceStats() {
     setServerPing('-');
   };
 
-  return {
-    isScanning,
-    stats,
-    wanIp,
-    pingGateway,
-    ping8888,
-    savedServerIp,
-    saveServerIp,
-    serverPing,
-    cpuLoad,
-    loading,
-    isFallbackMode,
-    scanTime,
-    deviceName,
-    batteryInfo,
-    networkType,
-    fps,
-    packetLoss,
-    startScanning,
-    stopScanning,
-  };
+  return (
+    <DeviceStatsContext.Provider value={{
+      isScanning,
+      stats,
+      wanIp,
+      pingGateway,
+      ping8888,
+      savedServerIp,
+      saveServerIp,
+      serverPing,
+      cpuLoad,
+      loading,
+      isFallbackMode,
+      scanTime,
+      deviceName,
+      batteryInfo,
+      networkType,
+      fps,
+      packetLoss,
+      startScanning,
+      stopScanning,
+    }}>
+      {children}
+    </DeviceStatsContext.Provider>
+  );
+}
+
+export function useDeviceStats() {
+  const context = useContext(DeviceStatsContext);
+  if (context === undefined) {
+    throw new Error('useDeviceStats must be used within a DeviceStatsProvider');
+  }
+  return context;
 }
