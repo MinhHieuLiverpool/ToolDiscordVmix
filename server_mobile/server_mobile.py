@@ -78,11 +78,36 @@ async def save_mobile_log(payload: dict):
         # Luôn sử dụng thời gian nhận của server (UTC) để tránh lệch múi giờ / lệch kim đồng hồ trên thiết bị di động
         payload_copy["timestamp"] = datetime.now(pytz.utc).isoformat()
         
+        # Giữ nguyên name_device đã lưu trước đó nếu có, nếu không thì để trống
+        existing = collection.find_one({"_id": device_id}, {"name_device": 1})
+        if existing and "name_device" in existing:
+            payload_copy["name_device"] = existing["name_device"]
+        else:
+            payload_copy["name_device"] = ""
+        
         # Ghi đè thay đổi giá trị của thiết bị nếu đã tồn tại, ngược lại tạo mới
         collection.replace_one({"_id": device_id}, payload_copy, upsert=True)
         return {"status": "success", "message": f"Log for {device_id} saved/updated successfully"}
     except Exception as e:
         print(f"✗ Save mobile log error: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.patch("/api/mobile-logs/{device_id}")
+async def update_device_name(device_id: str, payload: dict):
+    try:
+        name_device = payload.get("name_device")
+        if name_device is None:
+            return JSONResponse(status_code=400, content={"status": "error", "message": "Missing 'name_device' in payload"})
+        
+        result = collection.update_one(
+            {"_id": device_id},
+            {"$set": {"name_device": name_device}}
+        )
+        if result.matched_count == 0:
+            return JSONResponse(status_code=404, content={"status": "error", "message": "Device not found"})
+        return {"status": "success", "message": "Device name updated successfully"}
+    except Exception as e:
+        print(f"✗ Update device name error: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 @app.get("/api/mobile-logs")
