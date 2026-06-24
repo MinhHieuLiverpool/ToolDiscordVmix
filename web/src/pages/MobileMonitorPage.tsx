@@ -6,6 +6,7 @@ import { showToast } from '../components/ui/Toast'
 export interface MobileLogItem {
   deviceId: string
   deviceName: string
+  name_device?: string
   wanIp: string
   pingGateway: string
   ping8888: string
@@ -78,7 +79,31 @@ function PingRowCompact({ label, value }: { label: string; value: string }) {
   )
 }
 
-function MobileDeviceCard({ item, index }: { item: MobileLogItem; index: number }) {
+function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem; index: number; onNameUpdated?: () => void }) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editValue, setEditValue] = useState(item.name_device || '')
+
+  useEffect(() => {
+    if (!isEditing) {
+      setEditValue(item.name_device || '')
+    }
+  }, [item.name_device, isEditing])
+
+  const handleSave = async () => {
+    try {
+      // Gọi API PATCH để cập nhật name_device
+      await axios.patch(`https://mobile-monitor.onrender.com/api/mobile-logs/${item.deviceId}`, {
+        name_device: editValue
+      })
+      showToast('Đã cập nhật tên thiết bị!', 'success')
+      setIsEditing(false)
+      if (onNameUpdated) onNameUpdated()
+    } catch (err: any) {
+      console.error(err)
+      showToast('Lỗi cập nhật tên thiết bị!', 'error')
+    }
+  }
+
   // Check if device is online: last packet received within 20 seconds
   const isOnline = useMemo(() => {
     try {
@@ -110,19 +135,63 @@ function MobileDeviceCard({ item, index }: { item: MobileLogItem; index: number 
           {/* Header */}
           <div className="flex justify-between items-start mb-1.5">
               <div className="flex-1 min-w-0 pr-0.5">
-                  <h3 className="text-[10px] font-black text-slate-800 dark:text-slate-100 truncate flex items-center gap-0.5" title={item.deviceName || 'Ẩn danh'}>
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-                      {item.deviceName || 'Ẩn danh'}
-                  </h3>
-                  <div className="flex items-center gap-0.5 mt-0.5">
-                      <span
-                          onClick={() => item.deviceId && copyToClipboard(item.deviceId)}
-                          className="text-[7.5px] font-mono text-slate-400 hover:text-sky-500 cursor-pointer transition-colors truncate max-w-[65px]"
-                          title="Click để copy Device ID"
-                      >
-                          ID: {item.deviceId || '-'}
-                      </span>
-                  </div>
+                  {isEditing ? (
+                      <div className="flex items-center gap-1 w-full mb-1">
+                          <input
+                              type="text"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              className="text-[9px] px-1 py-0.5 border rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 focus:outline-none focus:border-indigo-500 w-full font-black uppercase"
+                              placeholder="TÊN THIẾT BỊ..."
+                              autoFocus
+                              onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleSave()
+                                  if (e.key === 'Escape') setIsEditing(false)
+                              }}
+                          />
+                          <button onClick={handleSave} className="text-emerald-500 hover:text-emerald-600 shrink-0" title="Lưu">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3.5">
+                                  <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                          </button>
+                          <button onClick={() => setIsEditing(false)} className="text-rose-500 hover:text-rose-600 shrink-0" title="Hủy">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3.5">
+                                  <line x1="18" y1="6" x2="6" y2="18" />
+                                  <line x1="6" y1="6" x2="18" y2="18" />
+                              </svg>
+                          </button>
+                      </div>
+                  ) : (
+                      <>
+                          {/* Tên custom màu đỏ in hoa in đậm ở dòng trên */}
+                          {item.name_device && (
+                              <div className="text-[9px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider mb-0.5 break-all">
+                                  {item.name_device}
+                              </div>
+                          )}
+                          <h3 className="text-[10px] font-black text-slate-800 dark:text-slate-100 flex items-center gap-1 flex-wrap" title={item.deviceName || 'Ẩn danh'}>
+                              <span className="break-all">{item.deviceName || 'Ẩn danh'}</span>
+                              <button
+                                  onClick={() => setIsEditing(true)}
+                                  className="text-slate-400 hover:text-indigo-500 transition-colors ml-0.5 shrink-0"
+                                  title="Đặt/Sửa tên thiết bị"
+                              >
+                                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                  </svg>
+                              </button>
+                          </h3>
+                          <div className="flex items-center gap-0.5 mt-0.5">
+                              <span
+                                  onClick={() => item.deviceId && copyToClipboard(item.deviceId)}
+                                  className="text-[7.5px] font-mono text-slate-400 hover:text-sky-500 cursor-pointer transition-colors break-all"
+                                  title="Click để copy Device ID"
+                              >
+                                  ID: {item.deviceId || '-'}
+                              </span>
+                          </div>
+                      </>
+                  )}
               </div>
               <div className="flex flex-col items-end gap-0.5 shrink-0">
                   <span className={`inline-flex items-center px-0.5 py-0.2 rounded text-[7px] font-bold border leading-none ${
@@ -274,6 +343,8 @@ export default function MobileMonitorPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [networkFilter, setNetworkFilter] = useState('all')
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
 
   const fetchMobileLogs = async () => {
     try {
@@ -314,18 +385,37 @@ export default function MobileMonitorPage() {
     return () => clearInterval(interval)
   }, [])
 
-  // Filter logs based on search term
+  // Filter logs based on search term and network type
   const filteredLogs = useMemo(() => {
-    if (!searchTerm.trim()) return logs
+    let result = logs
+
+    // Filter by network type
+    if (networkFilter !== 'all') {
+      result = result.filter((item) => {
+        const netType = (item.networkType || '').toLowerCase()
+        if (networkFilter === 'lan') {
+          return netType.includes('lan') || netType.includes('ethernet')
+        }
+        if (networkFilter === 'wifi') {
+          return netType.includes('wifi') || netType.includes('wi-fi')
+        }
+        if (networkFilter === 'mobile') {
+          return netType.includes('mobile') || netType.includes('cellular') || netType.includes('4g') || netType.includes('5g') || netType.includes('3g') || netType.includes('lte')
+        }
+        return true
+      })
+    }
+
+    if (!searchTerm.trim()) return result
     const term = searchTerm.toLowerCase()
-    return logs.filter(
+    return result.filter(
       (item) =>
         (item.deviceName || '').toLowerCase().includes(term) ||
         (item.deviceId || '').toLowerCase().includes(term) ||
         (item.localIp || '').toLowerCase().includes(term) ||
         (item.networkType || '').toLowerCase().includes(term)
     )
-  }, [logs, searchTerm])
+  }, [logs, searchTerm, networkFilter])
 
   // KPI calculations
   const kpis = useMemo(() => {
@@ -366,7 +456,7 @@ export default function MobileMonitorPage() {
           <h2 className="page-title text-2xl font-black text-slate-800 dark:text-slate-100">Mobile Monitor</h2>
           <p className="page-description text-slate-500 text-sm">Đang tải cấu hình thiết bị chạy ngầm...</p>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
           {Array.from({ length: 10 }).map((_, i) => (
             <div key={`skel-${i}`} className="bg-white dark:bg-slate-900/40 rounded-none p-3 h-80 shimmer-loading" />
           ))}
@@ -377,84 +467,9 @@ export default function MobileMonitorPage() {
 
   return (
     <div className="p-6">
-      {/* Header */}
-      <div className="page-header mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h2 className="page-title text-2xl font-black text-slate-800 dark:text-slate-100">Mobile Monitor</h2>
-          <p className="page-description text-slate-500 text-sm">Theo dõi, kiểm tra hiệu năng phần cứng và trạng thái kết nối mạng của các thiết bị di động.</p>
-        </div>
-        <button
-          onClick={() => {
-            setLoading(true)
-            void fetchMobileLogs()
-          }}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors self-start md:self-auto"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-          </svg>
-          Làm mới
-        </button>
-      </div>
-
-      {/* KPI Section */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white dark:bg-slate-900/45 rounded-2xl border border-slate-100 dark:border-slate-800/80 p-4 shadow-sm flex items-center gap-3">
-          <div className="p-3 bg-sky-50 dark:bg-sky-950/20 text-sky-500 rounded-xl">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
-              <line x1="12" y1="18" x2="12.01" y2="18" />
-            </svg>
-          </div>
-          <div>
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tổng số thiết bị</div>
-            <div className="text-xl font-black text-slate-800 dark:text-slate-100">{kpis.total} máy</div>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900/45 rounded-2xl border border-slate-100 dark:border-slate-800/80 p-4 shadow-sm flex items-center gap-3">
-          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-500 rounded-xl">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-              <polyline points="22 4 12 14.01 9 11.01" />
-            </svg>
-          </div>
-          <div>
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Đang hoạt động</div>
-            <div className="text-xl font-black text-emerald-500">{kpis.online} online</div>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900/45 rounded-2xl border border-slate-100 dark:border-slate-800/80 p-4 shadow-sm flex items-center gap-3">
-          <div className="p-3 bg-rose-50 dark:bg-rose-950/20 text-rose-500 rounded-xl">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="8" x2="12" y2="12" />
-              <line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-          </div>
-          <div>
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Mất kết nối</div>
-            <div className="text-xl font-black text-rose-500">{kpis.offline} máy</div>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-slate-900/45 rounded-2xl border border-slate-100 dark:border-slate-800/80 p-4 shadow-sm flex items-center gap-3">
-          <div className="p-3 bg-amber-50 dark:bg-amber-950/20 text-amber-500 rounded-xl">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-            </svg>
-          </div>
-          <div>
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nhiệt độ Pin TB</div>
-            <div className="text-xl font-black text-slate-800 dark:text-slate-100">{kpis.avgTemp}°C</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Toolbar Search */}
-      <div className="mb-6">
-        <div className="relative max-w-md">
+      {/* Toolbar Search & Filters */}
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <div className="relative max-w-md flex-1 min-w-[240px]">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
               <circle cx="11" cy="11" r="8" />
@@ -469,6 +484,79 @@ export default function MobileMonitorPage() {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
+
+        {/* Lọc theo Network */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+            className="flex items-center justify-between pl-3 pr-8 py-2.5 bg-white dark:bg-slate-900/45 border border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700/60 focus:border-indigo-500 dark:focus:border-indigo-500/70 focus:outline-none rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-100 transition-all shadow-sm cursor-pointer min-w-[130px]"
+          >
+            <span>
+              {networkFilter === 'all' && 'Tất cả mạng'}
+              {networkFilter === 'lan' && 'LAN'}
+              {networkFilter === 'wifi' && 'Wifi'}
+              {networkFilter === 'mobile' && 'Mạng di động'}
+            </span>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
+              <svg className={`h-3.5 w-3.5 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+              </svg>
+            </div>
+          </button>
+
+          {isDropdownOpen && (
+            <>
+              {/* Overlay để bấm ra ngoài thì đóng */}
+              <div 
+                className="fixed inset-0 z-10" 
+                onClick={() => setIsDropdownOpen(false)}
+              />
+              <div className="absolute right-0 mt-1.5 w-full min-w-[140px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg py-1.5 z-20 animate-in fade-in slide-in-from-top-1 duration-150">
+                {[
+                  { value: 'all', label: 'Tất cả mạng' },
+                  { value: 'lan', label: 'LAN' },
+                  { value: 'wifi', label: 'Wifi' },
+                  { value: 'mobile', label: 'Mạng di động' }
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      setNetworkFilter(opt.value)
+                      setIsDropdownOpen(false)
+                    }}
+                    className={`w-full text-left px-3 py-2 text-xs font-medium hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center justify-between ${
+                      networkFilter === opt.value 
+                        ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20 font-semibold' 
+                        : 'text-slate-700 dark:text-slate-200'
+                    }`}
+                  >
+                    <span>{opt.label}</span>
+                    {networkFilter === opt.value && (
+                      <svg className="h-3 w-3 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <button
+          onClick={() => {
+            setLoading(true)
+            void fetchMobileLogs()
+          }}
+          className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+          </svg>
+          Làm mới
+        </button>
       </div>
 
       {/* Main Grid */}
@@ -481,12 +569,13 @@ export default function MobileMonitorPage() {
           Không tìm thấy thiết bị di động nào phù hợp.
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
           {filteredLogs.map((item, index) => (
             <MobileDeviceCard
               key={item.deviceId || index}
               item={item}
               index={index}
+              onNameUpdated={fetchMobileLogs}
             />
           ))}
         </div>
