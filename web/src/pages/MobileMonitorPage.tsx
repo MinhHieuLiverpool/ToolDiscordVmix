@@ -417,37 +417,6 @@ export default function MobileMonitorPage() {
     )
   }, [logs, searchTerm, networkFilter])
 
-  // KPI calculations
-  const kpis = useMemo(() => {
-    const total = logs.length
-    let onlineCount = 0
-    let totalTemp = 0
-    let tempCount = 0
-    let totalSpeed = 0
-
-    const now = new Date().getTime()
-    logs.forEach((item) => {
-      try {
-        const logTime = new Date(item.timestamp).getTime()
-        const isOnline = (now - logTime) < 20000
-        if (isOnline) onlineCount++
-      } catch {}
-
-      if (item.temperature > 0) {
-        totalTemp += item.temperature
-        tempCount++
-      }
-      totalSpeed += (item.txSpeedMbps + item.rxSpeedMbps)
-    })
-
-    return {
-      total,
-      online: onlineCount,
-      offline: total - onlineCount,
-      avgTemp: tempCount > 0 ? (totalTemp / tempCount).toFixed(1) : '-',
-      totalBandwidth: totalSpeed.toFixed(1)
-    }
-  }, [logs])
 
   if (loading && logs.length === 0) {
     return (
