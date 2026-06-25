@@ -4,6 +4,7 @@ import {
     normalizeSrtList,
     normalizeStreamList,
     normalizeStreamKeysList,
+    updateNameEdit,
     type BackendLogItem,
 } from '../services/api'
 import Dialog from './ui/Dialog'
@@ -51,7 +52,40 @@ export default function MachineStatusCard({
     const fmtMbps = (value: number | null) => (value !== null ? `${value.toFixed(2)}` : '-')
     const [streamOpen, setStreamOpen] = useState(false)
     const [srtOpen, setSrtOpen] = useState(false)
+    const [isEditing, setIsEditing] = useState(false)
+    const [editedName, setEditedName] = useState(item.data.name_edit || '')
+    const [isSaving, setIsSaving] = useState(false)
 
+    const handleStartEdit = () => {
+        setEditedName(item.data.name_edit || '')
+        setIsEditing(true)
+    }
+
+    const handleCancelEdit = () => {
+        setIsEditing(false)
+    }
+
+    const handleSaveEdit = async () => {
+        const trimmed = editedName.trim()
+        if (trimmed === (item.data.name_edit || '')) {
+            setIsEditing(false)
+            return
+        }
+        setIsSaving(true)
+        try {
+            const res = await updateNameEdit(item.data.name, trimmed)
+            if (res.success) {
+                setIsEditing(false)
+            } else {
+                alert(res.message || 'Lỗi khi cập nhật tên')
+            }
+        } catch (err: any) {
+            console.error('Update name_edit error:', err)
+            alert('Lỗi kết nối đến server: ' + (err.message || err))
+        } finally {
+            setIsSaving(false)
+        }
+    }
 
     return (
         <div
@@ -59,9 +93,74 @@ export default function MachineStatusCard({
             style={{ animationDelay: `${index * 40}ms` }}
         >
             {/* Header */}
-            <div className="card-header">
-                <h3 className="card-name">{item.data.name || 'Unknown'}</h3>
-                <span className={`status-badge ${srtOnline ? 'badge-online' : 'badge-offline'}`}>
+            <div className="card-header flex justify-between items-center w-full gap-2">
+                {isEditing ? (
+                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <input
+                            type="text"
+                            value={editedName}
+                            onChange={(e) => setEditedName(e.target.value)}
+                            disabled={isSaving}
+                            className="bg-black/40 text-rose-600 dark:text-rose-400 border border-white/20 rounded px-2 py-0.5 text-xs font-bold uppercase w-full focus:outline-none focus:border-purple-500 transition-colors"
+                            placeholder="TÊN HIỂN THỊ..."
+                            autoFocus
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveEdit()
+                                if (e.key === 'Escape') handleCancelEdit()
+                            }}
+                        />
+                        <button
+                            onClick={handleSaveEdit}
+                            disabled={isSaving}
+                            className="text-emerald-400 hover:text-emerald-300 p-1 disabled:opacity-50 transition-colors"
+                            title="Lưu"
+                        >
+                            {isSaving ? (
+                                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                </svg>
+                            ) : (
+                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                            )}
+                        </button>
+                        <button
+                            onClick={handleCancelEdit}
+                            disabled={isSaving}
+                            className="text-rose-400 hover:text-rose-300 p-1 disabled:opacity-50 transition-colors"
+                            title="Hủy"
+                        >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                ) : (
+                    <div className="flex flex-col min-w-0 flex-1 group">
+                        {item.data.name_edit && (
+                            <div className="text-[11px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider mb-0.5 break-all">
+                                {item.data.name_edit}
+                            </div>
+                        )}
+                        <div className="flex items-center gap-1.5">
+                            <h3 className="card-name truncate" title={item.data.name}>
+                                {item.data.name || 'Unknown'}
+                            </h3>
+                            <button
+                                onClick={handleStartEdit}
+                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-white transition-opacity p-0.5 rounded hover:bg-white/10 shrink-0"
+                                title="Đặt/Sửa tên hiển thị"
+                            >
+                                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                )}
+                <span className={`status-badge shrink-0 ${srtOnline ? 'badge-online' : 'badge-offline'}`}>
                     <span className={`status-dot ${srtOnline ? 'dot-online' : 'dot-offline'}`} />
                     {onOff(srtOnline)}
                 </span>

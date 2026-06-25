@@ -49,6 +49,7 @@ export interface BackendLogItem {
   timestamp: string
   data: {
     name: string
+    name_edit?: string
     ip: string
     ipwan: string
     status?: string
@@ -334,5 +335,10 @@ export async function fetchBandwidthStats(date?: string): Promise<BandwidthDoc[]
   const response = await apiClient.get<BandwidthDoc[]>('/bandwidth', {
     params: { date }
   })
+  return response.data
+}
+
+export async function updateNameEdit(name: string, nameEdit: string): Promise<{ success: boolean; message?: string }> {
+  const response = await apiClient.post<{ success: boolean; message?: string }>('/update_name_edit', { name, name_edit: nameEdit })
   return response.data
 }

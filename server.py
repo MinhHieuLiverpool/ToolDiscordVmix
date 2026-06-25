@@ -47,7 +47,7 @@ if not DISCORD_WEBHOOK:
 
 
 # Port configuration
-PORT = int(os.getenv('PORT', 8000))
+PORT = int(os.getenv('PORT', 8001))
 REDIS_URL = os.getenv('REDIS_URL', '').strip()
 USE_TIMESERIES_STATS = os.getenv('USE_TIMESERIES_STATS', '1').strip().lower() in ('1', 'true', 'yes', 'on')
 STATISTICS_TS_COLLECTION = os.getenv('STATISTICS_TS_COLLECTION', 'statistics_ts').strip() or 'statistics_ts'

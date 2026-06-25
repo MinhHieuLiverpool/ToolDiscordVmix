@@ -1,6 +1,6 @@
 const isLocalHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
-const DEFAULT_LOCAL_BACKEND_BASE_URL = 'http://localhost:8000'
-const DEFAULT_PROD_BACKEND_BASE_URL = 'http://localhost:8000'
+const DEFAULT_LOCAL_BACKEND_BASE_URL = 'http://localhost:8001'
+const DEFAULT_PROD_BACKEND_BASE_URL = 'http://localhost:8001'
 
 const configuredBackendBaseUrl = String(import.meta.env.VITE_BACKEND_BASE_URL || '')
   .trim()
