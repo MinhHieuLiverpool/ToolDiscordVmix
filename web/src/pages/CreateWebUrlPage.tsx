@@ -31,7 +31,7 @@ export default function CreateWebUrlPage() {
         ]
         if (gameAssignments) {
             gameAssignments.forEach((assignment: any) => {
-                if (assignment.game && !list.some(g => g.id === assignment.game)) {
+                if (assignment.game && assignment.visible_status !== 'OFF' && !list.some(g => g.id === assignment.game)) {
                     list.push({ id: assignment.game, label: assignment.game })
                 }
             })

@@ -277,14 +277,17 @@ export default function ImportDebugPage() {
         const startSecs = parseTimeToSeconds(filterTimeStart)
         const endSecs = parseTimeToSeconds(filterTimeEnd)
 
-        // Find machines list for selected game
-        const assignedMachines = filterGame !== '__all__'
-            ? gameAssignments?.find(g => g.game === filterGame)?.machines || []
-            : []
+        // Find machines list for selected game (excluding hidden)
+        const assignment = filterGame !== '__all__'
+            ? gameAssignments?.find(g => g.game === filterGame)
+            : null
+        const assignedMachines = assignment?.machines || []
+        const hiddenMachines = assignment?.hidden_machines || []
+        const visibleMachines = assignedMachines.filter(m => !hiddenMachines.includes(m))
 
         return logLines.filter((line) => {
             if (filterGame !== '__all__') {
-                const isMatch = assignedMachines.some(
+                const isMatch = visibleMachines.some(
                     m => m.toLowerCase() === line.machineName.toLowerCase()
                 )
                 if (!isMatch) return false
@@ -520,7 +523,7 @@ export default function ImportDebugPage() {
                             }}
                         >
                             <option value="__all__">Tất cả Kênh</option>
-                            {gameAssignments?.map((assignment: any) => (
+                            {gameAssignments?.filter((a: any) => a.visible_status !== 'OFF').map((assignment: any) => (
                                 <option key={assignment.game} value={assignment.game}>
                                     {assignment.game}
                                 </option>

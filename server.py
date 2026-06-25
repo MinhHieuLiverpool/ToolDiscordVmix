@@ -2309,6 +2309,7 @@ async def save_game_selected(payload: dict):
     try:
         game = payload.get('game', '')
         machines = payload.get('machines', [])
+        visible_status = payload.get('visible_status', 'ON')
         
         if not game:
             return JSONResponse(content={"success": False, "error": "Missing 'game' field"}, status_code=400)
@@ -2318,12 +2319,12 @@ async def save_game_selected(payload: dict):
             None,
             lambda: game_selected_collection.update_one(
                 {"game": game},
-                {"$set": {"machines": machines}},
+                {"$set": {"machines": machines, "visible_status": visible_status}},
                 upsert=True
             )
         )
         
-        print(f"✓ Saved {len(machines)} machines for game '{game}' in Game_Selected")
+        print(f"✓ Saved {len(machines)} machines for game '{game}' (visible_status={visible_status}) in Game_Selected")
         return JSONResponse(content={
             "success": True, 
             "message": f"Saved {len(machines)} machines for {game} successfully"
@@ -2345,6 +2346,10 @@ async def load_game_selected():
         entries = []
         for doc in documents:
             doc.pop('_id', None)
+            if 'visible_status' not in doc:
+                doc['visible_status'] = 'ON'
+            if 'hidden_machines' not in doc:
+                doc['hidden_machines'] = []
             entries.append(doc)
             
         print(f"✓ Loaded {len(entries)} game assignments from Game_Selected")
@@ -2377,6 +2382,83 @@ async def delete_game_selected(payload: dict):
         })
     except Exception as e:
         print(f"✗ Delete game selected error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/toggle_visible_status")
+async def toggle_visible_status(payload: dict):
+    """Toggle visible_status ON/OFF cho một kênh game"""
+    try:
+        game = payload.get('game', '')
+        visible_status = payload.get('visible_status', 'ON')
+        
+        if not game:
+            return JSONResponse(content={"success": False, "error": "Missing 'game' field"}, status_code=400)
+        if visible_status not in ('ON', 'OFF'):
+            return JSONResponse(content={"success": False, "error": "visible_status must be 'ON' or 'OFF'"}, status_code=400)
+            
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: game_selected_collection.update_one(
+                {"game": game},
+                {"$set": {"visible_status": visible_status}}
+            )
+        )
+        
+        if result.matched_count == 0:
+            return JSONResponse(content={"success": False, "error": "Không tìm thấy kênh"}, status_code=404)
+            
+        print(f"✓ Toggled visible_status to '{visible_status}' for game '{game}'")
+        return JSONResponse(content={
+            "success": True, 
+            "message": f"Đã cập nhật trạng thái hiển thị cho '{game}' thành {visible_status}"
+        })
+    except Exception as e:
+        print(f"✗ Toggle visible_status error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/toggle_machine_visibility")
+async def toggle_machine_visibility(payload: dict):
+    """Toggle ẩn/hiện một máy trong kênh game"""
+    try:
+        game = payload.get('game', '')
+        machine = payload.get('machine', '')
+        hidden = payload.get('hidden', True)
+        
+        if not game or not machine:
+            return JSONResponse(content={"success": False, "error": "Missing 'game' or 'machine' field"}, status_code=400)
+        
+        loop = asyncio.get_event_loop()
+        if hidden:
+            # Add machine to hidden_machines array
+            result = await loop.run_in_executor(
+                None,
+                lambda: game_selected_collection.update_one(
+                    {"game": game},
+                    {"$addToSet": {"hidden_machines": machine}}
+                )
+            )
+        else:
+            # Remove machine from hidden_machines array
+            result = await loop.run_in_executor(
+                None,
+                lambda: game_selected_collection.update_one(
+                    {"game": game},
+                    {"$pull": {"hidden_machines": machine}}
+                )
+            )
+        
+        if result.matched_count == 0:
+            return JSONResponse(content={"success": False, "error": "Không tìm thấy kênh"}, status_code=404)
+        
+        action = 'ẩn' if hidden else 'hiện'
+        print(f"✓ Machine '{machine}' đã {action} trong kênh '{game}'")
+        return JSONResponse(content={
+            "success": True,
+            "message": f"Đã {action} máy '{machine}' trong kênh '{game}'"
+        })
+    except Exception as e:
+        print(f"✗ Toggle machine visibility error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 

@@ -86,13 +86,25 @@ export function useDashboardData() {
     }, [loadAssignments])
 
     const rows = useMemo(() => {
-        if (selectedGame === '__all__') return allRows
+        if (selectedGame === '__all__') {
+            return allRows.filter((row) => {
+                const machineName = row.data.name
+                const memberChannels = gameAssignments.filter(a => a.machines.includes(machineName))
+                if (memberChannels.length === 0) return true
+                return memberChannels.some(a => {
+                    const channelIsOn = a.visible_status !== 'OFF'
+                    const machineIsNotHiddenInChannel = !(a.hidden_machines || []).includes(machineName)
+                    return channelIsOn && machineIsNotHiddenInChannel
+                })
+            })
+        }
 
         const assignment = gameAssignments.find(a => a.game === selectedGame)
-        if (!assignment) return []
+        if (!assignment || assignment.visible_status === 'OFF') return []
 
+        const hiddenMachines = assignment.hidden_machines || []
         return allRows.filter((row) => {
-            return assignment.machines.includes(row.data.name)
+            return assignment.machines.includes(row.data.name) && !hiddenMachines.includes(row.data.name)
         })
     }, [allRows, selectedGame, gameAssignments])
 

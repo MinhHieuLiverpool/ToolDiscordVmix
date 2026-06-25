@@ -40,14 +40,17 @@ export default function DebugLogPage() {
     const filteredLogs = useMemo(() => {
         let list = logs
         if (filterGame !== '__all__') {
-            const assignedMachines = gameAssignments?.find(g => g.game === filterGame)?.machines || []
+            const assignment = gameAssignments?.find(g => g.game === filterGame)
+            const assignedMachines = assignment?.machines || []
+            const hiddenMachines = assignment?.hidden_machines || []
+            const visibleMachines = assignedMachines.filter(m => !hiddenMachines.includes(m))
             list = list.filter((log) => {
                 const headerEndIndex = log.indexOf(' ]')
                 if (headerEndIndex === -1) return false
                 const rest = log.slice(headerEndIndex + 2)
                 const parts = rest.split(' - ')
                 const machineName = parts[1]?.trim() || ''
-                return assignedMachines.some(m => m.toLowerCase() === machineName.toLowerCase())
+                return visibleMachines.some(m => m.toLowerCase() === machineName.toLowerCase())
             })
         }
         if (!searchTerm.trim()) return list
@@ -107,7 +110,7 @@ export default function DebugLogPage() {
                         }}
                     >
                         <option value="__all__">Tất cả Kênh</option>
-                        {gameAssignments?.map((assignment: any) => (
+                        {gameAssignments?.filter((a: any) => a.visible_status !== 'OFF').map((assignment: any) => (
                             <option key={assignment.game} value={assignment.game}>
                                 {assignment.game}
                             </option>

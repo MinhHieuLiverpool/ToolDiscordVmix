@@ -84,11 +84,23 @@ function SharedLayout() {
     if (shareType === 'game') {
       if (game !== '__all__') {
         const assignment = data.gameAssignments.find(a => a.game === game)
-        if (assignment) {
-          filteredAllRows = data.allRows.filter(r => assignment.machines.includes(r.data.name))
+        if (assignment && assignment.visible_status !== 'OFF') {
+          const hiddenMachines = assignment.hidden_machines || []
+          filteredAllRows = data.allRows.filter(r => assignment.machines.includes(r.data.name) && !hiddenMachines.includes(r.data.name))
         } else {
           filteredAllRows = []
         }
+      } else {
+        filteredAllRows = data.allRows.filter((row) => {
+          const machineName = row.data.name
+          const memberChannels = data.gameAssignments.filter(a => a.machines.includes(machineName))
+          if (memberChannels.length === 0) return true
+          return memberChannels.some(a => {
+            const channelIsOn = a.visible_status !== 'OFF'
+            const machineIsNotHiddenInChannel = !(a.hidden_machines || []).includes(machineName)
+            return channelIsOn && machineIsNotHiddenInChannel
+          })
+        })
       }
     } else {
       filteredAllRows = data.allRows.filter(r => allowed.includes(r.data.name))

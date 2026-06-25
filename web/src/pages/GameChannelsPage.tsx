@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useDashboardContext } from '../hooks/useDashboardContext'
-import { saveGameSelected, deleteGameSelected } from '../services/api'
+import { saveGameSelected, deleteGameSelected, toggleVisibleStatus, toggleMachineVisibility } from '../services/api'
 import { showToast } from '../components/ui/Toast'
 import Dialog from '../components/ui/Dialog'
 
@@ -25,7 +25,7 @@ export default function GameChannelsPage() {
     }, [allRows])
 
     // Toggle machine selection for checklist
-    const handleToggleMachine = (name: string) => {
+    const handleToggleMachineSelection = (name: string) => {
         setSelectedMachines(prev =>
             prev.includes(name) ? prev.filter(m => m !== name) : [...prev, name]
         )
@@ -129,6 +129,37 @@ export default function GameChannelsPage() {
         }
     }
 
+    const handleToggleVisible = async (game: string, currentStatus: string) => {
+        const newStatus = currentStatus === 'ON' ? 'OFF' : 'ON'
+        try {
+            const res = await toggleVisibleStatus(game, newStatus)
+            if (res.success) {
+                showToast(`Kênh "${game}" đã ${newStatus === 'ON' ? 'hiển thị' : 'ẩn'}.`, 'success')
+                await loadAssignments()
+            } else {
+                showToast(res.message || 'Lỗi cập nhật trạng thái.', 'error')
+            }
+        } catch (err) {
+            console.error(err)
+            showToast('Lỗi khi cập nhật trạng thái hiển thị.', 'error')
+        }
+    }
+
+    const handleToggleMachine = async (game: string, machine: string, isCurrentlyHidden: boolean) => {
+        try {
+            const res = await toggleMachineVisibility(game, machine, !isCurrentlyHidden)
+            if (res.success) {
+                showToast(`Máy "${machine}" đã ${!isCurrentlyHidden ? 'ẩn' : 'hiện'} trong kênh "${game}".`, 'success')
+                await loadAssignments()
+            } else {
+                showToast(res.message || 'Lỗi cập nhật.', 'error')
+            }
+        } catch (err) {
+            console.error(err)
+            showToast('Lỗi khi cập nhật trạng thái máy.', 'error')
+        }
+    }
+
     return (
         <>
             <style>{`
@@ -185,46 +216,81 @@ export default function GameChannelsPage() {
                     <div className="account-table-wrap">
                         <table className="account-table account-table-compact">
                             <colgroup>
-                                <col style={{ width: '25%' }} />
-                                <col style={{ width: '55%' }} />
+                                <col style={{ width: '20%' }} />
+                                <col style={{ width: '10%' }} />
+                                <col style={{ width: '50%' }} />
                                 <col style={{ width: '20%' }} />
                             </colgroup>
                             <thead>
                                 <tr>
                                     <th>Tên Kênh</th>
+                                    <th>Hiển Thị</th>
                                     <th>Các Máy Thuộc Kênh</th>
                                     <th>Hành Động</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {gameAssignments.map((assignment) => (
-                                    <tr key={assignment.game}>
+                                    <tr key={assignment.game} style={{ opacity: assignment.visible_status === 'OFF' ? 0.5 : 1, transition: 'opacity 0.2s' }}>
                                         <td>
-                                            <span style={{ fontWeight: 700, color: '#4f46e5', fontSize: '0.8rem' }}>
+                                            <span style={{ fontWeight: 700, color: assignment.visible_status === 'OFF' ? '#94a3b8' : '#4f46e5', fontSize: '0.8rem' }}>
                                                 {assignment.game}
                                             </span>
                                         </td>
                                         <td>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleToggleVisible(assignment.game, assignment.visible_status || 'ON')}
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: '0.35rem',
+                                                    padding: '0.25rem 0.6rem',
+                                                    borderRadius: '6px',
+                                                    border: '1px solid',
+                                                    fontSize: '0.7rem',
+                                                    fontWeight: 700,
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    ...(assignment.visible_status === 'OFF'
+                                                        ? { color: '#94a3b8', borderColor: '#e2e8f0', background: '#f8fafc' }
+                                                        : { color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.4)', background: 'rgba(16, 185, 129, 0.05)' }
+                                                    )
+                                                }}
+                                            >
+                                                {assignment.visible_status === 'OFF' ? 'OFF' : 'ON'}
+                                            </button>
+                                        </td>
+                                        <td>
                                             <div className="role-perms" style={{ flexWrap: 'wrap', gap: '0.35rem' }}>
                                                 {assignment.machines && assignment.machines.length > 0 ? (
-                                                    assignment.machines.map((machine) => (
-                                                        <span
-                                                            key={machine}
-                                                            className="role-perm-chip"
-                                                            style={{
-                                                                fontSize: '9.5px',
-                                                                textTransform: 'none',
-                                                                fontWeight: 600,
-                                                                background: 'rgba(99, 102, 241, 0.08)',
-                                                                color: '#4f46e5',
-                                                                border: '1px solid rgba(99, 102, 241, 0.15)',
-                                                                padding: '0.2rem 0.5rem',
-                                                                borderRadius: '6px'
-                                                            }}
-                                                        >
-                                                            {machine}
-                                                        </span>
-                                                    ))
+                                                    assignment.machines.map((machine) => {
+                                                        const isHidden = (assignment.hidden_machines || []).includes(machine)
+                                                        return (
+                                                            <span
+                                                                key={machine}
+                                                                className="role-perm-chip"
+                                                                onClick={() => handleToggleMachine(assignment.game, machine, isHidden)}
+                                                                style={{
+                                                                    fontSize: '9.5px',
+                                                                    textTransform: 'none',
+                                                                    fontWeight: 600,
+                                                                    cursor: 'pointer',
+                                                                    transition: 'all 0.2s',
+                                                                    padding: '0.2rem 0.5rem',
+                                                                    borderRadius: '6px',
+                                                                    userSelect: 'none',
+                                                                    ...(isHidden
+                                                                        ? { background: '#ef4444', color: '#fff', border: '1px solid #dc2626' }
+                                                                        : { background: 'rgba(99, 102, 241, 0.08)', color: '#4f46e5', border: '1px solid rgba(99, 102, 241, 0.15)' }
+                                                                    )
+                                                                }}
+                                                                title={isHidden ? `Click để hiện máy "${machine}"` : `Click để ẩn máy "${machine}"`}
+                                                            >
+                                                                {machine}
+                                                            </span>
+                                                        )
+                                                    })
                                                 ) : (
                                                     <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.75rem' }}>
                                                         (Chưa chọn máy nào)
@@ -370,7 +436,7 @@ export default function GameChannelsPage() {
                                         <input
                                             type="checkbox"
                                             checked={selectedMachines.includes(name)}
-                                            onChange={() => handleToggleMachine(name)}
+                                            onChange={() => handleToggleMachineSelection(name)}
                                             style={{ accentColor: '#4f46e5', width: '15px', height: '15px', cursor: 'pointer' }}
                                         />
                                         <span style={{ fontWeight: selectedMachines.includes(name) ? 700 : 500 }}>
@@ -506,7 +572,7 @@ export default function GameChannelsPage() {
                                         <input
                                             type="checkbox"
                                             checked={selectedMachines.includes(name)}
-                                            onChange={() => handleToggleMachine(name)}
+                                            onChange={() => handleToggleMachineSelection(name)}
                                             style={{ accentColor: '#4f46e5', width: '15px', height: '15px', cursor: 'pointer' }}
                                         />
                                         <span style={{ fontWeight: selectedMachines.includes(name) ? 700 : 500 }}>

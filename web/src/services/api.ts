@@ -346,6 +346,8 @@ export async function updateNameEdit(name: string, nameEdit: string): Promise<{ 
 export interface GameSelectedResponse {
   game: string
   machines: string[]
+  visible_status?: 'ON' | 'OFF'
+  hidden_machines?: string[]
 }
 
 export async function fetchGameSelected(): Promise<GameSelectedResponse[]> {
@@ -353,13 +355,23 @@ export async function fetchGameSelected(): Promise<GameSelectedResponse[]> {
   return response.data
 }
 
-export async function saveGameSelected(game: string, machines: string[]): Promise<{ success: boolean; message?: string }> {
-  const response = await apiClient.post<{ success: boolean; message?: string }>('/save_game_selected', { game, machines })
+export async function saveGameSelected(game: string, machines: string[], visibleStatus?: 'ON' | 'OFF'): Promise<{ success: boolean; message?: string }> {
+  const response = await apiClient.post<{ success: boolean; message?: string }>('/save_game_selected', { game, machines, visible_status: visibleStatus })
   return response.data
 }
 
 export async function deleteGameSelected(game: string): Promise<{ success: boolean; message?: string }> {
   const response = await apiClient.post<{ success: boolean; message?: string }>('/delete_game_selected', { game })
+  return response.data
+}
+
+export async function toggleVisibleStatus(game: string, visibleStatus: 'ON' | 'OFF'): Promise<{ success: boolean; message?: string }> {
+  const response = await apiClient.post<{ success: boolean; message?: string }>('/toggle_visible_status', { game, visible_status: visibleStatus })
+  return response.data
+}
+
+export async function toggleMachineVisibility(game: string, machine: string, hidden: boolean): Promise<{ success: boolean; message?: string }> {
+  const response = await apiClient.post<{ success: boolean; message?: string }>('/toggle_machine_visibility', { game, machine, hidden })
   return response.data
 }
 
