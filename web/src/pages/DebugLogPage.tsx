@@ -6,8 +6,9 @@ import { getDownloadDebugLogsUrl } from '../services/api'
 
 export default function DebugLogPage() {
     const navigate = useNavigate()
-    const { debugLogs, clearDebugLogs } = useDashboardContext()
+    const { debugLogs, clearDebugLogs, gameAssignments } = useDashboardContext()
     const [searchTerm, setSearchTerm] = useState('')
+    const [filterGame, setFilterGame] = useState('__all__')
 
     const handleDownloadDbLogs = () => {
         try {
@@ -24,10 +25,22 @@ export default function DebugLogPage() {
     const logs = debugLogs || []
 
     const filteredLogs = useMemo(() => {
-        if (!searchTerm.trim()) return logs
+        let list = logs
+        if (filterGame !== '__all__') {
+            const assignedMachines = gameAssignments?.find(g => g.game === filterGame)?.machines || []
+            list = list.filter((log) => {
+                const headerEndIndex = log.indexOf(' ]')
+                if (headerEndIndex === -1) return false
+                const rest = log.slice(headerEndIndex + 2)
+                const parts = rest.split(' - ')
+                const machineName = parts[1]?.trim() || ''
+                return assignedMachines.some(m => m.toLowerCase() === machineName.toLowerCase())
+            })
+        }
+        if (!searchTerm.trim()) return list
         const term = searchTerm.toLowerCase()
-        return logs.filter((log) => log.toLowerCase().includes(term))
-    }, [logs, searchTerm])
+        return list.filter((log) => log.toLowerCase().includes(term))
+    }, [logs, searchTerm, filterGame, gameAssignments])
 
     const copyToClipboard = () => {
         if (filteredLogs.length === 0) {
@@ -65,6 +78,28 @@ export default function DebugLogPage() {
                 </div>
 
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <select
+                        value={filterGame}
+                        onChange={(e) => setFilterGame(e.target.value)}
+                        style={{
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '8px',
+                            padding: '0.45rem 1rem',
+                            fontSize: '0.85rem',
+                            height: '38px',
+                            backgroundColor: '#fff',
+                            color: '#1e293b',
+                            outline: 'none',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <option value="__all__">Tất cả Kênh</option>
+                        {gameAssignments?.map((assignment: any) => (
+                            <option key={assignment.game} value={assignment.game}>
+                                {assignment.game}
+                            </option>
+                        ))}
+                    </select>
                     <button
                         className="viewsync-primary-btn"
                         type="button"

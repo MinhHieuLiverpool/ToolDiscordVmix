@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { showToast } from '../components/ui/Toast'
 import Dialog from '../components/ui/Dialog'
 import { fetchDbDebugLogs } from '../services/api'
+import { useDashboardContext } from '../hooks/useDashboardContext'
 
 type ParsedLogLine = {
     timestamp: string
@@ -16,9 +17,11 @@ type ParsedLogLine = {
 
 export default function ImportDebugPage() {
     const navigate = useNavigate()
+    const { gameAssignments } = useDashboardContext()
     const [logLines, setLogLines] = useState<ParsedLogLine[]>([])
     const [fileName, setFileName] = useState('')
     const [loadingDb, setLoadingDb] = useState(false)
+    const [filterGame, setFilterGame] = useState('__all__')
 
     const handleLoadDbLogs = async () => {
         try {
@@ -272,7 +275,18 @@ export default function ImportDebugPage() {
         const startSecs = parseTimeToSeconds(filterTimeStart)
         const endSecs = parseTimeToSeconds(filterTimeEnd)
 
+        // Find machines list for selected game
+        const assignedMachines = filterGame !== '__all__'
+            ? gameAssignments?.find(g => g.game === filterGame)?.machines || []
+            : []
+
         return logLines.filter((line) => {
+            if (filterGame !== '__all__') {
+                const isMatch = assignedMachines.some(
+                    m => m.toLowerCase() === line.machineName.toLowerCase()
+                )
+                if (!isMatch) return false
+            }
             if (filterName.trim() && !line.machineName.toLowerCase().includes(filterName.toLowerCase())) {
                 return false
             }
@@ -299,7 +313,7 @@ export default function ImportDebugPage() {
             }
             return true
         })
-    }, [logLines, filterName, filterIp, filterIpwan, filterHour, filterTimeStart, filterTimeEnd])
+    }, [logLines, filterName, filterIp, filterIpwan, filterHour, filterTimeStart, filterTimeEnd, filterGame, gameAssignments])
 
     const copyFilteredLogs = () => {
         if (filteredLines.length === 0) {
@@ -419,6 +433,32 @@ export default function ImportDebugPage() {
             <div className="card-light" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
                 <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e293b', marginBottom: '1rem' }}>Bộ lọc log</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+                    <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>Kênh Game / Thiết bị</label>
+                        <select
+                            value={filterGame}
+                            onChange={(e) => setFilterGame(e.target.value)}
+                            style={{ 
+                                border: '1px solid #e2e8f0', 
+                                borderRadius: '8px', 
+                                padding: '0.4rem 0.75rem', 
+                                width: '100%', 
+                                fontSize: '0.8rem',
+                                height: '34px',
+                                backgroundColor: '#fff',
+                                color: '#1e293b',
+                                outline: 'none',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <option value="__all__">Tất cả Kênh</option>
+                            {gameAssignments?.map((assignment: any) => (
+                                <option key={assignment.game} value={assignment.game}>
+                                    {assignment.game}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                     <div>
                         <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>Giờ (ví dụ: 19 hoặc 19:05)</label>
                         <input
