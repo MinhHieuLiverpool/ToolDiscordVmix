@@ -354,6 +354,51 @@ async def get_all_data():
     """GET endpoint - lấy tất cả dữ liệu"""
     return JSONResponse(content=_to_json_safe(get_all_logs()))
 
+@app.get("/load_debug_logs")
+async def load_debug_logs():
+    """Load toàn bộ debug logs từ database"""
+    try:
+        loop = asyncio.get_event_loop()
+        documents = await loop.run_in_executor(
+            None,
+            lambda: list(debug_logs_collection.find().sort("debug_logged_at", -1))
+        )
+        for doc in documents:
+            doc.pop('_id', None)
+        return JSONResponse(content=_to_json_safe(documents))
+    except Exception as e:
+        print(f"✗ Load debug logs error: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.get("/download_debug_logs")
+async def download_debug_logs():
+    """Tải xuống toàn bộ debug logs dưới dạng file JSON"""
+    try:
+        loop = asyncio.get_event_loop()
+        documents = await loop.run_in_executor(
+            None,
+            lambda: list(debug_logs_collection.find().sort("debug_logged_at", -1))
+        )
+        for doc in documents:
+            doc.pop('_id', None)
+        
+        # Convert to formatted JSON text
+        json_str = json.dumps(_to_json_safe(documents), indent=4, ensure_ascii=False)
+        
+        from fastapi.responses import Response
+        filename = f"debug_logs_{datetime.now(VIETNAM_TZ).strftime('%Y%m%d_%H%M%S')}.json"
+        return Response(
+            content=json_str,
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+    except Exception as e:
+        print(f"✗ Download debug logs error: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
 @app.get("/bandwidth")
 async def get_bandwidth_stats(date: str = None):
     """Lấy dữ liệu băng thông của các IP WAN cho một ngày (DD-MM-YYYY)"""
@@ -2628,6 +2673,7 @@ async def _daily_cleanup_task():
                 await loop.run_in_executor(None, lambda: statistics_collection.delete_many({}))
                 await loop.run_in_executor(None, lambda: statistics_hours_collection.delete_many({}))
                 await loop.run_in_executor(None, lambda: statistics_ts_collection.delete_many({}))
+                await loop.run_in_executor(None, lambda: debug_logs_collection.delete_many({}))
                 
                 # 2. Xóa trong Redis (nếu có)
                 if _redis_enabled and _redis_client is not None:
@@ -2653,34 +2699,42 @@ async def _daily_cleanup_task():
             await asyncio.sleep(60)
 
 async def debug_logs_monitoring_task():
-    """Ghi toàn bộ thông số thiết bị từ cache vào collection debug_logs mỗi 3 giây"""
+    """Ghi toàn bộ thông số thiết bị từ cache vào collection debug_logs mỗi 3 giây và tự động xóa log cũ > 7 tiếng"""
     print("✓ Background task started: Debug Logs collection writer every 3 seconds")
     while True:
         try:
             await asyncio.sleep(3)
             current_logs = list(_data_cache.values())
-            if not current_logs:
-                continue
-
+            
             now_vn = datetime.now(VIETNAM_TZ)
             timestamp = now_vn.isoformat()
             
-            docs_to_insert = []
-            for doc in current_logs:
-                if not isinstance(doc, dict):
-                    continue
-                # Clone document to avoid modifying the in-memory cache
-                doc_copy = dict(doc)
-                doc_copy.pop('_id', None)
-                doc_copy['debug_logged_at'] = timestamp
-                docs_to_insert.append(doc_copy)
+            # 1. Ghi logs mới
+            if current_logs:
+                docs_to_insert = []
+                for doc in current_logs:
+                    if not isinstance(doc, dict):
+                        continue
+                    # Clone document to avoid modifying the in-memory cache
+                    doc_copy = dict(doc)
+                    doc_copy.pop('_id', None)
+                    doc_copy['debug_logged_at'] = timestamp
+                    docs_to_insert.append(doc_copy)
 
-            if docs_to_insert:
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(
-                    None,
-                    lambda: debug_logs_collection.insert_many(docs_to_insert)
-                )
+                if docs_to_insert:
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(
+                        None,
+                        lambda: debug_logs_collection.insert_many(docs_to_insert)
+                    )
+            
+            # 2. Xóa logs cũ hơn 7 tiếng
+            cutoff_time = (now_vn - timedelta(hours=7)).isoformat()
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: debug_logs_collection.delete_many({"debug_logged_at": {"$lt": cutoff_time}})
+            )
         except Exception as e:
             print(f"✗ Error in debug_logs_monitoring_task: {e}")
 
