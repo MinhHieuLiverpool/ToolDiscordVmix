@@ -45,12 +45,12 @@ function MetricBadge({ label, value, unit, isHigh }: { label: string; value: str
       : 'text-slate-500 bg-slate-50 dark:bg-slate-900/30'
 
   return (
-      <div className={`p-1 rounded transition-all ${isHigh ? 'bg-rose-50/50 dark:bg-rose-950/10' : 'bg-slate-50/80 dark:bg-slate-900/30'} flex flex-col items-center justify-center`}>
-          <div className={`text-[7px] font-bold tracking-wider mb-0.5 uppercase px-0.5 rounded leading-none ${labelClass}`}>
+      <div className={`p-1.5 rounded-[6px] transition-all ${isHigh ? 'bg-rose-50/50 dark:bg-rose-950/10' : 'bg-slate-50/80 dark:bg-slate-900/30'} flex flex-col items-center justify-center`}>
+          <div className={`text-[9px] font-bold tracking-wider mb-0.5 uppercase px-1 rounded leading-none ${labelClass}`}>
               {label}
           </div>
-          <div className={`text-[10px] font-black leading-none ${isHigh ? 'text-rose-500' : 'text-slate-800 dark:text-slate-200'}`}>
-              {value}<span className="text-[7px] font-semibold text-slate-400 ml-0.5">{unit}</span>
+          <div className={`text-[12px] font-black leading-none ${isHigh ? 'text-rose-500' : 'text-slate-800 dark:text-slate-200'}`}>
+              {value}<span className="text-[9px] font-semibold text-slate-400 ml-0.5">{unit}</span>
           </div>
       </div>
   )
@@ -71,9 +71,9 @@ function PingRowCompact({ label, value }: { label: string; value: string }) {
       : 'text-emerald-500 dark:text-emerald-400'
 
   return (
-      <div className="flex justify-between items-center text-[7.5px] py-0.2">
+      <div className="flex justify-between items-center text-[10px] py-0.5">
           <span className="text-slate-500 dark:text-slate-400 font-semibold">{label}:</span>
-          <span className={`font-bold ${badgeColor} truncate max-w-[55px]`} title={value}>
+          <span className={`font-bold ${badgeColor} truncate max-w-[90px]`} title={value}>
               {value}
           </span>
       </div>
@@ -130,19 +130,19 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
 
   return (
       <div
-          className="bg-white dark:bg-slate-900/45 rounded-none p-2 shadow-sm transition-all duration-300 hover:shadow-md relative overflow-hidden"
+          className="bg-white dark:bg-slate-900/45 rounded-[10px] p-4 shadow-sm transition-all duration-300 hover:shadow-md relative overflow-hidden"
           style={{ animationDelay: `${index * 40}ms` }}
       >
           {/* Header */}
-          <div className="flex justify-between items-start mb-1.5">
-              <div className="flex-1 min-w-0 pr-0.5">
+          <div className="flex justify-between items-start mb-2">
+              <div className="flex-1 min-w-0 pr-1">
                   {isEditing ? (
-                      <div className="flex items-center gap-1 w-full mb-1">
+                      <div className="flex items-center gap-1.5 w-full mb-1">
                           <input
                               type="text"
                               value={editValue}
                               onChange={(e) => setEditValue(e.target.value)}
-                              className="text-[9px] px-1 py-0.5 border rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 focus:outline-none focus:border-indigo-500 w-full font-black uppercase"
+                              className="text-[11px] px-2 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 focus:outline-none focus:border-indigo-500 w-full font-black uppercase"
                               placeholder="TÊN THIẾT BỊ..."
                               autoFocus
                               onKeyDown={(e) => {
@@ -151,12 +151,12 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                               }}
                           />
                           <button onClick={handleSave} className="text-emerald-500 hover:text-emerald-600 shrink-0" title="Lưu">
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3.5">
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3.5">
                                   <polyline points="20 6 9 17 4 12" />
                               </svg>
                           </button>
                           <button onClick={() => setIsEditing(false)} className="text-rose-500 hover:text-rose-600 shrink-0" title="Hủy">
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3.5">
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3.5">
                                   <line x1="18" y1="6" x2="6" y2="18" />
                                   <line x1="6" y1="6" x2="18" y2="18" />
                               </svg>
@@ -166,18 +166,18 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                       <>
                           {/* Tên custom màu đỏ in hoa in đậm ở dòng trên */}
                           {item.name_device && (
-                              <div className="text-[9px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider mb-0.5 break-all">
+                              <div className="text-[11px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider mb-0.5 break-all">
                                   {item.name_device}
                               </div>
                           )}
-                          <h3 className="text-[10px] font-black text-slate-800 dark:text-slate-100 flex items-center gap-1 flex-wrap" title={item.deviceName || 'Ẩn danh'}>
+                          <h3 className="text-[12px] font-black text-slate-800 dark:text-slate-100 flex items-center gap-1 flex-wrap" title={item.deviceName || 'Ẩn danh'}>
                               <span className="break-all">{item.deviceName || 'Ẩn danh'}</span>
                               <button
                                   onClick={() => setIsEditing(true)}
                                   className="text-slate-400 hover:text-indigo-500 transition-colors ml-0.5 shrink-0"
                                   title="Đặt/Sửa tên thiết bị"
                               >
-                                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                                   </svg>
                               </button>
@@ -185,7 +185,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                           <div className="flex items-center gap-0.5 mt-0.5">
                               <span
                                   onClick={() => item.deviceId && copyToClipboard(item.deviceId)}
-                                  className="text-[7.5px] font-mono text-slate-400 hover:text-sky-500 cursor-pointer transition-colors break-all"
+                                  className="text-[9px] font-mono text-slate-400 hover:text-sky-500 cursor-pointer transition-colors break-all"
                                   title="Click để copy Device ID"
                               >
                                   ID: {item.deviceId || '-'}
@@ -194,36 +194,36 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                       </>
                   )}
               </div>
-              <div className="flex flex-col items-end gap-0.5 shrink-0">
-                  <span className={`inline-flex items-center px-0.5 py-0.2 rounded text-[7px] font-bold border leading-none ${
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                  <span className={`inline-flex items-center px-1 py-0.5 rounded-[4px] text-[9px] font-bold border leading-none ${
                       isOnline
                           ? 'bg-emerald-50 text-emerald-500 border-emerald-100 dark:bg-emerald-950/20 dark:border-emerald-900/30'
                           : 'bg-slate-50 text-slate-400 border-slate-100 dark:bg-slate-800/40 dark:border-slate-800'
                   }`}>
                       {isOnline ? 'ON' : 'OFF'}
                   </span>
-                  <span className="text-[7px] font-bold text-sky-500 bg-sky-50 dark:bg-sky-950/30 border border-sky-100 dark:border-sky-900/20 px-0.5 py-0.2 rounded leading-none">
+                  <span className="text-[9px] font-bold text-sky-500 bg-sky-50 dark:bg-sky-950/30 border border-sky-100 dark:border-sky-900/20 px-1 py-0.5 rounded-[4px] leading-none">
                       {item.networkType || '-'}
                   </span>
               </div>
           </div>
 
           {/* Performance Grid */}
-          <div className="grid grid-cols-3 gap-0.5 mb-1.5">
+          <div className="grid grid-cols-3 gap-1 mb-2">
               <MetricBadge label="CPU" value={item.cpuLoad !== null ? item.cpuLoad : '-'} unit="%" isHigh={isCpuHigh} />
               <MetricBadge label="RAM" value={item.ramUsagePercent !== null ? item.ramUsagePercent : '-'} unit="%" isHigh={isRamHigh} />
               <MetricBadge label="FPS" value={item.fps !== null ? item.fps : '-'} unit="" />
           </div>
 
           {/* Progress Bars */}
-          <div className="space-y-1 mb-1.5 bg-slate-50/50 dark:bg-slate-900/20 p-1 rounded">
+          <div className="space-y-1.5 mb-2 bg-slate-50/50 dark:bg-slate-900/20 p-1.5 rounded-[8px]">
               {/* CPU load */}
               <div>
-                  <div className="flex justify-between text-[7.5px] font-bold text-slate-500 dark:text-slate-400 mb-0.5 leading-none">
+                  <div className="flex justify-between text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1 leading-none">
                       <span>CPU</span>
                       <span>{item.cpuLoad}%</span>
                   </div>
-                  <div className="h-[2px] bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-[4px] bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                       <div
                           className={`h-full rounded-full transition-all duration-500 ${
                               isCpuHigh ? 'bg-rose-500' : item.cpuLoad > 45 ? 'bg-amber-500' : 'bg-sky-500'
@@ -235,11 +235,11 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
 
               {/* RAM load */}
               <div>
-                  <div className="flex justify-between text-[7.5px] font-bold text-slate-500 dark:text-slate-400 mb-0.5 leading-none">
+                  <div className="flex justify-between text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1 leading-none">
                       <span>RAM ({ramUsedGB}/{ramTotalGB}G)</span>
                       <span>{item.ramUsagePercent}%</span>
                   </div>
-                  <div className="h-[2px] bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-[4px] bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                       <div
                           className={`h-full rounded-full transition-all duration-500 ${
                               isRamHigh ? 'bg-rose-500' : item.ramUsagePercent > 65 ? 'bg-amber-500' : 'bg-emerald-500'
@@ -251,25 +251,25 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
           </div>
 
           {/* Network details */}
-          <div className="space-y-0 mb-1.5 text-[7.5px]">
-              <div className="flex justify-between py-0.2">
+          <div className="space-y-0.5 mb-2 text-[10px]">
+              <div className="flex justify-between py-0.5">
                   <span className="text-slate-400">Local IP:</span>
-                  <span className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate max-w-[70px]" title={item.localIp}>{item.localIp || '-'}</span>
+                  <span className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate max-w-[120px]" title={item.localIp}>{item.localIp || '-'}</span>
               </div>
-              <div className="flex justify-between py-0.2">
+              <div className="flex justify-between py-0.5">
                   <span className="text-slate-400">WAN IP:</span>
-                  <span className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate max-w-[70px]" title={item.wanIp}>{item.wanIp || '-'}</span>
+                  <span className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate max-w-[120px]" title={item.wanIp}>{item.wanIp || '-'}</span>
               </div>
-              <div className="flex justify-between py-0.2">
+              <div className="flex justify-between py-0.5">
                   <span className="text-slate-400">Gateway:</span>
-                  <span className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate max-w-[70px]" title={item.gatewayIp}>{item.gatewayIp || '-'}</span>
+                  <span className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate max-w-[120px]" title={item.gatewayIp}>{item.gatewayIp || '-'}</span>
               </div>
           </div>
 
           {/* Ping Diagnostics */}
-          <div className="mb-1.5">
-              <div className="text-[7.5px] font-bold text-slate-400 tracking-wide uppercase mb-0.5 leading-none">Ping</div>
-              <div className="flex flex-col gap-0">
+          <div className="mb-2">
+              <div className="text-[10px] font-bold text-slate-400 tracking-wide uppercase mb-1 leading-none">Ping</div>
+              <div className="flex flex-col gap-0.5">
                   <PingRowCompact label="Gateway" value={item.pingGateway || '-'} />
                   <PingRowCompact label="Google" value={item.ping8888 || '-'} />
                   <PingRowCompact label="Server" value={item.serverPing || '-'} />
@@ -277,39 +277,39 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
           </div>
 
           {/* Bandwidth Speed */}
-          <div className="mb-1.5">
-              <div className="text-[7.5px] font-bold text-slate-400 tracking-wide uppercase mb-0.5 leading-none">Băng thông</div>
-              <div className="grid grid-cols-2 gap-0.5">
-                  <div className="flex items-center justify-between p-0.5 bg-pink-50/10 dark:bg-pink-950/5 rounded">
-                      <span className="text-[5.5px] font-bold text-pink-400 uppercase tracking-wider">TX</span>
-                      <span className="text-[8px] font-black text-pink-600 dark:text-pink-400 truncate leading-none">{item.txSpeedMbps.toFixed(2)}</span>
+          <div className="mb-2">
+              <div className="text-[10px] font-bold text-slate-400 tracking-wide uppercase mb-1 leading-none">Băng thông</div>
+              <div className="grid grid-cols-2 gap-1">
+                  <div className="flex items-center justify-between p-1 bg-pink-50/10 dark:bg-pink-950/5 rounded-[6px]">
+                      <span className="text-[8px] font-bold text-pink-400 uppercase tracking-wider">TX</span>
+                      <span className="text-[11px] font-black text-pink-600 dark:text-pink-400 truncate leading-none">{item.txSpeedMbps.toFixed(2)}</span>
                   </div>
 
-                  <div className="flex items-center justify-between p-0.5 bg-orange-50/10 dark:bg-orange-950/5 rounded">
-                      <span className="text-[5.5px] font-bold text-orange-400 uppercase tracking-wider">RX</span>
-                      <span className="text-[8px] font-black text-orange-600 dark:text-orange-400 truncate leading-none">{item.rxSpeedMbps.toFixed(2)}</span>
+                  <div className="flex items-center justify-between p-1 bg-orange-50/10 dark:bg-orange-950/5 rounded-[6px]">
+                      <span className="text-[8px] font-bold text-orange-400 uppercase tracking-wider">RX</span>
+                      <span className="text-[11px] font-black text-orange-600 dark:text-orange-400 truncate leading-none">{item.rxSpeedMbps.toFixed(2)}</span>
                   </div>
               </div>
           </div>
 
           {/* Battery Section */}
-          <div className="mb-1.5 bg-slate-50/30 dark:bg-slate-900/10 p-1 rounded">
-              <div className="flex justify-between items-center text-[7.5px] mb-0.5 leading-none">
+          <div className="mb-2 bg-slate-50/30 dark:bg-slate-900/10 p-1.5 rounded-[8px]">
+              <div className="flex justify-between items-center text-[10px] mb-1 leading-none">
                   <span className="font-bold text-slate-500 dark:text-slate-400">
                       Pin & Nhiệt
                   </span>
                   {item.isCharging && (
-                      <span className="text-[6px] font-black text-amber-500">
+                      <span className="text-[8px] font-black text-amber-500">
                           SẠC
                       </span>
                   )}
               </div>
-              <div className="grid grid-cols-2 gap-0.5 items-center">
+              <div className="grid grid-cols-2 gap-1 items-center">
                   <div>
-                      <div className="flex justify-between text-[7.5px] text-slate-400 font-bold leading-none">
+                      <div className="flex justify-between text-[10px] text-slate-400 font-bold leading-none">
                           <span>{item.batteryLevel}%</span>
                       </div>
-                      <div className="h-[2px] bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden mt-0.5">
+                      <div className="h-[4px] bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden mt-1">
                           <div
                               className={`h-full rounded-full ${
                                   item.batteryLevel < 20 ? 'bg-rose-500' : item.batteryLevel < 40 ? 'bg-amber-500' : 'bg-emerald-500'
@@ -319,7 +319,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                       </div>
                   </div>
                   <div className="text-right">
-                      <span className={`text-[8px] font-black ${isTempHigh ? 'text-rose-500' : 'text-slate-700 dark:text-slate-300'} leading-none`}>
+                      <span className={`text-[11px] font-black ${isTempHigh ? 'text-rose-500' : 'text-slate-700 dark:text-slate-300'} leading-none`}>
                           {item.temperature.toFixed(1)}°C
                       </span>
                   </div>
@@ -327,8 +327,8 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
           </div>
 
           {/* Footer - Updated time */}
-          <div className="flex justify-between items-center text-[7.5px] font-bold text-slate-400 pt-1 leading-none">
-              <span className="truncate max-w-[55px]">
+          <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pt-1 leading-none">
+              <span className="truncate max-w-[90px]">
                   {new Date(item.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </span>
               <span>
@@ -441,9 +441,9 @@ export default function MobileMonitorPage() {
           <h2 className="page-title text-2xl font-black text-slate-800 dark:text-slate-100">Mobile Monitor</h2>
           <p className="page-description text-slate-500 text-sm">Đang tải cấu hình thiết bị chạy ngầm...</p>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <div key={`skel-${i}`} className="bg-white dark:bg-slate-900/40 rounded-none p-3 h-80 shimmer-loading" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={`skel-${i}`} className="bg-white dark:bg-slate-900/40 rounded-[10px] p-4 h-[420px] shimmer-loading" />
           ))}
         </div>
       </div>
@@ -554,7 +554,7 @@ export default function MobileMonitorPage() {
           Không tìm thấy thiết bị di động nào phù hợp.
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {filteredLogs.map((item, index) => (
             <MobileDeviceCard
               key={item.deviceId || index}
