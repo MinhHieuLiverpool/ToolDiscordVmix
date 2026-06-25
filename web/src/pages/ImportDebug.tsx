@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { showToast } from '../components/ui/Toast'
 import Dialog from '../components/ui/Dialog'
 import { fetchDbDebugLogs } from '../services/api'
@@ -17,9 +17,11 @@ type ParsedLogLine = {
 
 export default function ImportDebugPage() {
     const navigate = useNavigate()
+    const location = useLocation()
+    const state = location.state as { logs?: ParsedLogLine[]; fileName?: string } | null
     const { gameAssignments } = useDashboardContext()
-    const [logLines, setLogLines] = useState<ParsedLogLine[]>([])
-    const [fileName, setFileName] = useState('')
+    const [logLines, setLogLines] = useState<ParsedLogLine[]>(state?.logs || [])
+    const [fileName, setFileName] = useState(state?.fileName || '')
     const [loadingDb, setLoadingDb] = useState(false)
     const [filterGame, setFilterGame] = useState('__all__')
 
@@ -329,6 +331,43 @@ export default function ImportDebugPage() {
             .catch(() => showToast('Không thể copy logs.', 'error'))
     }
 
+    const handleViewCharts = () => {
+        if (filteredLines.length === 0) {
+            showToast('Không có log để vẽ biểu đồ.', 'error')
+            return
+        }
+
+        const chartData = filteredLines.map(line => {
+            try {
+                const obj = JSON.parse(line.rawJson)
+                const minimalObj: any = {}
+                if (obj.cpu !== undefined) minimalObj.cpu = obj.cpu
+                if (obj.temperature !== undefined) minimalObj.temperature = obj.temperature
+                if (obj.ram !== undefined) minimalObj.ram = obj.ram
+                if (obj.memory !== undefined) minimalObj.memory = obj.memory
+                if (obj.gpu !== undefined) minimalObj.gpu = obj.gpu
+                if (obj.ping !== undefined) minimalObj.ping = obj.ping
+                if (obj.sender_mbps !== undefined) minimalObj.sender_mbps = obj.sender_mbps
+                if (obj.receiver_mbps !== undefined) minimalObj.receiver_mbps = obj.receiver_mbps
+                
+                return {
+                    machineName: line.machineName,
+                    timeOnly: line.timeOnly,
+                    rawJson: JSON.stringify(minimalObj)
+                }
+            } catch (e) {
+                return {
+                    machineName: line.machineName,
+                    timeOnly: line.timeOnly,
+                    rawJson: '{}'
+                }
+            }
+        })
+
+        sessionStorage.setItem('debug_chart_data', JSON.stringify({ logs: chartData, fileName }))
+        window.open('/debug-logs/import/charts', '_blank')
+    }
+
     return (
         <>
             <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
@@ -417,6 +456,35 @@ export default function ImportDebugPage() {
                 </div>
 
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    {logLines.length > 0 && (
+                        <button
+                            className="viewsync-primary-btn"
+                            type="button"
+                            onClick={handleViewCharts}
+                            style={{ 
+                                padding: '0.55rem 1.25rem', 
+                                fontSize: '0.85rem', 
+                                height: '40px',
+                                backgroundColor: '#8b5cf6',
+                                borderColor: '#8b5cf6',
+                                color: '#ffffff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.4rem',
+                                transition: 'all 0.2s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#7c3aed';
+                                e.currentTarget.style.borderColor = '#7c3aed';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = '#8b5cf6';
+                                e.currentTarget.style.borderColor = '#8b5cf6';
+                            }}
+                        >
+                            <span>📊</span> Xem Biểu Đồ Phân Tích
+                        </button>
+                    )}
                     <button
                         className="viewsync-primary-btn"
                         type="button"

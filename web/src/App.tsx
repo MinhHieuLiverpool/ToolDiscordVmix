@@ -16,6 +16,7 @@ import ViewSyncMultiPage from './pages/ViewSyncMulti'
 import LoginPage from './pages/Login'
 import DebugLogPage from './pages/DebugLogPage'
 import ImportDebugPage from './pages/ImportDebug'
+import ImportDebugChartsPage from './pages/ImportDebugCharts'
 import CreateWebUrlPage from './pages/CreateWebUrlPage'
 import SharedDashboardPage from './pages/SharedDashboardPage'
 import GameChannelsPage from './pages/GameChannelsPage'
@@ -28,6 +29,11 @@ import { fetchSharedWebConfig, type SharedWebConfig, normalizeSrtList } from './
 
 function ProtectedLayout() {
   return isAuthenticated() ? <DashboardLayout /> : <Navigate to="/login" replace />
+}
+
+function ProtectedNoSidebarLayout() {
+  const data = useDashboardData()
+  return isAuthenticated() ? <Outlet context={data} /> : <Navigate to="/login" replace />
 }
 
 function SharedLayout() {
@@ -160,6 +166,11 @@ function App() {
           <Route path="/account/roles" element={<RolePage />} />
           <Route path="/debug-logs" element={<DebugLogPage />} />
           <Route path="/debug-logs/import" element={<ImportDebugPage />} />
+        </Route>
+
+        {/* Protected routes without sidebar layout */}
+        <Route element={<ProtectedNoSidebarLayout />}>
+          <Route path="/debug-logs/import/charts" element={<ImportDebugChartsPage />} />
         </Route>
 
         {/* Login */}
