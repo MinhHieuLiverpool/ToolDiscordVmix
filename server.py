@@ -2231,6 +2231,33 @@ async def load_game_selected():
         print(f"✗ Load game selected error: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
+@app.post("/delete_game_selected")
+async def delete_game_selected(payload: dict):
+    """Xóa cấu hình game khỏi Game_Selected"""
+    try:
+        game = payload.get('game', '')
+        if not game:
+            return JSONResponse(content={"success": False, "error": "Missing 'game' field"}, status_code=400)
+            
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: game_selected_collection.delete_one({"game": game})
+        )
+        
+        if result.deleted_count == 0:
+            return JSONResponse(content={"success": False, "error": "Không tìm thấy cấu hình kênh để xóa"}, status_code=404)
+            
+        print(f"✓ Deleted game assignment for '{game}' from Game_Selected")
+        return JSONResponse(content={
+            "success": True, 
+            "message": f"Xóa kênh '{game}' thành công"
+        })
+    except Exception as e:
+        print(f"✗ Delete game selected error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+
 @app.post("/create_shared_web")
 async def create_shared_web(payload: dict):
     """Tạo một cấu hình chia sẻ URL mới với UUID"""

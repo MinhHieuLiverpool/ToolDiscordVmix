@@ -40,22 +40,27 @@ export default function OverviewPage() {
 
     // Sync selected machines in dialog when dialogGame or assignments change
     useEffect(() => {
-        const assignment = gameAssignments.find(a => a.game === dialogGame)
+        const assignment = gameAssignments.find((a: any) => a.game === dialogGame)
         setDialogSelectedMachines(assignment ? assignment.machines : [])
     }, [dialogGame, gameAssignments, isDialogOpen])
 
-    const games = [
-        { id: '__all__', label: 'Tất cả Game' },
-        { id: 'Liên Quân Mobile', label: 'Liên Quân Mobile' },
-        { id: 'Free Fire', label: 'Free Fire' },
-        { id: 'FC Online', label: 'FC Online' },
-        { id: 'FC Mobile', label: 'FC Mobile' },
-        { id: 'Delta Force', label: 'Delta Force' },
-    ]
+    const games = useMemo(() => {
+        const list = [
+            { id: '__all__', label: 'Tất cả Game' }
+        ]
+        if (gameAssignments) {
+            gameAssignments.forEach((assignment: any) => {
+                if (assignment.game && !list.some(g => g.id === assignment.game)) {
+                    list.push({ id: assignment.game, label: assignment.game })
+                }
+            })
+        }
+        return list
+    }, [gameAssignments])
 
     const uniqueMachineNames = useMemo(() => {
         const names = new Set<string>()
-        allRows.forEach((row) => {
+        allRows.forEach((row: any) => {
             if (row.data.name) {
                 names.add(row.data.name)
             }
@@ -127,10 +132,12 @@ export default function OverviewPage() {
                             </div>
                         </div>
                     ) : (
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-900 rounded-lg">
-                            <span className="text-xs font-semibold text-slate-400">Kênh Game:</span>
-                            <span className="text-xs font-bold text-purple-600 dark:text-purple-400">{selectedLabel}</span>
-                        </div>
+                        selectedGame !== '__all__' ? (
+                            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-900 rounded-lg">
+                                <span className="text-xs font-semibold text-slate-400">Kênh Game:</span>
+                                <span className="text-xs font-bold text-purple-600 dark:text-purple-400">{selectedLabel}</span>
+                            </div>
+                        ) : null
                     )}
 
                     {/* Add to channel button */}
@@ -163,17 +170,13 @@ export default function OverviewPage() {
                 <div className="flex flex-col gap-4 text-slate-800 dark:text-slate-100">
                     <div>
                         <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Kênh Game cần cài đặt:</label>
-                        <select
+                        <input
+                            type="text"
                             value={dialogGame}
                             onChange={(e) => setDialogGame(e.target.value)}
-                            className="bg-slate-900 text-white border border-white/10 rounded-lg px-3 py-2 text-sm font-semibold w-full focus:outline-none focus:ring-2 focus:ring-purple-500/30 cursor-pointer"
-                        >
-                            <option value="Liên Quân Mobile">Liên Quân Mobile</option>
-                            <option value="Free Fire">Free Fire</option>
-                            <option value="FC Online">FC Online</option>
-                            <option value="FC Mobile">FC Mobile</option>
-                            <option value="Delta Force">Delta Force</option>
-                        </select>
+                            placeholder="Nhập tên kênh game..."
+                            className="w-full bg-white dark:bg-slate-950 border border-purple-500/30 dark:border-purple-500/20 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition-all"
+                        />
                     </div>
 
                     <div>
@@ -183,7 +186,7 @@ export default function OverviewPage() {
                         <div className="max-h-60 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-lg p-2 bg-slate-50 dark:bg-slate-950/40 flex flex-col gap-2">
                             {uniqueMachineNames.map((name) => {
                                 const isChecked = dialogSelectedMachines.includes(name)
-                                const machineRow = allRows.find(r => r.data.name === name)
+                                const machineRow = allRows.find((r: any) => r.data.name === name)
                                 const displayName = machineRow?.data.name_edit
                                     ? `${machineRow.data.name_edit} (${name})`
                                     : name

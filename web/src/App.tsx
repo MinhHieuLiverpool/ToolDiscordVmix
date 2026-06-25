@@ -5,7 +5,6 @@ import OverviewPage from './pages/OverviewPage'
 import SrtPage from './pages/SrtPage'
 import StreamPage from './pages/StreamPage'
 import UrlKeyPage from './pages/UrlKeyPage'
-import FfmpegPage from './pages/FfmpegPage'
 import StatisticsPage from './pages/StatisticsPage'
 import VmixMonitorPage from './pages/VmixMonitorPage'
 import MobileMonitorPage from './pages/MobileMonitorPage'
@@ -19,11 +18,12 @@ import DebugLogPage from './pages/DebugLogPage'
 import ImportDebugPage from './pages/ImportDebug'
 import CreateWebUrlPage from './pages/CreateWebUrlPage'
 import SharedDashboardPage from './pages/SharedDashboardPage'
+import GameChannelsPage from './pages/GameChannelsPage'
 import { isAuthenticated } from './services/auth'
 import { Outlet, useParams } from 'react-router-dom'
 import { useEffect, useState, useMemo } from 'react'
 import { useDashboardData } from './hooks/useDashboardData'
-import { fetchSharedWebConfig, type SharedWebConfig } from './services/api'
+import { fetchSharedWebConfig, type SharedWebConfig, normalizeSrtList } from './services/api'
 
 
 function ProtectedLayout() {
@@ -63,6 +63,7 @@ function SharedLayout() {
         ...data,
         loading: data.loading || loadingConfig,
         error: data.error || configError,
+        isConfigInvalid: !!configError,
         allowedFeatures: [] as string[],
         allowedMachines: [] as string[],
         isGameLocked: false
@@ -71,28 +72,57 @@ function SharedLayout() {
     
     const allowed = config.allowed_machines || []
     const game = config.selected_game || '__all__'
+    const shareType = config.share_type || 'machines'
     
-    let filteredAllRows = data.allRows.filter(r => allowed.includes(r.data.name))
-    if (game !== '__all__') {
-      const assignment = data.gameAssignments.find(a => a.game === game)
-      if (assignment) {
-        filteredAllRows = filteredAllRows.filter(r => assignment.machines.includes(r.data.name))
-      } else {
-        filteredAllRows = []
+    let filteredAllRows = data.allRows
+    if (shareType === 'game') {
+      if (game !== '__all__') {
+        const assignment = data.gameAssignments.find(a => a.game === game)
+        if (assignment) {
+          filteredAllRows = data.allRows.filter(r => assignment.machines.includes(r.data.name))
+        } else {
+          filteredAllRows = []
+        }
       }
+    } else {
+      filteredAllRows = data.allRows.filter(r => allowed.includes(r.data.name))
     }
-    const filteredRows = filteredAllRows
+    // Build allowed machine IDs for onlineMachineOptions filtering
+    const map = new Map<string, string>()
+    const allowedMachineNames = filteredAllRows.map(r => r.data.name)
+    filteredAllRows.forEach((item) => {
+      const ip = String(item.data.ip || '').trim()
+      const port = String(item.data.port || '').trim()
+      const srtList = normalizeSrtList(item.data.SRT)
+      const srtPort = port || String(srtList[0]?.port || '').trim()
+      const id = (ip || srtPort) ? `${ip}:${srtPort}` : String(item.data.name || '').trim()
+      if (id) {
+        map.set(id, item.data.name)
+      }
+    })
+    const allowedMachineIds = new Set(map.keys())
+    
+    const onlineMachineOptions = data.onlineMachineOptions.filter((opt: any) => allowedMachineIds.has(opt.id))
+    const filteredMachines = data.filteredMachines.filter((m: any) => {
+      const name = m.latestItem?.data.name
+      return name && allowedMachineNames.includes(name)
+    })
+    const totalOnline = filteredAllRows.filter((item) => Number(item.data.statusapp ?? 0) === 1).length
     
     return {
       ...data,
       allRows: filteredAllRows,
-      rows: filteredRows,
+      rows: filteredAllRows,
       selectedGame: game,
-      isGameLocked: game !== '__all__',
+      isGameLocked: true,
+      isConfigInvalid: !!configError,
       loading: data.loading || loadingConfig,
       error: data.error || configError,
       allowedFeatures: config.allowed_features || [],
-      allowedMachines: allowed
+      allowedMachines: allowed,
+      onlineMachineOptions,
+      filteredMachines,
+      totalOnline
     }
   }, [data, config, loadingConfig, configError])
 
@@ -117,10 +147,10 @@ function App() {
         <Route element={<ProtectedLayout />}>
           <Route path="/dashboard" element={<OverviewPage />} />
           <Route path="/create-web-url" element={<CreateWebUrlPage />} />
+          <Route path="/game-channels" element={<GameChannelsPage />} />
           <Route path="/srt" element={<SrtPage />} />
           <Route path="/stream" element={<StreamPage />} />
           <Route path="/url-key" element={<UrlKeyPage />} />
-          <Route path="/ffmpeg" element={<FfmpegPage />} />
           <Route path="/statistics" element={<StatisticsPage />} />
           <Route path="/vmix-monitor" element={<VmixMonitorPage />} />
           <Route path="/mobile-monitor" element={<MobileMonitorPage />} />

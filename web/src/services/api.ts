@@ -358,11 +358,18 @@ export async function saveGameSelected(game: string, machines: string[]): Promis
   return response.data
 }
 
+export async function deleteGameSelected(game: string): Promise<{ success: boolean; message?: string }> {
+  const response = await apiClient.post<{ success: boolean; message?: string }>('/delete_game_selected', { game })
+  return response.data
+}
+
+
 export interface SharedWebConfig {
   uuid: string
   allowed_features: string[]
   allowed_machines: string[]
   selected_game?: string
+  share_type?: 'game' | 'machines'
   created_at: string
 }
 
@@ -372,11 +379,12 @@ export interface SharedWebConfigResponse {
   message?: string
 }
 
-export async function createSharedWebConfig(allowedFeatures: string[], allowedMachines: string[], selectedGame?: string): Promise<{ success: boolean; uuid?: string; message?: string }> {
+export async function createSharedWebConfig(allowedFeatures: string[], allowedMachines: string[], selectedGame?: string, shareType?: 'game' | 'machines'): Promise<{ success: boolean; uuid?: string; message?: string }> {
   const response = await apiClient.post<{ success: boolean; uuid?: string; message?: string }>('/create_shared_web', {
     allowed_features: allowedFeatures,
     allowed_machines: allowedMachines,
-    selected_game: selectedGame || '__all__'
+    selected_game: selectedGame || '__all__',
+    share_type: shareType || 'machines'
   })
   return response.data
 }
@@ -396,11 +404,12 @@ export async function deleteSharedWebConfig(uuid: string): Promise<{ success: bo
   return response.data
 }
 
-export async function updateSharedWebConfig(uuid: string, allowedFeatures: string[], allowedMachines: string[], selectedGame?: string): Promise<{ success: boolean; message?: string }> {
+export async function updateSharedWebConfig(uuid: string, allowedFeatures: string[], allowedMachines: string[], selectedGame?: string, shareType?: 'game' | 'machines'): Promise<{ success: boolean; message?: string }> {
   const response = await apiClient.post<{ success: boolean; message?: string }>(`/update_shared_web/${encodeURIComponent(uuid)}`, {
     allowed_features: allowedFeatures,
     allowed_machines: allowedMachines,
-    selected_game: selectedGame || '__all__'
+    selected_game: selectedGame || '__all__',
+    share_type: shareType || 'machines'
   })
   return response.data
 }

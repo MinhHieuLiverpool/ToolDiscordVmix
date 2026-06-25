@@ -9,7 +9,6 @@ const AVAILABLE_PERMISSIONS = [
     'SRT',
     'Thông số Stream',
     'URL & Key',
-    'FFmpeg',
     'Thống kê',
     'Vmix Monitor',
     'Mobile Monitor',

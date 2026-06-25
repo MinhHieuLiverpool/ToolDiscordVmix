@@ -5,7 +5,6 @@ import OverviewPage from './OverviewPage'
 import SrtPage from './SrtPage'
 import StreamPage from './StreamPage'
 import UrlKeyPage from './UrlKeyPage'
-import FfmpegPage from './FfmpegPage'
 import StatisticsPage from './StatisticsPage'
 import VmixMonitorPage from './VmixMonitorPage'
 import MobileMonitorPage from './MobileMonitorPage'
@@ -16,12 +15,13 @@ export default function SharedDashboardPage() {
     const context = useDashboardContext() as DashboardContextType & { 
         allowedFeatures?: string[]
         allowedMachines?: string[] 
+        isConfigInvalid?: boolean
     }
     
     const { 
         allowedFeatures = [], 
         loading, 
-        error, 
+        isConfigInvalid, 
         wsStatus 
     } = context
 
@@ -34,7 +34,7 @@ export default function SharedDashboardPage() {
         }
     }, [allowedFeatures, activeTab])
 
-    if (error) {
+    if (isConfigInvalid) {
         return (
             <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-white">
                 <div className="bg-slate-950/40 border border-rose-500/25 rounded-2xl p-8 max-w-md w-full text-center shadow-2xl flex flex-col items-center gap-4">
@@ -42,7 +42,7 @@ export default function SharedDashboardPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
                     </svg>
                     <h2 className="text-lg font-black text-rose-400 uppercase tracking-wider">Lỗi truy cập</h2>
-                    <p className="text-slate-400 text-sm font-semibold">{error}</p>
+                    <p className="text-slate-400 text-sm font-semibold">Cấu hình liên kết không tồn tại hoặc đã bị thu hồi.</p>
                 </div>
             </div>
         )
@@ -69,8 +69,6 @@ export default function SharedDashboardPage() {
                 return <StreamPage />
             case 'URL & Key':
                 return <UrlKeyPage />
-            case 'FFmpeg':
-                return <FfmpegPage />
             case 'Thống kê':
                 return <StatisticsPage />
             case 'Vmix Monitor':
