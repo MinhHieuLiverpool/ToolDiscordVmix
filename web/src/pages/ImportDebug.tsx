@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { showToast } from '../components/ui/Toast'
 import Dialog from '../components/ui/Dialog'
+import { fetchDbDebugLogs, getDownloadDebugLogsUrl } from '../services/api'
 
 type ParsedLogLine = {
     timestamp: string
@@ -17,6 +18,65 @@ export default function ImportDebugPage() {
     const navigate = useNavigate()
     const [logLines, setLogLines] = useState<ParsedLogLine[]>([])
     const [fileName, setFileName] = useState('')
+    const [loadingDb, setLoadingDb] = useState(false)
+
+    const handleLoadDbLogs = async () => {
+        try {
+            setLoadingDb(true)
+            const dbDocs = await fetchDbDebugLogs()
+            if (!dbDocs || dbDocs.length === 0) {
+                showToast('Không có dữ liệu log debug trong database.', 'warning')
+                return
+            }
+
+            const parsed = dbDocs.map((doc: any) => {
+                const d = new Date(doc.debug_logged_at || doc.timestamp)
+                const hh = String(d.getHours()).padStart(2, '0')
+                const mm = String(d.getMinutes()).padStart(2, '0')
+                const ss = String(d.getSeconds()).padStart(2, '0')
+                const day = String(d.getDate()).padStart(2, '0')
+                const month = String(d.getMonth() + 1).padStart(2, '0')
+                const year = d.getFullYear()
+                
+                const formattedTimestamp = `[ ${hh}:${mm}:${ss} - ${day}/${month}/${year} ]`
+                const timeOnly = `${hh}:${mm}:${ss}`
+                const dateOnly = `${day}/${month}/${year}`
+                
+                // Clean document from metadata for rawJson
+                const { _id, debug_logged_at, ...rawDoc } = doc
+                
+                return {
+                    timestamp: formattedTimestamp,
+                    timeOnly,
+                    dateOnly,
+                    machineName: doc.name || 'Unknown',
+                    ip: doc.ip || '',
+                    ipwan: doc.ipwan || '',
+                    rawJson: JSON.stringify(rawDoc)
+                }
+            })
+
+            setLogLines(parsed)
+            setFileName('Database Logs')
+            showToast(`Đã tải thành công ${parsed.length} dòng log từ database.`, 'success')
+        } catch (err) {
+            console.error(err)
+            showToast('Lỗi khi tải log từ database.', 'error')
+        } finally {
+            setLoadingDb(false)
+        }
+    }
+
+    const handleDownloadDbLogs = () => {
+        try {
+            const url = getDownloadDebugLogsUrl()
+            window.open(url, '_blank')
+            showToast('Đang tiến hành tải xuống debug logs...', 'success')
+        } catch (err) {
+            console.error(err)
+            showToast('Lỗi khi chuẩn bị tải xuống.', 'error')
+        }
+    }
     
     // Filters
     const [filterName, setFilterName] = useState('')
@@ -295,6 +355,25 @@ export default function ImportDebugPage() {
                         onChange={handleFileUpload}
                         style={{ fontSize: '0.85rem', color: '#64748b' }}
                     />
+                </div>
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <button
+                        className="account-action-btn"
+                        type="button"
+                        onClick={handleLoadDbLogs}
+                        disabled={loadingDb}
+                        style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', background: '#6366f1' }}
+                    >
+                        {loadingDb ? 'Đang tải...' : 'Tải Logs từ Database'}
+                    </button>
+                    <button
+                        className="viewsync-outline-btn"
+                        type="button"
+                        onClick={handleDownloadDbLogs}
+                        style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', borderColor: '#6366f1', color: '#6366f1' }}
+                    >
+                        Download Logs
+                    </button>
                 </div>
                 {fileName && (
                     <div style={{ fontSize: '0.85rem', color: '#10b981', fontWeight: 600 }}>

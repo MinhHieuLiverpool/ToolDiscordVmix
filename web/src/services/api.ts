@@ -412,4 +412,14 @@ export async function updateSharedWebConfig(uuid: string, allowedFeatures: strin
     share_type: shareType || 'machines'
   })
   return response.data
-}
+}
+
+export async function fetchDbDebugLogs(): Promise<any[]> {
+  const response = await apiClient.get<any[]>('/load_debug_logs')
+  return response.data
+}
+
+export function getDownloadDebugLogsUrl(): string {
+  return `${BACKEND_BASE_URL}/download_debug_logs`
+}
+

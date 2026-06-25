@@ -372,24 +372,49 @@ async def load_debug_logs():
 
 @app.get("/download_debug_logs")
 async def download_debug_logs():
-    """Tải xuống toàn bộ debug logs dưới dạng file JSON"""
+    """Tải xuống toàn bộ debug logs dưới dạng file .txt có định dạng chuẩn"""
     try:
         loop = asyncio.get_event_loop()
         documents = await loop.run_in_executor(
             None,
-            lambda: list(debug_logs_collection.find().sort("debug_logged_at", -1))
+            lambda: list(debug_logs_collection.find().sort("debug_logged_at", 1))
         )
-        for doc in documents:
-            doc.pop('_id', None)
         
-        # Convert to formatted JSON text
-        json_str = json.dumps(_to_json_safe(documents), indent=4, ensure_ascii=False)
+        lines = []
+        for doc in documents:
+            logged_at_str = doc.get("debug_logged_at", doc.get("timestamp", ""))
+            try:
+                dt = datetime.fromisoformat(logged_at_str)
+                if dt.tzinfo is None:
+                    dt = VIETNAM_TZ.localize(dt)
+                dt = dt.astimezone(VIETNAM_TZ)
+                time_str = dt.strftime("%H:%M:%S")
+                date_str = dt.strftime("%d/%m/%Y")
+                format_time_date = f"[ {time_str} - {date_str} ]"
+            except Exception:
+                format_time_date = "[ --:--:-- - --/--/---- ]"
+
+            machine_name = doc.get('name', 'Unknown')
+            ip = doc.get('ip', '-') or '-'
+            ipwan = doc.get('ipwan', '-') or '-'
+            
+            raw_doc = dict(doc)
+            raw_doc.pop('_id', None)
+            raw_doc.pop('debug_logged_at', None)
+            raw_doc.pop('timestamp', None)
+            
+            json_payload = json.dumps(_to_json_safe(raw_doc), ensure_ascii=False)
+            
+            log_line = f"{format_time_date} - {machine_name} - {ip} - {ipwan} - {json_payload}"
+            lines.append(log_line)
+            
+        txt_content = "\n".join(lines)
         
         from fastapi.responses import Response
-        filename = f"debug_logs_{datetime.now(VIETNAM_TZ).strftime('%Y%m%d_%H%M%S')}.json"
+        filename = f"debug_logs_{datetime.now(VIETNAM_TZ).strftime('%Y%m%d_%H%M%S')}.txt"
         return Response(
-            content=json_str,
-            media_type="application/json",
+            content=txt_content,
+            media_type="text/plain",
             headers={
                 "Content-Disposition": f"attachment; filename={filename}"
             }
@@ -397,6 +422,7 @@ async def download_debug_logs():
     except Exception as e:
         print(f"✗ Download debug logs error: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
 
 
 @app.get("/bandwidth")
