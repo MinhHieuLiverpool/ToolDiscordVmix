@@ -419,7 +419,11 @@ export async function fetchDbDebugLogs(): Promise<any[]> {
   return response.data
 }
 
-export function getDownloadDebugLogsUrl(): string {
-  return `${BACKEND_BASE_URL}/download_debug_logs`
+export function getDownloadDebugLogsUrl(timeStart?: string, timeEnd?: string): string {
+  const params = new URLSearchParams()
+  if (timeStart) params.append('timeStart', timeStart)
+  if (timeEnd) params.append('timeEnd', timeEnd)
+  const queryString = params.toString()
+  return `${BACKEND_BASE_URL}/download_debug_logs${queryString ? '?' + queryString : ''}`
 }
 

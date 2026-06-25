@@ -371,13 +371,62 @@ async def load_debug_logs():
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 @app.get("/download_debug_logs")
-async def download_debug_logs():
-    """Tải xuống toàn bộ debug logs dưới dạng file .txt có định dạng chuẩn"""
+async def download_debug_logs(timeStart: str = None, timeEnd: str = None, timestart: str = None, timeend: str = None):
+    """Tải xuống toàn bộ hoặc một phần debug logs theo khoảng thời gian dưới dạng file .txt"""
     try:
+        # Normalize parameter names
+        t_start = timeStart or timestart
+        t_end = timeEnd or timeend
+        
+        query_filter = {}
+        
+        def parse_time_param(param_str: str) -> str:
+            if not param_str:
+                return None
+            param_str = param_str.strip()
+            # Check if it's already a full ISO string (contains '-' and 'T')
+            if '-' in param_str and 'T' in param_str:
+                try:
+                    dt = datetime.fromisoformat(param_str)
+                    if dt.tzinfo is None:
+                        dt = VIETNAM_TZ.localize(dt)
+                    return dt.astimezone(VIETNAM_TZ).isoformat()
+                except ValueError:
+                    pass
+            
+            # Otherwise try parsing as HH:MM:SS or HH:MM of the current day
+            try:
+                parts = param_str.split(':')
+                hrs = int(parts[0])
+                mins = int(parts[1]) if len(parts) > 1 else 0
+                secs = int(parts[2]) if len(parts) > 2 else 0
+                now_vn = datetime.now(VIETNAM_TZ)
+                dt = now_vn.replace(hour=hrs, minute=mins, second=secs, microsecond=0)
+                # Heuristic: if parsed time is in the future, it must be from yesterday
+                if dt > now_vn:
+                    dt = dt - timedelta(days=1)
+                return dt.isoformat()
+            except (ValueError, IndexError):
+                pass
+            return None
+
+        start_iso = parse_time_param(t_start)
+        end_iso = parse_time_param(t_end)
+
+        if start_iso or end_iso:
+            time_filter = {}
+            if start_iso:
+                time_filter["$gte"] = start_iso
+            if end_iso:
+                time_filter["$lte"] = end_iso
+            query_filter["debug_logged_at"] = time_filter
+
+        print(f"📥 [DOWNLOAD] Filter time range query: {query_filter}")
+
         loop = asyncio.get_event_loop()
         documents = await loop.run_in_executor(
             None,
-            lambda: list(debug_logs_collection.find().sort("debug_logged_at", 1))
+            lambda: list(debug_logs_collection.find(query_filter).sort("debug_logged_at", 1))
         )
         
         lines = []

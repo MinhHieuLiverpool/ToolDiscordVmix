@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { showToast } from '../components/ui/Toast'
 import { getDownloadDebugLogsUrl } from '../services/api'
+import Dialog from '../components/ui/Dialog'
 
 export default function DebugLogPage() {
     const navigate = useNavigate()
@@ -10,15 +11,27 @@ export default function DebugLogPage() {
     const [searchTerm, setSearchTerm] = useState('')
     const [filterGame, setFilterGame] = useState('__all__')
 
+    const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false)
+    const [downloadType, setDownloadType] = useState('all')
+    const [timeStart, setTimeStart] = useState('')
+    const [timeEnd, setTimeEnd] = useState('')
+
     const handleDownloadDbLogs = () => {
-        try {
-            const url = getDownloadDebugLogsUrl()
-            window.open(url, '_blank')
-            showToast('Đang tiến hành tải xuống debug logs...', 'success')
-        } catch (err) {
-            console.error(err)
-            showToast('Lỗi khi chuẩn bị tải xuống.', 'error')
+        setIsDownloadDialogOpen(true)
+    }
+
+    const executeDownload = () => {
+        let url = getDownloadDebugLogsUrl()
+        if (downloadType === 'range') {
+            if (!timeStart.trim() && !timeEnd.trim()) {
+                showToast('Vui lòng nhập mốc thời gian bắt đầu hoặc kết thúc.', 'warning')
+                return
+            }
+            url = getDownloadDebugLogsUrl(timeStart.trim(), timeEnd.trim())
         }
+        window.open(url, '_blank')
+        showToast('Đang tiến hành tải xuống debug logs...', 'success')
+        setIsDownloadDialogOpen(false)
     }
 
     // Fallback if context doesn't have it (e.g. before initial render or in mock environments)
@@ -202,6 +215,82 @@ export default function DebugLogPage() {
                     )}
                 </div>
             </div>
+
+            <Dialog
+                open={isDownloadDialogOpen}
+                onClose={() => setIsDownloadDialogOpen(false)}
+                title="Tải xuống Debug Logs"
+            >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '0.5rem', width: '100%', minWidth: '350px' }}>
+                    <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>Chọn phạm vi tải logs</label>
+                        <select
+                            value={downloadType}
+                            onChange={(e) => setDownloadType(e.target.value)}
+                            style={{ 
+                                border: '1px solid #e2e8f0', 
+                                borderRadius: '8px', 
+                                padding: '0.45rem 0.75rem', 
+                                width: '100%', 
+                                fontSize: '0.85rem',
+                                backgroundColor: '#fff',
+                                color: '#1e293b',
+                                outline: 'none',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <option value="all">Tải toàn bộ logs (7 giờ qua)</option>
+                            <option value="range">Tải theo khoảng thời gian</option>
+                        </select>
+                    </div>
+
+                    {downloadType === 'range' && (
+                        <div style={{ display: 'flex', gap: '1rem' }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>Từ giờ (ví dụ: 12:00)</label>
+                                <input
+                                    className="table-search-input"
+                                    type="text"
+                                    placeholder="HH:MM hoặc HH:MM:SS"
+                                    value={timeStart}
+                                    onChange={(e) => setTimeStart(e.target.value)}
+                                    style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.4rem 0.75rem', width: '100%', fontSize: '0.85rem' }}
+                                />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>Đến giờ (ví dụ: 13:30)</label>
+                                <input
+                                    className="table-search-input"
+                                    type="text"
+                                    placeholder="HH:MM hoặc HH:MM:SS"
+                                    value={timeEnd}
+                                    onChange={(e) => setTimeEnd(e.target.value)}
+                                    style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '0.4rem 0.75rem', width: '100%', fontSize: '0.85rem' }}
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem', borderTop: '1px solid rgba(0,0,0,0.1)', paddingTop: '1rem' }}>
+                    <button
+                        className="viewsync-outline-btn"
+                        type="button"
+                        onClick={() => setIsDownloadDialogOpen(false)}
+                        style={{ padding: '0.4rem 1.25rem', fontSize: '0.85rem' }}
+                    >
+                        Hủy
+                    </button>
+                    <button
+                        className="viewsync-primary-btn"
+                        type="button"
+                        onClick={executeDownload}
+                        style={{ padding: '0.4rem 1.5rem', fontSize: '0.85rem' }}
+                    >
+                        Tải xuống
+                    </button>
+                </div>
+            </Dialog>
         </>
     )
 }
