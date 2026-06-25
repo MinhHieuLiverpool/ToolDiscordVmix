@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { showToast } from '../components/ui/Toast'
 import Dialog from '../components/ui/Dialog'
-import { fetchDbDebugLogs, getDownloadDebugLogsUrl } from '../services/api'
+import { fetchDbDebugLogs } from '../services/api'
 
 type ParsedLogLine = {
     timestamp: string
@@ -64,17 +64,6 @@ export default function ImportDebugPage() {
             showToast('Lỗi khi tải log từ database.', 'error')
         } finally {
             setLoadingDb(false)
-        }
-    }
-
-    const handleDownloadDbLogs = () => {
-        try {
-            const url = getDownloadDebugLogsUrl()
-            window.open(url, '_blank')
-            showToast('Đang tiến hành tải xuống debug logs...', 'success')
-        } catch (err) {
-            console.error(err)
-            showToast('Lỗi khi chuẩn bị tải xuống.', 'error')
         }
     }
     
@@ -346,40 +335,84 @@ export default function ImportDebugPage() {
             </div>
 
             {/* Uploader section */}
-            <div className="card-light" style={{ padding: '1.5rem', marginBottom: '1.5rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{ flexGrow: 1 }}>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>Chọn file debug (.txt)</div>
-                    <input
-                        type="file"
-                        accept=".txt"
-                        onChange={handleFileUpload}
-                        style={{ fontSize: '0.85rem', color: '#64748b' }}
-                    />
+            <div className="card-light" style={{ padding: '1.5rem', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap', flexGrow: 1 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#475569' }}>Chọn file debug (.txt)</div>
+                        <label
+                            htmlFor="debug-file-upload"
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.75rem',
+                                padding: '0.55rem 1rem',
+                                border: '1.5px dashed #cbd5e1',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                backgroundColor: '#f8fafc',
+                                transition: 'all 0.25s ease',
+                                width: 'fit-content',
+                                minWidth: '320px',
+                                boxSizing: 'border-box'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.borderColor = '#6366f1';
+                                e.currentTarget.style.backgroundColor = '#f5f3ff';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.borderColor = '#cbd5e1';
+                                e.currentTarget.style.backgroundColor = '#f8fafc';
+                            }}
+                        >
+                            <svg style={{ width: '18px', height: '18px', color: '#6366f1', flexShrink: 0 }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="17 8 12 3 7 8" />
+                                <line x1="12" y1="3" x2="12" y2="15" />
+                            </svg>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 500, color: '#475569', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '240px' }}>
+                                {fileName && fileName !== 'Database Logs' ? fileName : 'Chọn tệp debug .txt từ máy...'}
+                            </span>
+                            <input
+                                id="debug-file-upload"
+                                type="file"
+                                accept=".txt"
+                                onChange={handleFileUpload}
+                                style={{ display: 'none' }}
+                            />
+                        </label>
+                    </div>
+
+                    {fileName && (
+                        <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '0.5rem', 
+                            padding: '0.5rem 0.85rem', 
+                            background: '#ecfdf5', 
+                            border: '1px solid #a7f3d0', 
+                            borderRadius: '8px',
+                            color: '#065f46',
+                            fontSize: '0.8rem',
+                            fontWeight: 600,
+                            marginTop: '1.25rem'
+                        }}>
+                            <span style={{ display: 'inline-block', width: '8px', height: '8px', background: '#10b981', borderRadius: '50%' }}></span>
+                            Đang xem: <span style={{ textDecoration: 'underline' }}>{fileName}</span> ({logLines.length} dòng)
+                        </div>
+                    )}
                 </div>
+
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                     <button
-                        className="account-action-btn"
+                        className="viewsync-primary-btn"
                         type="button"
                         onClick={handleLoadDbLogs}
                         disabled={loadingDb}
-                        style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', background: '#6366f1' }}
+                        style={{ padding: '0.55rem 1.25rem', fontSize: '0.85rem', height: '40px' }}
                     >
                         {loadingDb ? 'Đang tải...' : 'Tải Logs từ Database'}
                     </button>
-                    <button
-                        className="viewsync-outline-btn"
-                        type="button"
-                        onClick={handleDownloadDbLogs}
-                        style={{ padding: '0.5rem 1rem', fontSize: '0.8rem', borderColor: '#6366f1', color: '#6366f1' }}
-                    >
-                        Download Logs
-                    </button>
                 </div>
-                {fileName && (
-                    <div style={{ fontSize: '0.85rem', color: '#10b981', fontWeight: 600 }}>
-                        Active file: {fileName} ({logLines.length} dòng)
-                    </div>
-                )}
             </div>
 
             {/* Filters */}

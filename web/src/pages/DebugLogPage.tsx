@@ -2,11 +2,23 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { showToast } from '../components/ui/Toast'
+import { getDownloadDebugLogsUrl } from '../services/api'
 
 export default function DebugLogPage() {
     const navigate = useNavigate()
     const { debugLogs, clearDebugLogs } = useDashboardContext()
     const [searchTerm, setSearchTerm] = useState('')
+
+    const handleDownloadDbLogs = () => {
+        try {
+            const url = getDownloadDebugLogsUrl()
+            window.open(url, '_blank')
+            showToast('Đang tiến hành tải xuống debug logs...', 'success')
+        } catch (err) {
+            console.error(err)
+            showToast('Lỗi khi chuẩn bị tải xuống.', 'error')
+        }
+    }
 
     // Fallback if context doesn't have it (e.g. before initial render or in mock environments)
     const logs = debugLogs || []
@@ -60,6 +72,14 @@ export default function DebugLogPage() {
                         style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
                     >
                         Import File Debug
+                    </button>
+                    <button
+                        className="viewsync-outline-btn"
+                        type="button"
+                        onClick={handleDownloadDbLogs}
+                        style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', borderColor: '#6366f1', color: '#6366f1' }}
+                    >
+                        Download Logs
                     </button>
                     <button
                         className="viewsync-outline-btn"
