@@ -78,10 +78,14 @@ try:
     # WAN IP Bandwidth Collection
     bandwidth_collection = db['bandwidth_statistic']
     
+    # Shared Web Configurations Collection
+    shared_web_configs_collection = db['shared_web_configs']
+    
     accounts_collection.create_index("username_key", unique=True)
     roles_collection.create_index("role_key", unique=True)
     statistics_collection.create_index("id", unique=True)
     bandwidth_collection.create_index([("ipwan", 1), ("date", 1)], unique=True)
+    shared_web_configs_collection.create_index("uuid", unique=True)
 
 
     if USE_TIMESERIES_STATS:
@@ -2226,6 +2230,139 @@ async def load_game_selected():
     except Exception as e:
         print(f"✗ Load game selected error: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.post("/create_shared_web")
+async def create_shared_web(payload: dict):
+    """Tạo một cấu hình chia sẻ URL mới với UUID"""
+    try:
+        import uuid
+        allowed_features = payload.get("allowed_features", [])
+        allowed_machines = payload.get("allowed_machines", [])
+        selected_game = payload.get("selected_game", "__all__")
+        share_type = payload.get("share_type", "machines")
+        
+        new_uuid = str(uuid.uuid4())
+        doc = {
+            "uuid": new_uuid,
+            "allowed_features": allowed_features,
+            "allowed_machines": allowed_machines,
+            "selected_game": selected_game,
+            "share_type": share_type,
+            "created_at": datetime.now(VIETNAM_TZ).isoformat()
+        }
+        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: shared_web_configs_collection.insert_one(doc)
+        )
+        
+        print(f"✓ Created shared web config with UUID: {new_uuid}")
+        return JSONResponse(content={
+            "success": True,
+            "uuid": new_uuid,
+            "message": "Tạo cấu hình chia sẻ thành công"
+        })
+    except Exception as e:
+        print(f"✗ Create shared web config error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/shared_web_config/{uuid_str}")
+async def get_shared_web_config(uuid_str: str):
+    """Lấy cấu hình chia sẻ theo UUID"""
+    try:
+        loop = asyncio.get_event_loop()
+        doc = await loop.run_in_executor(
+            None,
+            lambda: shared_web_configs_collection.find_one({"uuid": uuid_str})
+        )
+        
+        if not doc:
+            return JSONResponse(content={"success": False, "message": "Không tìm thấy cấu hình hoặc liên kết đã hết hạn/bị thu hồi"}, status_code=404)
+            
+        doc.pop('_id', None)
+        return JSONResponse(content={
+            "success": True,
+            "data": doc
+        })
+    except Exception as e:
+        print(f"✗ Get shared web config error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/list_shared_web")
+async def list_shared_web():
+    """Lấy danh sách toàn bộ liên kết chia sẻ đã tạo"""
+    try:
+        loop = asyncio.get_event_loop()
+        documents = await loop.run_in_executor(
+            None,
+            lambda: list(shared_web_configs_collection.find().sort("created_at", -1))
+        )
+        
+        entries = []
+        for doc in documents:
+            doc.pop('_id', None)
+            entries.append(doc)
+            
+        return JSONResponse(content=entries)
+    except Exception as e:
+        print(f"✗ List shared web configs error: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.delete("/delete_shared_web/{uuid_str}")
+async def delete_shared_web(uuid_str: str):
+    """Xóa cấu hình chia sẻ theo UUID"""
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: shared_web_configs_collection.delete_one({"uuid": uuid_str})
+        )
+        
+        if result.deleted_count == 0:
+            return JSONResponse(content={"success": False, "message": "Không tìm thấy cấu hình để xóa"}, status_code=404)
+            
+        print(f"✓ Deleted shared web config: {uuid_str}")
+        return JSONResponse(content={"success": True, "message": "Đã xóa liên kết chia sẻ"})
+    except Exception as e:
+        print(f"✗ Delete shared web config error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/update_shared_web/{uuid_str}")
+async def update_shared_web(uuid_str: str, payload: dict):
+    """Cập nhật cấu hình chia sẻ theo UUID"""
+    try:
+        allowed_features = payload.get("allowed_features", [])
+        allowed_machines = payload.get("allowed_machines", [])
+        selected_game = payload.get("selected_game", "__all__")
+        share_type = payload.get("share_type", "machines")
+        
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: shared_web_configs_collection.update_one(
+                {"uuid": uuid_str},
+                {"$set": {
+                    "allowed_features": allowed_features,
+                    "allowed_machines": allowed_machines,
+                    "selected_game": selected_game,
+                    "share_type": share_type,
+                    "updated_at": datetime.now(VIETNAM_TZ).isoformat()
+                }}
+            )
+        )
+        
+        if result.matched_count == 0:
+            return JSONResponse(content={"success": False, "message": "Không tìm thấy cấu hình để cập nhật"}, status_code=404)
+            
+        print(f"✓ Updated shared web config for UUID: {uuid_str}")
+        return JSONResponse(content={
+            "success": True,
+            "message": "Cập nhật liên kết thành công"
+        })
+    except Exception as e:
+        print(f"✗ Update shared web config error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import { showToast } from '../components/ui/Toast'
+import { useDashboardContext } from '../hooks/useDashboardContext'
 
 // Types based on the backend data structure
 export interface MobileLogItem {
@@ -346,6 +347,14 @@ export default function MobileMonitorPage() {
   const [networkFilter, setNetworkFilter] = useState('all')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
 
+  let allowedMachines: string[] | undefined
+  try {
+    const ctx = useDashboardContext() as any
+    allowedMachines = ctx?.allowedMachines
+  } catch {
+    // outside dashboard layout context
+  }
+
   const fetchMobileLogs = async () => {
     try {
       const response = await axios.get('https://mobile-monitor.onrender.com/api/mobile-logs?limit=50')
@@ -389,6 +398,13 @@ export default function MobileMonitorPage() {
   const filteredLogs = useMemo(() => {
     let result = logs
 
+    if (allowedMachines && allowedMachines.length > 0) {
+      result = result.filter((item) => 
+        allowedMachines.includes(item.deviceName) || 
+        allowedMachines.includes(item.name_device || '')
+      )
+    }
+
     // Filter by network type
     if (networkFilter !== 'all') {
       result = result.filter((item) => {
@@ -415,7 +431,7 @@ export default function MobileMonitorPage() {
         (item.localIp || '').toLowerCase().includes(term) ||
         (item.networkType || '').toLowerCase().includes(term)
     )
-  }, [logs, searchTerm, networkFilter])
+  }, [logs, searchTerm, networkFilter, allowedMachines])
 
 
   if (loading && logs.length === 0) {

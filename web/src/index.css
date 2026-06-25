@@ -1778,6 +1778,25 @@
     }
   }
 
+  /* Overrides for Shared View 6 columns layout */
+  @media (min-width: 1024px) {
+    .shared-dashboard-view .status-cards-grid {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .shared-dashboard-view .status-cards-grid {
+      grid-template-columns: repeat(5, 1fr);
+    }
+  }
+
+  @media (min-width: 1440px) {
+    .shared-dashboard-view .status-cards-grid {
+      grid-template-columns: repeat(6, 1fr);
+    }
+  }
+
   .glass-card {
     background: #fff;
     border: 1px solid #e2e8f0;
