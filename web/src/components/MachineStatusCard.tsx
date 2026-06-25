@@ -101,7 +101,7 @@ export default function MachineStatusCard({
                             value={editedName}
                             onChange={(e) => setEditedName(e.target.value)}
                             disabled={isSaving}
-                            className="bg-black/40 text-rose-600 dark:text-rose-400 border border-white/20 rounded px-2 py-0.5 text-xs font-bold uppercase w-full focus:outline-none focus:border-purple-500 transition-colors"
+                            className="bg-white text-rose-600 border border-rose-500 rounded px-2.5 py-1 text-xs font-bold uppercase w-full focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all placeholder:text-rose-500/40"
                             placeholder="TÊN HIỂN THỊ..."
                             autoFocus
                             onKeyDown={(e) => {
@@ -112,16 +112,16 @@ export default function MachineStatusCard({
                         <button
                             onClick={handleSaveEdit}
                             disabled={isSaving}
-                            className="text-emerald-400 hover:text-emerald-300 p-1 disabled:opacity-50 transition-colors"
+                            className="text-emerald-400 hover:text-emerald-300 p-1.5 rounded-md hover:bg-emerald-500/10 disabled:opacity-50 transition-colors shrink-0"
                             title="Lưu"
                         >
                             {isSaving ? (
-                                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
                                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                                 </svg>
                             ) : (
-                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                 </svg>
                             )}
@@ -129,35 +129,48 @@ export default function MachineStatusCard({
                         <button
                             onClick={handleCancelEdit}
                             disabled={isSaving}
-                            className="text-rose-400 hover:text-rose-300 p-1 disabled:opacity-50 transition-colors"
+                            className="text-rose-400 hover:text-rose-300 p-1.5 rounded-md hover:bg-rose-500/10 disabled:opacity-50 transition-colors shrink-0"
                             title="Hủy"
                         >
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
                     </div>
                 ) : (
                     <div className="flex flex-col min-w-0 flex-1 group">
-                        {item.data.name_edit && (
-                            <div className="text-[11px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider mb-0.5 break-all">
-                                {item.data.name_edit}
+                        {item.data.name_edit ? (
+                            <div className="flex items-center gap-1.5 h-4 mb-0.5">
+                                <span className="text-[11px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider break-all">
+                                    {item.data.name_edit}
+                                </span>
+                                <button
+                                    onClick={handleStartEdit}
+                                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-white transition-opacity p-0.5 rounded hover:bg-white/10 shrink-0"
+                                    title="Sửa tên hiển thị"
+                                >
+                                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                    </svg>
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="flex items-center h-4 mb-0.5">
+                                <button
+                                    onClick={handleStartEdit}
+                                    className="opacity-0 group-hover:opacity-60 focus:opacity-60 text-slate-400 hover:text-rose-400 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 transition-all"
+                                    title="Đặt tên hiển thị"
+                                >
+                                    <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                    </svg>
+                                    Đặt tên hiển thị
+                                </button>
                             </div>
                         )}
-                        <div className="flex items-center gap-1.5">
-                            <h3 className="card-name truncate" title={item.data.name}>
-                                {item.data.name || 'Unknown'}
-                            </h3>
-                            <button
-                                onClick={handleStartEdit}
-                                className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-white transition-opacity p-0.5 rounded hover:bg-white/10 shrink-0"
-                                title="Đặt/Sửa tên hiển thị"
-                            >
-                                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                </svg>
-                            </button>
-                        </div>
+                        <h3 className="card-name truncate" title={item.data.name}>
+                            {item.data.name || 'Unknown'}
+                        </h3>
                     </div>
                 )}
                 <span className={`status-badge shrink-0 ${srtOnline ? 'badge-online' : 'badge-offline'}`}>

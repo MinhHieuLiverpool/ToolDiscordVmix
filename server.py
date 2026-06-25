@@ -68,6 +68,7 @@ try:
     db = client[DATABASE_NAME]
     collection = db[COLLECTION_NAME]
     selected_collection = db['selected_list']  # Collection mới cho selected list
+    game_selected_collection = db['Game_Selected']  # Collection mới lưu cấu hình game đã chọn
     accounts_collection = db['web_accounts']
     roles_collection = db['web_roles']
     statistics_collection = db['statistics']
@@ -2174,6 +2175,56 @@ async def load_selected_list():
         return JSONResponse(content=entries)
     except Exception as e:
         print(f"✗ Load selected list error: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.post("/save_game_selected")
+async def save_game_selected(payload: dict):
+    """Lưu danh sách máy đã chọn cho một game vào cấu hình Game_Selected"""
+    try:
+        game = payload.get('game', '')
+        machines = payload.get('machines', [])
+        
+        if not game:
+            return JSONResponse(content={"success": False, "error": "Missing 'game' field"}, status_code=400)
+            
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: game_selected_collection.update_one(
+                {"game": game},
+                {"$set": {"machines": machines}},
+                upsert=True
+            )
+        )
+        
+        print(f"✓ Saved {len(machines)} machines for game '{game}' in Game_Selected")
+        return JSONResponse(content={
+            "success": True, 
+            "message": f"Saved {len(machines)} machines for {game} successfully"
+        })
+    except Exception as e:
+        print(f"✗ Save game selected error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/load_game_selected")
+async def load_game_selected():
+    """Load danh sách Game_Selected từ database"""
+    try:
+        loop = asyncio.get_event_loop()
+        documents = await loop.run_in_executor(
+            None,
+            lambda: list(game_selected_collection.find())
+        )
+        
+        entries = []
+        for doc in documents:
+            doc.pop('_id', None)
+            entries.append(doc)
+            
+        print(f"✓ Loaded {len(entries)} game assignments from Game_Selected")
+        return JSONResponse(content=entries)
+    except Exception as e:
+        print(f"✗ Load game selected error: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 @app.websocket("/ws")

@@ -341,4 +341,19 @@ export async function fetchBandwidthStats(date?: string): Promise<BandwidthDoc[]
 export async function updateNameEdit(name: string, nameEdit: string): Promise<{ success: boolean; message?: string }> {
   const response = await apiClient.post<{ success: boolean; message?: string }>('/update_name_edit', { name, name_edit: nameEdit })
   return response.data
+}
+
+export interface GameSelectedResponse {
+  game: string
+  machines: string[]
+}
+
+export async function fetchGameSelected(): Promise<GameSelectedResponse[]> {
+  const response = await apiClient.get<GameSelectedResponse[]>('/load_game_selected')
+  return response.data
+}
+
+export async function saveGameSelected(game: string, machines: string[]): Promise<{ success: boolean; message?: string }> {
+  const response = await apiClient.post<{ success: boolean; message?: string }>('/save_game_selected', { game, machines })
+  return response.data
 }
