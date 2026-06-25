@@ -80,12 +80,14 @@ try:
     
     # Shared Web Configurations Collection
     shared_web_configs_collection = db['shared_web_configs']
+    debug_logs_collection = db['debug_logs']
     
     accounts_collection.create_index("username_key", unique=True)
     roles_collection.create_index("role_key", unique=True)
     statistics_collection.create_index("id", unique=True)
     bandwidth_collection.create_index([("ipwan", 1), ("date", 1)], unique=True)
     shared_web_configs_collection.create_index("uuid", unique=True)
+    debug_logs_collection.create_index("debug_logged_at")
 
 
     if USE_TIMESERIES_STATS:
@@ -2650,6 +2652,39 @@ async def _daily_cleanup_task():
             print(f"✗ Daily cleanup error: {e}")
             await asyncio.sleep(60)
 
+async def debug_logs_monitoring_task():
+    """Ghi toàn bộ thông số thiết bị từ cache vào collection debug_logs mỗi 3 giây"""
+    print("✓ Background task started: Debug Logs collection writer every 3 seconds")
+    while True:
+        try:
+            await asyncio.sleep(3)
+            current_logs = list(_data_cache.values())
+            if not current_logs:
+                continue
+
+            now_vn = datetime.now(VIETNAM_TZ)
+            timestamp = now_vn.isoformat()
+            
+            docs_to_insert = []
+            for doc in current_logs:
+                if not isinstance(doc, dict):
+                    continue
+                # Clone document to avoid modifying the in-memory cache
+                doc_copy = dict(doc)
+                doc_copy.pop('_id', None)
+                doc_copy['debug_logged_at'] = timestamp
+                docs_to_insert.append(doc_copy)
+
+            if docs_to_insert:
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(
+                    None,
+                    lambda: debug_logs_collection.insert_many(docs_to_insert)
+                )
+        except Exception as e:
+            print(f"✗ Error in debug_logs_monitoring_task: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Preload cache từ MongoDB, khởi động background tasks, seed admin role & account"""
@@ -2734,11 +2769,13 @@ async def startup_event():
     asyncio.create_task(rollup_statistics_scheduler())
     asyncio.create_task(ipwan_bandwidth_monitor_task())
     asyncio.create_task(_daily_cleanup_task()) # Chạy task dọn dẹp 3h sáng
+    asyncio.create_task(debug_logs_monitoring_task())
     print("✓ Background task started: Auto-OFF inactive machines (1 min timeout)")
     print(f"✓ Background task started: Statistics cache flush every {_stats_flush_interval_sec}s")
     print(f"✓ Background task started: Tiered rollup every {_TIERED_ROLLUP_INTERVAL_SEC}s (raw→1m→5m→15m→hours)")
     print("✓ Background task started: WAN IP Bandwidth monitoring every 3 minutes")
     print("✓ Background task started: Daily cleanup scheduled at 03:00 AM")
+    print("✓ Background task started: Debug Logs collection writer every 3 seconds")
 
 
 def run_server():
