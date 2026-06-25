@@ -2,23 +2,21 @@ import { useDashboardContext } from '../hooks/useDashboardContext'
 import StatusSection from '../components/StatusSection'
 import { useState, useMemo, useRef, useEffect } from 'react'
 import Dialog from '../components/ui/Dialog'
-import { fetchGameSelected, saveGameSelected, type GameSelectedResponse } from '../services/api'
+import { saveGameSelected } from '../services/api'
 import { showToast } from '../components/ui/Toast'
 
 export default function OverviewPage() {
     const {
         rows,
+        allRows,
         loading,
         error,
+        selectedGame,
+        setSelectedGame,
+        gameAssignments,
+        loadAssignments,
     } = useDashboardContext()
 
-    const [selectedGame, setSelectedGame] = useState(() => {
-        return window.localStorage.getItem('vmix:overview:selected-game') || '__all__'
-    })
-
-    useEffect(() => {
-        window.localStorage.setItem('vmix:overview:selected-game', selectedGame)
-    }, [selectedGame])
     const [dropdownOpen, setDropdownOpen] = useState(false)
     const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -26,7 +24,6 @@ export default function OverviewPage() {
     const [isDialogOpen, setIsDialogOpen] = useState(false)
     const [dialogGame, setDialogGame] = useState('Liên Quân Mobile')
     const [dialogSelectedMachines, setDialogSelectedMachines] = useState<string[]>([])
-    const [gameAssignments, setGameAssignments] = useState<GameSelectedResponse[]>([])
     const [savingAssignments, setSavingAssignments] = useState(false)
 
     // Close dropdown on outside click
@@ -38,19 +35,6 @@ export default function OverviewPage() {
         }
         document.addEventListener('mousedown', handleClick)
         return () => document.removeEventListener('mousedown', handleClick)
-    }, [])
-
-    const loadAssignments = async () => {
-        try {
-            const data = await fetchGameSelected()
-            setGameAssignments(data)
-        } catch (err) {
-            console.error('Error loading game assignments:', err)
-        }
-    }
-
-    useEffect(() => {
-        loadAssignments()
     }, [])
 
     // Sync selected machines in dialog when dialogGame or assignments change
@@ -70,24 +54,13 @@ export default function OverviewPage() {
 
     const uniqueMachineNames = useMemo(() => {
         const names = new Set<string>()
-        rows.forEach((row) => {
+        allRows.forEach((row) => {
             if (row.data.name) {
                 names.add(row.data.name)
             }
         })
         return Array.from(names).sort()
-    }, [rows])
-
-    const filteredRows = useMemo(() => {
-        if (selectedGame === '__all__') return rows
-
-        const assignment = gameAssignments.find(a => a.game === selectedGame)
-        if (!assignment) return []
-
-        return rows.filter((row) => {
-            return assignment.machines.includes(row.data.name)
-        })
-    }, [rows, selectedGame, gameAssignments])
+    }, [allRows])
 
     const selectedLabel = games.find(g => g.id === selectedGame)?.label || 'Chọn Game'
 
@@ -112,13 +85,7 @@ export default function OverviewPage() {
 
     return (
         <>
-            <div className="page-header flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h2 className="page-title">
-                        Tổng quan
-                    </h2>
-                </div>
-                
+            <div className="page-header flex flex-col md:flex-row justify-end items-start md:items-center gap-4">
                 {/* Actions container */}
                 <div className="flex items-center gap-3 flex-wrap">
                     {/* Game Filter */}
@@ -175,7 +142,7 @@ export default function OverviewPage() {
                 </div>
             </div>
 
-            <StatusSection rows={filteredRows} loading={loading} error={error} />
+            <StatusSection rows={rows} loading={loading} error={error} />
 
             {/* Config Game assignments dialog */}
             <Dialog
@@ -206,7 +173,7 @@ export default function OverviewPage() {
                         <div className="max-h-60 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-lg p-2 bg-slate-50 dark:bg-slate-950/40 flex flex-col gap-2">
                             {uniqueMachineNames.map((name) => {
                                 const isChecked = dialogSelectedMachines.includes(name)
-                                const machineRow = rows.find(r => r.data.name === name)
+                                const machineRow = allRows.find(r => r.data.name === name)
                                 const displayName = machineRow?.data.name_edit
                                     ? `${machineRow.data.name_edit} (${name})`
                                     : name
@@ -224,7 +191,7 @@ export default function OverviewPage() {
                                             }}
                                             className="rounded border-slate-300 dark:border-slate-700 text-purple-600 focus:ring-purple-500/30 bg-white dark:bg-slate-800 h-4 w-4 cursor-pointer"
                                         />
-                                        <span className="break-all">{name}</span>
+                                        <span className="break-all">{displayName}</span>
                                     </label>
                                 )
                             })}

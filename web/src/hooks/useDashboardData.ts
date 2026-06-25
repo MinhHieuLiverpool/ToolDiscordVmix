@@ -6,6 +6,8 @@ import {
     fetchAllStatisticHours,
     fetchStatisticHours,
     normalizeSrtList,
+    fetchGameSelected,
+    type GameSelectedResponse,
 } from '../services/api'
 import type {
     BackendLogItem,
@@ -58,10 +60,41 @@ function sortLogs(logs: BackendLogItem[]): BackendLogItem[] {
 
 export function useDashboardData() {
     /* ─── Machine list (từ WebSocket) ─── */
-    const [rows, setRows] = useState<BackendLogItem[]>([])
+    const [allRows, setAllRows] = useState<BackendLogItem[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
+
+    /* ─── Game Selection (global filter) ─── */
+    const [selectedGame, setSelectedGame] = useState(() => {
+        return window.localStorage.getItem('vmix:overview:selected-game') || '__all__'
+    })
+
+    const [gameAssignments, setGameAssignments] = useState<GameSelectedResponse[]>([])
+
+    const loadAssignments = useCallback(async () => {
+        try {
+            const data = await fetchGameSelected()
+            setGameAssignments(data)
+        } catch (err) {
+            console.error('Error loading game assignments:', err)
+        }
+    }, [])
+
+    useEffect(() => {
+        loadAssignments()
+    }, [loadAssignments])
+
+    const rows = useMemo(() => {
+        if (selectedGame === '__all__') return allRows
+
+        const assignment = gameAssignments.find(a => a.game === selectedGame)
+        if (!assignment) return []
+
+        return allRows.filter((row) => {
+            return assignment.machines.includes(row.data.name)
+        })
+    }, [allRows, selectedGame, gameAssignments])
 
     /* ─── Debug logs ─── */
     const [debugLogs, setDebugLogs] = useState<string[]>([])
@@ -155,7 +188,7 @@ export function useDashboardData() {
         try {
             setError('')
             const data = await fetchAllLogs()
-            setRows(sortLogs(data))
+            setAllRows(sortLogs(data))
 
             const d = new Date()
             const hh = String(d.getHours()).padStart(2, '0')
@@ -198,7 +231,7 @@ export function useDashboardData() {
         ws.onmessage = (event) => {
             try {
                 const incoming = JSON.parse(event.data) as BackendLogItem[]
-                setRows(sortLogs(incoming))
+                setAllRows(sortLogs(incoming))
                 setLoading(false)
 
                 const d = new Date()
@@ -472,6 +505,7 @@ export function useDashboardData() {
 
     return {
         rows,
+        allRows,
         loading,
         error,
         wsStatus,
@@ -486,5 +520,9 @@ export function useDashboardData() {
         loadData,
         debugLogs,
         clearDebugLogs,
+        selectedGame,
+        setSelectedGame,
+        gameAssignments,
+        loadAssignments,
     }
 }
