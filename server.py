@@ -432,6 +432,7 @@ async def receive_data(data: dict):
         prev = _data_cache.get(machine_name, {})
         document = {
             "name":        machine_name,
+            "name_edit":   prev.get("name_edit", ""),
             "ip":          data.get('ip', ''),
             "ipwan":       data.get('ipwan', ''),
             "statusapp":   data.get('statusapp', 0),
@@ -1479,6 +1480,7 @@ async def get_by_ip(ip: str):
                 "timestamp": doc.get("last_updated", doc.get("timestamp", "")),
                 "data": {
                     "name": doc.get("name", ""),
+                    "name_edit": doc.get("name_edit", ""),
                     "ip": doc.get("ip", ""),
                     "ipwan": doc.get("ipwan", ""),
                     "statusapp": doc.get("statusapp", 0),
@@ -1527,6 +1529,58 @@ async def update_name(payload: dict):
         return JSONResponse(content={"success": True, "modified": result.modified_count})
     except Exception as e:
         print(f"✗ Update error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/update_name_edit")
+async def update_name_edit(payload: dict):
+    """Update name_edit field for a machine in MongoDB and in-memory cache"""
+    try:
+        name = payload.get('name', '')
+        ip = payload.get('ip', '')
+        name_edit = payload.get('name_edit', '')
+        
+        query = {}
+        if name:
+            query["name"] = name
+        elif ip:
+            query["ip"] = ip
+        else:
+            return JSONResponse(content={"success": False, "error": "Missing 'name' or 'ip' field"}, status_code=400)
+            
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: collection.update_many(
+                query,
+                {"$set": {"name_edit": name_edit}}
+            )
+        )
+        
+        # Update in-memory cache
+        updated_cache_count = 0
+        if name:
+            if name in _data_cache:
+                _data_cache[name]["name_edit"] = name_edit
+                updated_cache_count += 1
+        elif ip:
+            for k, v in _data_cache.items():
+                if v.get("ip") == ip:
+                    v["name_edit"] = name_edit
+                    updated_cache_count += 1
+                    
+        print(f"✓ Updated name_edit to '{name_edit}' for query {query} (modified db: {result.modified_count}, cache: {updated_cache_count})")
+        
+        # Broadcast update to all WebSocket clients
+        await broadcast_updates()
+        
+        return JSONResponse(content={
+            "success": True,
+            "modified_db": result.modified_count,
+            "modified_cache": updated_cache_count,
+            "message": f"Updated name_edit to '{name_edit}' successfully"
+        })
+    except Exception as e:
+        print(f"✗ Update name_edit error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 @app.post("/update_ip")
