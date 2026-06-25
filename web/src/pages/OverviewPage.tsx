@@ -16,10 +16,15 @@ export default function OverviewPage() {
         gameAssignments,
         loadAssignments,
         isGameLocked,
+        visibilityFilter,
+        setVisibilityFilter,
     } = useDashboardContext() as any
 
     const [dropdownOpen, setDropdownOpen] = useState(false)
+    const [visibilityDropdownOpen, setVisibilityDropdownOpen] = useState(false)
+
     const dropdownRef = useRef<HTMLDivElement>(null)
+    const visibilityDropdownRef = useRef<HTMLDivElement>(null)
 
     // Dialog states
     const [isDialogOpen, setIsDialogOpen] = useState(false)
@@ -32,6 +37,9 @@ export default function OverviewPage() {
         function handleClick(e: MouseEvent) {
             if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
                 setDropdownOpen(false)
+            }
+            if (visibilityDropdownRef.current && !visibilityDropdownRef.current.contains(e.target as Node)) {
+                setVisibilityDropdownOpen(false)
             }
         }
         document.addEventListener('mousedown', handleClick)
@@ -139,6 +147,51 @@ export default function OverviewPage() {
                             </div>
                         ) : null
                     )}
+
+                    {/* Visibility Filter */}
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-slate-400">Hiển thị:</span>
+                        <div className="custom-dropdown" ref={visibilityDropdownRef} style={{ minWidth: '110px' }}>
+                            <button
+                                type="button"
+                                className={`dropdown-trigger ${visibilityDropdownOpen ? 'dropdown-open' : ''}`}
+                                onClick={() => setVisibilityDropdownOpen(!visibilityDropdownOpen)}
+                            >
+                                <span className="dropdown-trigger-text">
+                                    {visibilityFilter === 'all' && 'Tất cả'}
+                                    {visibilityFilter === 'visible' && 'Hiện'}
+                                    {visibilityFilter === 'hidden' && 'Ẩn'}
+                                </span>
+                                <svg className={`dropdown-chevron ${visibilityDropdownOpen ? 'chevron-up' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <polyline points="6 9 12 15 18 9" />
+                                </svg>
+                            </button>
+
+                            {visibilityDropdownOpen && (
+                                <div className="dropdown-menu">
+                                    <div className="dropdown-options">
+                                        {[
+                                            { id: 'all', label: 'Tất cả' },
+                                            { id: 'visible', label: 'Hiện' },
+                                            { id: 'hidden', label: 'Ẩn' }
+                                        ].map((item) => (
+                                            <button
+                                                type="button"
+                                                key={item.id}
+                                                className={`dropdown-option ${visibilityFilter === item.id ? 'option-active' : ''}`}
+                                                onClick={() => {
+                                                    setVisibilityFilter(item.id)
+                                                    setVisibilityDropdownOpen(false)
+                                                }}
+                                            >
+                                                {item.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
 
                     {/* Add to channel button */}
                     {!isGameLocked && (

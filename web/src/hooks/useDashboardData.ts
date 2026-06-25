@@ -70,6 +70,8 @@ export function useDashboardData() {
         return window.localStorage.getItem('vmix:overview:selected-game') || '__all__'
     })
 
+    const [visibilityFilter, setVisibilityFilter] = useState<'all' | 'visible' | 'hidden'>('visible')
+
     const [gameAssignments, setGameAssignments] = useState<GameSelectedResponse[]>([])
 
     const loadAssignments = useCallback(async () => {
@@ -90,23 +92,38 @@ export function useDashboardData() {
             return allRows.filter((row) => {
                 const machineName = row.data.name
                 const memberChannels = gameAssignments.filter(a => a.machines.includes(machineName))
-                if (memberChannels.length === 0) return true
-                return memberChannels.some(a => {
-                    const channelIsOn = a.visible_status !== 'OFF'
-                    const machineIsNotHiddenInChannel = !(a.hidden_machines || []).includes(machineName)
-                    return channelIsOn && machineIsNotHiddenInChannel
-                })
+                
+                let isVisible = true
+                if (memberChannels.length > 0) {
+                    isVisible = memberChannels.some(a => {
+                        const channelIsOn = a.visible_status !== 'OFF'
+                        const machineIsNotHiddenInChannel = !(a.hidden_machines || []).includes(machineName)
+                        return channelIsOn && machineIsNotHiddenInChannel
+                    })
+                }
+
+                if (visibilityFilter === 'visible') return isVisible
+                if (visibilityFilter === 'hidden') return !isVisible
+                return true // 'all'
             })
         }
 
         const assignment = gameAssignments.find(a => a.game === selectedGame)
-        if (!assignment || assignment.visible_status === 'OFF') return []
+        if (!assignment) return []
 
-        const hiddenMachines = assignment.hidden_machines || []
         return allRows.filter((row) => {
-            return assignment.machines.includes(row.data.name) && !hiddenMachines.includes(row.data.name)
+            const machineName = row.data.name
+            if (!assignment.machines.includes(machineName)) return false
+
+            const channelIsOn = assignment.visible_status !== 'OFF'
+            const machineIsNotHidden = !(assignment.hidden_machines || []).includes(machineName)
+            const isVisible = channelIsOn && machineIsNotHidden
+
+            if (visibilityFilter === 'visible') return isVisible
+            if (visibilityFilter === 'hidden') return !isVisible
+            return true // 'all'
         })
-    }, [allRows, selectedGame, gameAssignments])
+    }, [allRows, selectedGame, gameAssignments, visibilityFilter])
 
     /* ─── Debug logs ─── */
     const [debugLogs, setDebugLogs] = useState<string[]>([])
@@ -536,5 +553,7 @@ export function useDashboardData() {
         setSelectedGame,
         gameAssignments,
         loadAssignments,
+        visibilityFilter,
+        setVisibilityFilter,
     }
 }

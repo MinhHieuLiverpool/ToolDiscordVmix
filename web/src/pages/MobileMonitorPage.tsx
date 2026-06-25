@@ -45,12 +45,12 @@ function MetricBadge({ label, value, unit, isHigh }: { label: string; value: str
       : 'text-slate-500 bg-slate-50 dark:bg-slate-900/30'
 
   return (
-      <div className={`p-1.5 rounded-[6px] transition-all ${isHigh ? 'bg-rose-50/50 dark:bg-rose-950/10' : 'bg-slate-50/80 dark:bg-slate-900/30'} flex flex-col items-center justify-center`}>
-          <div className={`text-[9px] font-bold tracking-wider mb-0.5 uppercase px-1 rounded leading-none ${labelClass}`}>
+      <div className={`p-1.5 rounded-[10px] transition-all ${isHigh ? 'bg-rose-50/50 dark:bg-rose-950/10' : 'bg-slate-50/80 dark:bg-slate-900/30'} flex flex-col items-center justify-center`}>
+          <div className={`text-[10px] font-bold tracking-wider mb-0.5 uppercase px-1 rounded leading-none ${labelClass}`}>
               {label}
           </div>
-          <div className={`text-[12px] font-black leading-none ${isHigh ? 'text-rose-500' : 'text-slate-800 dark:text-slate-200'}`}>
-              {value}<span className="text-[9px] font-semibold text-slate-400 ml-0.5">{unit}</span>
+          <div className={`text-[14px] font-black leading-none ${isHigh ? 'text-rose-500' : 'text-slate-800 dark:text-slate-200'}`}>
+              {value}<span className="text-[10px] font-semibold text-slate-400 ml-0.5">{unit}</span>
           </div>
       </div>
   )
@@ -71,7 +71,7 @@ function PingRowCompact({ label, value }: { label: string; value: string }) {
       : 'text-emerald-500 dark:text-emerald-400'
 
   return (
-      <div className="flex justify-between items-center text-[10px] py-0.5">
+      <div className="flex justify-between items-center text-[11px] py-0.5">
           <span className="text-slate-500 dark:text-slate-400 font-semibold">{label}:</span>
           <span className={`font-bold ${badgeColor} truncate max-w-[90px]`} title={value}>
               {value}
@@ -92,7 +92,6 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
 
   const handleSave = async () => {
     try {
-      // Gọi API PATCH để cập nhật name_device
       await axios.patch(`https://mobile-monitor.onrender.com/api/mobile-logs/${item.deviceId}`, {
         name_device: editValue
       })
@@ -130,11 +129,11 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
 
   return (
       <div
-          className="bg-white dark:bg-slate-900/45 rounded-[10px] p-4 shadow-sm transition-all duration-300 hover:shadow-md relative overflow-hidden"
+          className="bg-white dark:bg-slate-900/45 rounded-[10px] p-5 shadow-sm transition-all duration-300 hover:shadow-md relative overflow-hidden"
           style={{ animationDelay: `${index * 40}ms` }}
       >
           {/* Header */}
-          <div className="flex justify-between items-start mb-2">
+          <div className="flex justify-between items-start mb-2.5">
               <div className="flex-1 min-w-0 pr-1">
                   {isEditing ? (
                       <div className="flex items-center gap-1.5 w-full mb-1">
@@ -142,7 +141,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                               type="text"
                               value={editValue}
                               onChange={(e) => setEditValue(e.target.value)}
-                              className="text-[11px] px-2 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 focus:outline-none focus:border-indigo-500 w-full font-black uppercase"
+                              className="text-[12px] px-2 py-1.5 border rounded-[10px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 focus:outline-none focus:border-indigo-500 w-full font-black uppercase"
                               placeholder="TÊN THIẾT BỊ..."
                               autoFocus
                               onKeyDown={(e) => {
@@ -166,11 +165,11 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                       <>
                           {/* Tên custom màu đỏ in hoa in đậm ở dòng trên */}
                           {item.name_device && (
-                              <div className="text-[11px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider mb-0.5 break-all">
+                              <div className="text-[12px] font-black text-rose-600 dark:text-rose-400 uppercase tracking-wider mb-0.5 break-all">
                                   {item.name_device}
                               </div>
                           )}
-                          <h3 className="text-[12px] font-black text-slate-800 dark:text-slate-100 flex items-center gap-1 flex-wrap" title={item.deviceName || 'Ẩn danh'}>
+                          <h3 className="text-[13.5px] font-black text-slate-800 dark:text-slate-100 flex items-center gap-1 flex-wrap" title={item.deviceName || 'Ẩn danh'}>
                               <span className="break-all">{item.deviceName || 'Ẩn danh'}</span>
                               <button
                                   onClick={() => setIsEditing(true)}
@@ -185,7 +184,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                           <div className="flex items-center gap-0.5 mt-0.5">
                               <span
                                   onClick={() => item.deviceId && copyToClipboard(item.deviceId)}
-                                  className="text-[9px] font-mono text-slate-400 hover:text-sky-500 cursor-pointer transition-colors break-all"
+                                  className="text-[10px] font-mono text-slate-400 hover:text-sky-500 cursor-pointer transition-colors break-all"
                                   title="Click để copy Device ID"
                               >
                                   ID: {item.deviceId || '-'}
@@ -195,31 +194,31 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                   )}
               </div>
               <div className="flex flex-col items-end gap-1 shrink-0">
-                  <span className={`inline-flex items-center px-1 py-0.5 rounded-[4px] text-[9px] font-bold border leading-none ${
+                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded-[4px] text-[10px] font-bold border leading-none ${
                       isOnline
                           ? 'bg-emerald-50 text-emerald-500 border-emerald-100 dark:bg-emerald-950/20 dark:border-emerald-900/30'
                           : 'bg-slate-50 text-slate-400 border-slate-100 dark:bg-slate-800/40 dark:border-slate-800'
                   }`}>
                       {isOnline ? 'ON' : 'OFF'}
                   </span>
-                  <span className="text-[9px] font-bold text-sky-500 bg-sky-50 dark:bg-sky-950/30 border border-sky-100 dark:border-sky-900/20 px-1 py-0.5 rounded-[4px] leading-none">
+                  <span className="text-[10px] font-bold text-sky-500 bg-sky-50 dark:bg-sky-950/30 border border-sky-100 dark:border-sky-900/20 px-1.5 py-0.5 rounded-[4px] leading-none">
                       {item.networkType || '-'}
                   </span>
               </div>
           </div>
 
           {/* Performance Grid */}
-          <div className="grid grid-cols-3 gap-1 mb-2">
+          <div className="grid grid-cols-3 gap-1.5 mb-2.5">
               <MetricBadge label="CPU" value={item.cpuLoad !== null ? item.cpuLoad : '-'} unit="%" isHigh={isCpuHigh} />
               <MetricBadge label="RAM" value={item.ramUsagePercent !== null ? item.ramUsagePercent : '-'} unit="%" isHigh={isRamHigh} />
               <MetricBadge label="FPS" value={item.fps !== null ? item.fps : '-'} unit="" />
           </div>
 
           {/* Progress Bars */}
-          <div className="space-y-1.5 mb-2 bg-slate-50/50 dark:bg-slate-900/20 p-1.5 rounded-[8px]">
+          <div className="space-y-2 mb-2.5 bg-slate-50/50 dark:bg-slate-900/20 p-2 rounded-[10px]">
               {/* CPU load */}
               <div>
-                  <div className="flex justify-between text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1 leading-none">
+                  <div className="flex justify-between text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1 leading-none">
                       <span>CPU</span>
                       <span>{item.cpuLoad}%</span>
                   </div>
@@ -235,7 +234,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
 
               {/* RAM load */}
               <div>
-                  <div className="flex justify-between text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1 leading-none">
+                  <div className="flex justify-between text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1 leading-none">
                       <span>RAM ({ramUsedGB}/{ramTotalGB}G)</span>
                       <span>{item.ramUsagePercent}%</span>
                   </div>
@@ -251,7 +250,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
           </div>
 
           {/* Network details */}
-          <div className="space-y-0.5 mb-2 text-[10px]">
+          <div className="space-y-0.5 mb-2.5 text-[11px]">
               <div className="flex justify-between py-0.5">
                   <span className="text-slate-400">Local IP:</span>
                   <span className="font-mono font-bold text-slate-700 dark:text-slate-300 truncate max-w-[120px]" title={item.localIp}>{item.localIp || '-'}</span>
@@ -267,8 +266,8 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
           </div>
 
           {/* Ping Diagnostics */}
-          <div className="mb-2">
-              <div className="text-[10px] font-bold text-slate-400 tracking-wide uppercase mb-1 leading-none">Ping</div>
+          <div className="mb-2.5">
+              <div className="text-[11px] font-bold text-slate-400 tracking-wide uppercase mb-1 leading-none">Ping</div>
               <div className="flex flex-col gap-0.5">
                   <PingRowCompact label="Gateway" value={item.pingGateway || '-'} />
                   <PingRowCompact label="Google" value={item.ping8888 || '-'} />
@@ -277,36 +276,36 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
           </div>
 
           {/* Bandwidth Speed */}
-          <div className="mb-2">
-              <div className="text-[10px] font-bold text-slate-400 tracking-wide uppercase mb-1 leading-none">Băng thông</div>
-              <div className="grid grid-cols-2 gap-1">
-                  <div className="flex items-center justify-between p-1 bg-pink-50/10 dark:bg-pink-950/5 rounded-[6px]">
-                      <span className="text-[8px] font-bold text-pink-400 uppercase tracking-wider">TX</span>
-                      <span className="text-[11px] font-black text-pink-600 dark:text-pink-400 truncate leading-none">{item.txSpeedMbps.toFixed(2)}</span>
+          <div className="mb-2.5">
+              <div className="text-[11px] font-bold text-slate-400 tracking-wide uppercase mb-1 leading-none">Băng thông</div>
+              <div className="grid grid-cols-2 gap-1.5">
+                  <div className="flex items-center justify-between p-1.5 bg-pink-50/10 dark:bg-pink-950/5 rounded-[10px]">
+                      <span className="text-[9.5px] font-bold text-pink-400 uppercase tracking-wider">TX</span>
+                      <span className="text-[12.5px] font-black text-pink-600 dark:text-pink-400 truncate leading-none">{item.txSpeedMbps.toFixed(2)}</span>
                   </div>
 
-                  <div className="flex items-center justify-between p-1 bg-orange-50/10 dark:bg-orange-950/5 rounded-[6px]">
-                      <span className="text-[8px] font-bold text-orange-400 uppercase tracking-wider">RX</span>
-                      <span className="text-[11px] font-black text-orange-600 dark:text-orange-400 truncate leading-none">{item.rxSpeedMbps.toFixed(2)}</span>
+                  <div className="flex items-center justify-between p-1.5 bg-orange-50/10 dark:bg-orange-950/5 rounded-[10px]">
+                      <span className="text-[9.5px] font-bold text-orange-400 uppercase tracking-wider">RX</span>
+                      <span className="text-[12.5px] font-black text-orange-600 dark:text-orange-400 truncate leading-none">{item.rxSpeedMbps.toFixed(2)}</span>
                   </div>
               </div>
           </div>
 
           {/* Battery Section */}
-          <div className="mb-2 bg-slate-50/30 dark:bg-slate-900/10 p-1.5 rounded-[8px]">
-              <div className="flex justify-between items-center text-[10px] mb-1 leading-none">
+          <div className="mb-2.5 bg-slate-50/30 dark:bg-slate-900/10 p-2 rounded-[10px]">
+              <div className="flex justify-between items-center text-[11px] mb-1 leading-none">
                   <span className="font-bold text-slate-500 dark:text-slate-400">
                       Pin & Nhiệt
                   </span>
                   {item.isCharging && (
-                      <span className="text-[8px] font-black text-amber-500">
+                      <span className="text-[9px] font-black text-amber-500">
                           SẠC
                       </span>
                   )}
               </div>
               <div className="grid grid-cols-2 gap-1 items-center">
                   <div>
-                      <div className="flex justify-between text-[10px] text-slate-400 font-bold leading-none">
+                      <div className="flex justify-between text-[11px] text-slate-400 font-bold leading-none">
                           <span>{item.batteryLevel}%</span>
                       </div>
                       <div className="h-[4px] bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden mt-1">
@@ -319,7 +318,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                       </div>
                   </div>
                   <div className="text-right">
-                      <span className={`text-[11px] font-black ${isTempHigh ? 'text-rose-500' : 'text-slate-700 dark:text-slate-300'} leading-none`}>
+                      <span className={`text-[12.5px] font-black ${isTempHigh ? 'text-rose-500' : 'text-slate-700 dark:text-slate-300'} leading-none`}>
                           {item.temperature.toFixed(1)}°C
                       </span>
                   </div>
@@ -327,7 +326,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
           </div>
 
           {/* Footer - Updated time */}
-          <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pt-1 leading-none">
+          <div className="flex justify-between items-center text-[11px] font-bold text-slate-400 pt-1.5 leading-none">
               <span className="truncate max-w-[90px]">
                   {new Date(item.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </span>
@@ -346,11 +345,24 @@ export default function MobileMonitorPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [networkFilter, setNetworkFilter] = useState('all')
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const [isGameDropdownOpen, setIsGameDropdownOpen] = useState(false)
+  const [isVisibilityDropdownOpen, setIsVisibilityDropdownOpen] = useState(false)
 
   let allowedMachines: string[] | undefined
+  let gameAssignments: any[] = []
+  let selectedGame = '__all__'
+  let setSelectedGame: ((g: string) => void) | undefined
+  let visibilityFilter = 'visible'
+  let setVisibilityFilter: ((v: string) => void) | undefined
+
   try {
     const ctx = useDashboardContext() as any
     allowedMachines = ctx?.allowedMachines
+    gameAssignments = ctx?.gameAssignments || []
+    selectedGame = ctx?.selectedGame || '__all__'
+    setSelectedGame = ctx?.setSelectedGame
+    visibilityFilter = ctx?.visibilityFilter || 'visible'
+    setVisibilityFilter = ctx?.setVisibilityFilter
   } catch {
     // outside dashboard layout context
   }
@@ -394,10 +406,28 @@ export default function MobileMonitorPage() {
     return () => clearInterval(interval)
   }, [])
 
-  // Filter logs based on search term and network type
+  // List of channels for filter dropdown (only display active/ON channels)
+  const games = useMemo(() => {
+    const list = [
+      { id: '__all__', label: 'Tất cả Game' }
+    ]
+    if (gameAssignments) {
+      gameAssignments.forEach((assignment: any) => {
+        if (assignment.game && assignment.visible_status !== 'OFF' && !list.some(g => g.id === assignment.game)) {
+          list.push({ id: assignment.game, label: assignment.game })
+        }
+      })
+    }
+    return list
+  }, [gameAssignments])
+
+  const selectedGameLabel = games.find(g => g.id === selectedGame)?.label || 'Chọn Game'
+
+  // Filter logs based on search term, network type, game assignments and visibility filter
   const filteredLogs = useMemo(() => {
     let result = logs
 
+    // 1. Filter by allowedMachines (from shared uuid config)
     if (allowedMachines && allowedMachines.length > 0) {
       result = result.filter((item) => 
         allowedMachines.includes(item.deviceName) || 
@@ -405,7 +435,46 @@ export default function MobileMonitorPage() {
       )
     }
 
-    // Filter by network type
+    // 2. Filter by game channel system and visibility status
+    if (selectedGame !== '__all__') {
+      const assignment = gameAssignments.find(a => a.game === selectedGame)
+      if (!assignment) {
+        result = []
+      } else {
+        result = result.filter((item) => {
+          const name = item.deviceName || item.name_device || ''
+          if (!assignment.machines.includes(name)) return false
+
+          const channelIsOn = assignment.visible_status !== 'OFF'
+          const machineIsNotHidden = !(assignment.hidden_machines || []).includes(name)
+          const isVisible = channelIsOn && machineIsNotHidden
+
+          if (visibilityFilter === 'visible') return isVisible
+          if (visibilityFilter === 'hidden') return !isVisible
+          return true // 'all'
+        })
+      }
+    } else if (gameAssignments && gameAssignments.length > 0) {
+      result = result.filter((item) => {
+        const name = item.deviceName || item.name_device || ''
+        const memberChannels = gameAssignments.filter(a => a.machines.includes(name))
+        
+        let isVisible = true
+        if (memberChannels.length > 0) {
+          isVisible = memberChannels.some(a => {
+            const channelIsOn = a.visible_status !== 'OFF'
+            const machineIsNotHiddenInChannel = !(a.hidden_machines || []).includes(name)
+            return channelIsOn && machineIsNotHiddenInChannel
+          })
+        }
+
+        if (visibilityFilter === 'visible') return isVisible
+        if (visibilityFilter === 'hidden') return !isVisible
+        return true // 'all'
+      })
+    }
+
+    // 3. Filter by network type
     if (networkFilter !== 'all') {
       result = result.filter((item) => {
         const netType = (item.networkType || '').toLowerCase()
@@ -422,6 +491,7 @@ export default function MobileMonitorPage() {
       })
     }
 
+    // 4. Filter by text search
     if (!searchTerm.trim()) return result
     const term = searchTerm.toLowerCase()
     return result.filter(
@@ -431,8 +501,7 @@ export default function MobileMonitorPage() {
         (item.localIp || '').toLowerCase().includes(term) ||
         (item.networkType || '').toLowerCase().includes(term)
     )
-  }, [logs, searchTerm, networkFilter, allowedMachines])
-
+  }, [logs, searchTerm, networkFilter, allowedMachines, selectedGame, gameAssignments, visibilityFilter])
 
   if (loading && logs.length === 0) {
     return (
@@ -441,9 +510,9 @@ export default function MobileMonitorPage() {
           <h2 className="page-title text-2xl font-black text-slate-800 dark:text-slate-100">Mobile Monitor</h2>
           <p className="page-description text-slate-500 text-sm">Đang tải cấu hình thiết bị chạy ngầm...</p>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={`skel-${i}`} className="bg-white dark:bg-slate-900/40 rounded-[10px] p-4 h-[420px] shimmer-loading" />
+            <div key={`skel-${i}`} className="bg-white dark:bg-slate-900/40 rounded-[10px] p-5 h-[440px] shimmer-loading" />
           ))}
         </div>
       </div>
@@ -462,7 +531,7 @@ export default function MobileMonitorPage() {
             </svg>
           </div>
           <input
-            className="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-slate-900/45 border border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700/60 focus:border-indigo-500 dark:focus:border-indigo-500/70 focus:outline-none rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-100 transition-all shadow-sm"
+            className="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-slate-900/45 border border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700/60 focus:border-indigo-500 dark:focus:border-indigo-500/70 focus:outline-none rounded-[10px] text-xs font-semibold text-slate-800 dark:text-slate-100 transition-all shadow-sm"
             type="text"
             placeholder="Tìm theo tên điện thoại, ID, IP hoặc Loại mạng..."
             value={searchTerm}
@@ -470,12 +539,134 @@ export default function MobileMonitorPage() {
           />
         </div>
 
+        {/* Lọc theo Kênh Game */}
+        {setSelectedGame && gameAssignments.length > 0 && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setIsGameDropdownOpen(!isGameDropdownOpen)
+                setIsDropdownOpen(false)
+                setIsVisibilityDropdownOpen(false)
+              }}
+              className="flex items-center justify-between pl-3 pr-8 py-2.5 bg-white dark:bg-slate-900/45 border border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700/60 focus:border-indigo-500 dark:focus:border-indigo-500/70 focus:outline-none rounded-[10px] text-xs font-semibold text-slate-800 dark:text-slate-100 transition-all shadow-sm cursor-pointer min-w-[150px]"
+            >
+              <span>{selectedGameLabel}</span>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
+                <svg className={`h-3.5 w-3.5 transition-transform duration-200 ${isGameDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </div>
+            </button>
+
+            {isGameDropdownOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-10" 
+                  onClick={() => setIsGameDropdownOpen(false)}
+                />
+                <div className="absolute right-0 mt-1.5 w-full min-w-[150px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[10px] shadow-lg py-1.5 z-20 animate-in fade-in slide-in-from-top-1 duration-150">
+                  {games.map((g) => (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedGame!(g.id)
+                        setIsGameDropdownOpen(false)
+                      }}
+                      className={`w-full text-left px-3 py-2 text-xs font-medium hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center justify-between ${
+                        selectedGame === g.id 
+                          ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20 font-semibold' 
+                          : 'text-slate-700 dark:text-slate-200'
+                      }`}
+                    >
+                      <span>{g.label}</span>
+                      {selectedGame === g.id && (
+                        <svg className="h-3 w-3 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Lọc theo Trạng thái Hiển thị */}
+        {setVisibilityFilter && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setIsVisibilityDropdownOpen(!isVisibilityDropdownOpen)
+                setIsDropdownOpen(false)
+                setIsGameDropdownOpen(false)
+              }}
+              className="flex items-center justify-between pl-3 pr-8 py-2.5 bg-white dark:bg-slate-900/45 border border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700/60 focus:border-indigo-500 dark:focus:border-indigo-500/70 focus:outline-none rounded-[10px] text-xs font-semibold text-slate-800 dark:text-slate-100 transition-all shadow-sm cursor-pointer min-w-[110px]"
+            >
+              <span>
+                {visibilityFilter === 'all' && 'Tất cả'}
+                {visibilityFilter === 'visible' && 'Hiện'}
+                {visibilityFilter === 'hidden' && 'Ẩn'}
+              </span>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
+                <svg className={`h-3.5 w-3.5 transition-transform duration-200 ${isVisibilityDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </div>
+            </button>
+
+            {isVisibilityDropdownOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-10" 
+                  onClick={() => setIsVisibilityDropdownOpen(false)}
+                />
+                <div className="absolute right-0 mt-1.5 w-full min-w-[110px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[10px] shadow-lg py-1.5 z-20 animate-in fade-in slide-in-from-top-1 duration-150">
+                  {[
+                    { value: 'all', label: 'Tất cả' },
+                    { value: 'visible', label: 'Hiện' },
+                    { value: 'hidden', label: 'Ẩn' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        setVisibilityFilter!(opt.value)
+                        setIsVisibilityDropdownOpen(false)
+                      }}
+                      className={`w-full text-left px-3 py-2 text-xs font-medium hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center justify-between ${
+                        visibilityFilter === opt.value 
+                          ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20 font-semibold' 
+                          : 'text-slate-700 dark:text-slate-200'
+                      }`}
+                    >
+                      <span>{opt.label}</span>
+                      {visibilityFilter === opt.value && (
+                        <svg className="h-3 w-3 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Lọc theo Network */}
         <div className="relative">
           <button
             type="button"
-            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className="flex items-center justify-between pl-3 pr-8 py-2.5 bg-white dark:bg-slate-900/45 border border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700/60 focus:border-indigo-500 dark:focus:border-indigo-500/70 focus:outline-none rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-100 transition-all shadow-sm cursor-pointer min-w-[130px]"
+            onClick={() => {
+              setIsDropdownOpen(!isDropdownOpen)
+              setIsGameDropdownOpen(false)
+              setIsVisibilityDropdownOpen(false)
+            }}
+            className="flex items-center justify-between pl-3 pr-8 py-2.5 bg-white dark:bg-slate-900/45 border border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700/60 focus:border-indigo-500 dark:focus:border-indigo-500/70 focus:outline-none rounded-[10px] text-xs font-semibold text-slate-800 dark:text-slate-100 transition-all shadow-sm cursor-pointer min-w-[130px]"
           >
             <span>
               {networkFilter === 'all' && 'Tất cả mạng'}
@@ -497,7 +688,7 @@ export default function MobileMonitorPage() {
                 className="fixed inset-0 z-10" 
                 onClick={() => setIsDropdownOpen(false)}
               />
-              <div className="absolute right-0 mt-1.5 w-full min-w-[140px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg py-1.5 z-20 animate-in fade-in slide-in-from-top-1 duration-150">
+              <div className="absolute right-0 mt-1.5 w-full min-w-[140px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[10px] shadow-lg py-1.5 z-20 animate-in fade-in slide-in-from-top-1 duration-150">
                 {[
                   { value: 'all', label: 'Tất cả mạng' },
                   { value: 'lan', label: 'LAN' },
@@ -535,7 +726,7 @@ export default function MobileMonitorPage() {
             setLoading(true)
             void fetchMobileLogs()
           }}
-          className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors"
+          className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-[10px] text-xs flex items-center gap-1.5 transition-colors"
         >
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
@@ -546,15 +737,15 @@ export default function MobileMonitorPage() {
 
       {/* Main Grid */}
       {error ? (
-        <div className="bg-rose-50 border border-rose-100 dark:bg-rose-950/15 dark:border-rose-900/30 text-rose-600 dark:text-rose-400 p-4 rounded-2xl text-xs font-semibold">
+        <div className="bg-rose-50 border border-rose-100 dark:bg-rose-950/15 dark:border-rose-900/30 text-rose-600 dark:text-rose-400 p-4 rounded-[10px] text-xs font-semibold">
           ⚠️ {error}
         </div>
       ) : filteredLogs.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900/45 border border-slate-100 dark:border-slate-800/80 rounded-2xl p-12 text-center text-slate-400 font-bold shadow-sm">
+        <div className="bg-white dark:bg-slate-900/45 border border-slate-100 dark:border-slate-800/80 rounded-[10px] p-12 text-center text-slate-400 font-bold shadow-sm">
           Không tìm thấy thiết bị di động nào phù hợp.
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {filteredLogs.map((item, index) => (
             <MobileDeviceCard
               key={item.deviceId || index}
