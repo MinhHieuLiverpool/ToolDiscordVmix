@@ -13,6 +13,8 @@ import uvicorn
 # 1) Environment variables (production-safe)
 # 2) config.py values as fallback for local development
 MONGODB_URI = os.getenv('MONGODB_URI', '').strip()
+DATABASE_NAME = os.getenv('DATABASE_NAME', '').strip()
+COLLECTION_NAME = os.getenv('COLLECTION_NAME', '').strip()
 
 # Import config from parent directory if needed
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,10 +25,11 @@ except ImportError:
 
 if not MONGODB_URI:
     MONGODB_URI = getattr(_config, 'MONGODB_URI', 'mongodb://localhost:27017') if _config else 'mongodb://localhost:27017'
-
-# Use database mobile_Monitor as requested
-DATABASE_NAME = "mobile_Monitor"
-COLLECTION_NAME = "logs"
+if not DATABASE_NAME:
+    DATABASE_NAME = getattr(_config, 'DATABASE_NAME', 'vmix_monitor') if _config else 'vmix_monitor'
+if not COLLECTION_NAME:
+    # Default to 'mobile_logs' to prevent collision with desktop stream logs in 'logs' collection
+    COLLECTION_NAME = "mobile_logs"
 
 VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 
