@@ -4,11 +4,14 @@ import {
   normalizeSrtList,
   normalizeStreamList,
   normalizeFfmpegList,
+  normalizeRecordList,
+  normalizeMultiRecordList,
   getMachineStatisticsId,
   type BackendLogItem,
 } from '../../services/api'
 import Dialog from '../../components/ui/Dialog'
-import { renderSrtCard, renderStreamCard } from '../../components/DialogHelpers'
+import { renderSrtCard, renderStreamCard, renderRecordCard, renderMultiRecordCard } from '../../components/DialogHelpers'
+
 
 function toOnOff(value: unknown): string {
   const text = String(value || '').toUpperCase()
@@ -32,9 +35,10 @@ export default function StatusByTablePage({
   error: string
 }) {
   const [dialogState, setDialogState] = useState<{
-    type: 'srt' | 'stream' | 'ffmpeg' | null
+    type: 'srt' | 'stream' | 'ffmpeg' | 'record' | null
     machineIndex: number
   }>({ type: null, machineIndex: -1 })
+
 
   if (loading) {
     return (
@@ -58,6 +62,9 @@ export default function StatusByTablePage({
   const currentSrtList = currentItem ? normalizeSrtList(currentItem.data.SRT) : []
   const currentStreamList = currentItem ? normalizeStreamList(currentItem.data.stream) : []
   const currentFfmpegList = currentItem ? normalizeFfmpegList(currentItem.data.ffmpeg) : []
+  const currentRecordList = currentItem ? normalizeRecordList(currentItem.data.List_REcord) : []
+  const currentMultiRecordList = currentItem ? normalizeMultiRecordList(currentItem.data.ListMultiREcord || (currentItem.data as any).ListMultiRecord) : []
+
 
   return (
     <>
@@ -90,6 +97,7 @@ export default function StatusByTablePage({
                   <th>MAC</th>
                   <th>Net Speed</th>
                   <th>REC</th>
+                  <th>MULTI</th>
                   <th>LIVE</th>
                   <th>EXT</th>
                   <th>Resolution</th>
@@ -101,7 +109,10 @@ export default function StatusByTablePage({
                   const srtList = normalizeSrtList(item.data.SRT)
                   const streamList = normalizeStreamList(item.data.stream)
                   const ffmpegList = normalizeFfmpegList(item.data.ffmpeg)
+                  const recordList = normalizeRecordList(item.data.List_REcord)
+                  const multiRecordList = normalizeMultiRecordList(item.data.ListMultiREcord || (item.data as any).ListMultiRecord)
                   const primaryPort = String(item.data.port || srtList[0]?.port || '-')
+
 
                   const machineId = getMachineStatisticsId(item) || `${item.data.ip || 'no-ip'}-${item.data.name || 'no-name'}`
                   return (
@@ -135,6 +146,11 @@ export default function StatusByTablePage({
                         </span>
                       </td>
                       <td>
+                        <span className={`status-pill ${toOnOff(item.data.vmix_multicorder || item.data.MultirecordingStatus) === 'ON' ? 'pill-on' : 'pill-off'}`}>
+                          {toOnOff(item.data.vmix_multicorder || item.data.MultirecordingStatus)}
+                        </span>
+                      </td>
+                      <td>
                         <span className={`status-pill ${toOnOff(item.data.vmix_streaming) === 'ON' ? 'pill-on' : 'pill-off'}`}>
                           {toOnOff(item.data.vmix_streaming)}
                         </span>
@@ -154,6 +170,15 @@ export default function StatusByTablePage({
                           title={srtList.length === 0 ? 'No SRT data' : 'View SRT details'}
                         >
                           SRT ({srtList.length})
+                        </button>
+                        <button
+                          type="button"
+                          className="card-footer-btn"
+                          onClick={() => setDialogState({ type: 'record', machineIndex: index })}
+                          disabled={recordList.length === 0 && multiRecordList.length === 0}
+                          title={recordList.length === 0 && multiRecordList.length === 0 ? 'No Record data' : 'View Record details'}
+                        >
+                          Record ({recordList.length + multiRecordList.length})
                         </button>
                         <button
                           type="button"
@@ -248,6 +273,40 @@ export default function StatusByTablePage({
         ) : (
           <div className="dialog-empty-state">Không có dữ liệu FFmpeg.</div>
         )}
+      </Dialog>
+
+      {/* Record Dialog */}
+      <Dialog
+        open={dialogState.type === 'record' && currentItem !== null}
+        onClose={() => setDialogState({ type: null, machineIndex: -1 })}
+        title={`Record & MultiCorder · ${currentItem?.data.name || 'Unknown'}`}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div>
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 800, marginBottom: '0.5rem', textTransform: 'uppercase', color: '#94a3b8', borderBottom: '1px solid rgba(148, 163, 184, 0.1)', paddingBottom: '0.25rem' }}>
+              Standard Record ({currentRecordList.length})
+            </h4>
+            {currentRecordList.length > 0 ? (
+              <div className="dialog-detail-grid">
+                {currentRecordList.map(renderRecordCard)}
+              </div>
+            ) : (
+              <div className="dialog-empty-state">Không có dữ liệu Standard Record.</div>
+            )}
+          </div>
+          <div>
+            <h4 style={{ fontSize: '0.95rem', fontWeight: 800, marginBottom: '0.5rem', textTransform: 'uppercase', color: '#94a3b8', borderBottom: '1px solid rgba(148, 163, 184, 0.1)', paddingBottom: '0.25rem' }}>
+              MultiCorder ({currentMultiRecordList.length})
+            </h4>
+            {currentMultiRecordList.length > 0 ? (
+              <div className="dialog-detail-grid">
+                {currentMultiRecordList.map(renderMultiRecordCard)}
+              </div>
+            ) : (
+              <div className="dialog-empty-state">Không có dữ liệu MultiCorder.</div>
+            )}
+          </div>
+        </div>
       </Dialog>
     </>
   )

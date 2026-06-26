@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { BackendSrtItem, BackendStreamItem, BackendStreamKeyItem } from '../services/api'
+import type { BackendSrtItem, BackendStreamItem, BackendStreamKeyItem, RecordItem, MultiRecordItem } from '../services/api'
 
 export function toOnOff(value: unknown): string {
     const text = String(value || '').toUpperCase()
@@ -189,3 +189,46 @@ export function renderStreamCard(stream: BackendStreamItem, index: number, strea
         </div>
     )
 }
+
+export function renderRecordCard(record: RecordItem, index: number) {
+    return (
+        <div key={`record-${index}`} className="dialog-detail-card">
+            <div className="dialog-detail-card-header">
+                <span className="dialog-detail-card-title">{record.profile || `Profile ${index + 1}`}</span>
+                <span className="pill-light" style={{ background: 'rgba(124, 58, 237, 0.1)', color: '#7c3aed', fontWeight: 600 }}>Standard</span>
+            </div>
+            {renderDetailLine('Filename', record.filename, true, true)}
+            {renderDetailLine('Format', record.format)}
+            {renderDetailLine('Resolution', record.resolution)}
+            {renderDetailLine('FPS', record.fps)}
+            {renderDetailLine('Video Bitrate', formatBitrate(record.v_bitrate))}
+            {renderDetailLine('Audio Bitrate', formatBitrate(record.a_bitrate))}
+            {renderDetailLine('Audio Delay', record.audio_delay)}
+            {record.hw_accel && renderDetailLine('HW Accel', record.hw_accel)}
+            {record.audio_enabled && renderDetailLine('Audio', record.audio_enabled)}
+            {record.audio_channel && renderDetailLine('Audio Ch', record.audio_channel)}
+            {record.source_channel && renderDetailLine('Source Ch', record.source_channel)}
+            {record.fragmented && renderDetailLine('Fragmented', record.fragmented)}
+        </div>
+    )
+}
+
+export function renderMultiRecordCard(mRecord: MultiRecordItem, index: number) {
+    const statusText = toOnOff(mRecord.status)
+    return (
+        <div key={`multirecord-${index}`} className="dialog-detail-card">
+            <div className="dialog-detail-card-header">
+                <span className="dialog-detail-card-title">{mRecord.source || `Source ${index + 1}`}</span>
+                <span className={`status-pill ${statusText === 'ON' ? 'pill-on' : 'pill-off'}`}>{statusText}</span>
+            </div>
+            {renderDetailLine('Folder', mRecord.folder, true, true)}
+            {renderDetailLine('Format', mRecord.format)}
+            {renderDetailLine('Video Bitrate', formatBitrate(mRecord.v_bitrate))}
+            {renderDetailLine('Audio Bitrate', formatBitrate(mRecord.a_bitrate))}
+            {mRecord.audio_src && renderDetailLine('Audio Source', mRecord.audio_src)}
+            {mRecord.interval && renderDetailLine('Interval', mRecord.interval)}
+            {mRecord.show_all && renderDetailLine('Show All', mRecord.show_all)}
+        </div>
+    )
+}
+

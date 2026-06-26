@@ -4,11 +4,14 @@ import {
     normalizeSrtList,
     normalizeStreamList,
     normalizeStreamKeysList,
+    normalizeRecordList,
+    normalizeMultiRecordList,
     updateNameEdit,
     type BackendLogItem,
 } from '../services/api'
 import Dialog from './ui/Dialog'
-import { renderSrtCard, renderStreamCard } from './DialogHelpers'
+import { renderSrtCard, renderStreamCard, renderRecordCard, renderMultiRecordCard } from './DialogHelpers'
+
 
 export default function MachineStatusCard({
     item,
@@ -22,6 +25,9 @@ export default function MachineStatusCard({
     const srtList = normalizeSrtList(item.data.SRT)
     const streamList = normalizeStreamList(item.data.stream)
     const streamKeysList = normalizeStreamKeysList(item.data.stream_keys)
+    const recordList = normalizeRecordList(item.data.List_REcord)
+    const multiRecordList = normalizeMultiRecordList(item.data.ListMultiREcord || (item.data as any).ListMultiRecord)
+
 
     const appOn = Number(item.data.statusapp) === 1
     const srtOnlineCount = srtList.filter((s) => isOn(s.status)).length
@@ -39,7 +45,9 @@ export default function MachineStatusCard({
     const recOn = Boolean(item.data.vmix_recording)
     const liveOn = Boolean(item.data.vmix_streaming)
     const extOn = Boolean(item.data.vmix_external)
+    const multiRecOn = Boolean(item.data.vmix_multicorder || item.data.MultirecordingStatus)
     const pidVmix = String(item.data.PIDVMIX ?? '').trim() || '-'
+
 
     const timeText = (() => {
         const raw = item.timestamp || ''
@@ -52,9 +60,11 @@ export default function MachineStatusCard({
     const fmtMbps = (value: number | null) => (value !== null ? `${value.toFixed(2)}` : '-')
     const [streamOpen, setStreamOpen] = useState(false)
     const [srtOpen, setSrtOpen] = useState(false)
+    const [recordOpen, setRecordOpen] = useState(false)
     const [isEditing, setIsEditing] = useState(false)
     const [editedName, setEditedName] = useState(item.data.name_edit || '')
     const [isSaving, setIsSaving] = useState(false)
+
 
     const handleStartEdit = () => {
         setEditedName(item.data.name_edit || '')
@@ -190,12 +200,8 @@ export default function MachineStatusCard({
                     <span className="info-value mono">{item.data.ipwan || '-'}</span>
                 </div>
                 <div className="info-row">
-                    <span className="info-label">PID VMIX</span>
-                    <span className="info-value mono">{pidVmix}</span>
-                </div>
-                <div className="info-row">
-                    <span className="info-label">REC | LIVE</span>
-                    <span className="info-value">{onOff(recOn)} | {onOff(liveOn)}</span>
+                    <span className="info-label">REC | LIVE | MULTI</span>
+                    <span className="info-value">{onOff(recOn)} | {onOff(liveOn)} | {onOff(multiRecOn)}</span>
                 </div>
             </div>
 
@@ -253,12 +259,12 @@ export default function MachineStatusCard({
 
             <div className="card-metrics">
                 <div className="metric-box">
-                    <div className="metric-label">PID VMIX</div>
-                    <div className="metric-value mono">{pidVmix}</div>
-                </div>
-                <div className="metric-box">
                     <div className="metric-label">REC</div>
                     <div className={`metric-value ${recOn ? 'metric-ping' : 'metric-warn'}`}>{onOff(recOn)}</div>
+                </div>
+                <div className="metric-box">
+                    <div className="metric-label">MULTI</div>
+                    <div className={`metric-value ${multiRecOn ? 'metric-ping' : 'metric-warn'}`}>{onOff(multiRecOn)}</div>
                 </div>
                 <div className="metric-box">
                     <div className="metric-label">LIVE</div>
@@ -271,6 +277,10 @@ export default function MachineStatusCard({
                 <div className="info-row">
                     <span className="info-label">Resolution</span>
                     <span className="info-value">{item.data.resolution || '-'}</span>
+                </div>
+                <div className="info-row">
+                    <span className="info-label">PID VMIX</span>
+                    <span className="info-value mono">{pidVmix}</span>
                 </div>
                 <div className="info-row">
                     <span className="info-label">MAC Address</span>
@@ -291,6 +301,14 @@ export default function MachineStatusCard({
                         disabled={srtList.length === 0}
                     >
                         SRT ({srtOnlineCount}/{srtList.length})
+                    </button>
+                    <button
+                        type="button"
+                        className="card-footer-btn"
+                        onClick={() => setRecordOpen(true)}
+                        disabled={recordList.length === 0 && multiRecordList.length === 0}
+                    >
+                        Record ({recordList.length + multiRecordList.length})
                     </button>
                     <button
                         type="button"
@@ -333,6 +351,39 @@ export default function MachineStatusCard({
                 ) : (
                     <div className="dialog-empty-state">Không có dữ liệu stream.</div>
                 )}
+            </Dialog>
+
+            <Dialog
+                open={recordOpen}
+                onClose={() => setRecordOpen(false)}
+                title={`Record & MultiCorder · ${item.data.name || 'Unknown'}`}
+            >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    <div>
+                        <h4 style={{ fontSize: '0.95rem', fontWeight: 800, marginBottom: '0.5rem', textTransform: 'uppercase', color: '#94a3b8', borderBottom: '1px solid rgba(148, 163, 184, 0.1)', paddingBottom: '0.25rem' }}>
+                            Standard Record ({recordList.length})
+                        </h4>
+                        {recordList.length > 0 ? (
+                            <div className="dialog-detail-grid">
+                                {recordList.map(renderRecordCard)}
+                            </div>
+                        ) : (
+                            <div className="dialog-empty-state">Không có dữ liệu Standard Record.</div>
+                        )}
+                    </div>
+                    <div>
+                        <h4 style={{ fontSize: '0.95rem', fontWeight: 800, marginBottom: '0.5rem', textTransform: 'uppercase', color: '#94a3b8', borderBottom: '1px solid rgba(148, 163, 184, 0.1)', paddingBottom: '0.25rem' }}>
+                            MultiCorder ({multiRecordList.length})
+                        </h4>
+                        {multiRecordList.length > 0 ? (
+                            <div className="dialog-detail-grid">
+                                {multiRecordList.map(renderMultiRecordCard)}
+                            </div>
+                        ) : (
+                            <div className="dialog-empty-state">Không có dữ liệu MultiCorder.</div>
+                        )}
+                    </div>
+                </div>
             </Dialog>
 
         </div>
