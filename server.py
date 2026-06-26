@@ -517,6 +517,7 @@ def _zero_out_metrics_if_offline(doc: dict):
         doc["MultirecordingStatus"] = False
         doc["List_REcord"] = []
         doc["ListMultiREcord"] = []
+        doc["ListMultiRecord"] = []
         doc["PIDVMIX"] = ""
         doc["ffmpeg"] = []
         
@@ -585,7 +586,7 @@ async def receive_data(data: dict):
             "vmix_multicorder": data.get('vmix_multicorder', False),
             "MultirecordingStatus": data.get('MultirecordingStatus', False),
             "List_REcord": data.get('List_REcord', []),
-            "ListMultiREcord": data.get('ListMultiREcord', []),
+            "ListMultiREcord": data.get('ListMultiREcord', data.get('ListMultiRecord', [])),
             "resolution":     data.get('resolution', '—'),
             "SRT": srt_list,
             "stream": stream_list,
@@ -1635,7 +1636,7 @@ async def get_by_ip(ip: str):
                     "vmix_multicorder": doc.get("vmix_multicorder", False),
                     "MultirecordingStatus": doc.get("MultirecordingStatus", False),
                     "List_REcord": doc.get("List_REcord", []),
-                    "ListMultiREcord": doc.get("ListMultiREcord", []),
+                    "ListMultiREcord": doc.get("ListMultiREcord", doc.get("ListMultiRecord", [])),
                     "resolution": doc.get("resolution", "—"),
                     "SRT": srt_list,
                     "stream": stream_list,
@@ -1844,7 +1845,7 @@ async def login_account(payload: dict):
         permissions = []
         if role_name:
             if role_name == "admin":
-                permissions = ["Tổng quan", "SRT", "Thông số Stream", "URL & Key", "FFmpeg", "Thống kê", "Vmix Monitor", "ViewSync", "Speedtest", "Debug Log", "Tài khoản", "Phân quyền"]
+                permissions = ["Tổng quan", "SRT", "Thông số Stream", "URL & Key", "FFmpeg", "Thống kê", "Vmix Monitor", "Record & MultiCorder", "ViewSync", "Speedtest", "Debug Log", "Tài khoản", "Phân quyền"]
             else:
                 role_doc = roles_collection.find_one({"role_key": role_name.lower()})
                 if role_doc:

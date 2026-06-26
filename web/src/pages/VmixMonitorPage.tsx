@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { toNumber } from '../types'
 import type { BackendLogItem } from '../services/api'
@@ -135,17 +135,6 @@ function MachineMonitorCard({ item, index }: { item: BackendLogItem; index: numb
 
 export default function VmixMonitorPage() {
     const { rows, loading, error } = useDashboardContext()
-    const [searchTerm, setSearchTerm] = useState('')
-
-    const filteredRows = useMemo(() => {
-        if (!searchTerm.trim()) return rows
-        const term = searchTerm.toLowerCase()
-        return rows.filter(
-            (item) =>
-                (item.data.name || '').toLowerCase().includes(term) ||
-                (item.data.ip || '').toLowerCase().includes(term),
-        )
-    }, [rows, searchTerm])
 
     if (loading) {
         return (
@@ -181,30 +170,13 @@ export default function VmixMonitorPage() {
                 <p className="page-description">Giám sát thông số PC và trạng thái Vmix Sender/Receiver theo thời gian thực.</p>
             </div>
 
-            {/* Search */}
-            <div className="table-toolbar">
-                <div className="table-search-wrap">
-                    <svg className="table-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="11" cy="11" r="8" />
-                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                    </svg>
-                    <input
-                        className="table-search-input"
-                        type="text"
-                        placeholder="Tìm theo tên máy, IP..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                </div>
-            </div>
-
-            {filteredRows.length === 0 ? (
+            {rows.length === 0 ? (
                 <div className="card-light" style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
                     Chưa có dữ liệu.
                 </div>
             ) : (
                 <div className="vmix-grid">
-                    {filteredRows.map((item, index) => (
+                    {rows.map((item, index) => (
                         <MachineMonitorCard
                             key={`${item.data.ip || 'ip'}-${item.data.port || 'port'}-${index}`}
                             item={item}

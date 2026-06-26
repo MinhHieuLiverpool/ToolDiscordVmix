@@ -20,6 +20,7 @@ import ImportDebugChartsPage from './pages/ImportDebugCharts'
 import CreateWebUrlPage from './pages/CreateWebUrlPage'
 import SharedDashboardPage from './pages/SharedDashboardPage'
 import GameChannelsPage from './pages/GameChannelsPage'
+import RecordMulticorderPage from './pages/RecordMulticorderPage'
 import { isAuthenticated, refreshUserSession } from './services/auth'
 import { Outlet, useParams } from 'react-router-dom'
 import { useEffect, useState, useMemo } from 'react'
@@ -211,7 +212,8 @@ function App() {
           <Route path="/stream" element={<StreamPage />} />
           <Route path="/url-key" element={<UrlKeyPage />} />
           <Route path="/statistics" element={<StatisticsPage />} />
-          <Route path="/vmix-monitor" element={<VmixMonitorPage />} />
+           <Route path="/vmix-monitor" element={<VmixMonitorPage />} />
+          <Route path="/record-multicorder" element={<RecordMulticorderPage />} />
           <Route path="/mobile-monitor" element={<MobileMonitorPage />} />
           <Route path="/viewsync" element={<ViewSyncPage />} />
           <Route path="/speedtest" element={<SpeedtestPage />} />

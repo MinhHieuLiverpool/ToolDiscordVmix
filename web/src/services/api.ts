@@ -45,6 +45,34 @@ export interface BackendFfmpegItem {
   recv?: number
 }
 
+export interface RecordItem {
+  profile: string
+  filename: string
+  format: string
+  resolution: string
+  fps: string
+  v_bitrate: string
+  a_bitrate: string
+  audio_delay: string
+  hw_accel?: string
+  audio_enabled?: string
+  audio_channel?: string
+  source_channel?: string
+  fragmented?: string
+}
+
+export interface MultiRecordItem {
+  source: string
+  status: string
+  folder: string
+  format: string
+  v_bitrate: string
+  a_bitrate: string
+  audio_src?: string
+  interval?: string
+  show_all?: string
+}
+
 export interface BackendLogItem {
   timestamp: string
   data: {
@@ -70,6 +98,11 @@ export interface BackendLogItem {
     vmix_recording: boolean
     vmix_streaming: boolean
     vmix_external: boolean
+    vmix_multicorder?: boolean
+    MultirecordingStatus?: boolean
+    List_REcord?: RecordItem[]
+    ListMultiREcord?: MultiRecordItem[]
+    ListMultiRecord?: MultiRecordItem[]
     resolution: string
     SRT?: BackendSrtItem[] | BackendSrtItem
     stream?: BackendStreamItem[] | BackendStreamItem
@@ -116,6 +149,36 @@ export function normalizeFfmpegList(rawValue: BackendLogItem['data']['ffmpeg']):
   }
   if (rawValue && typeof rawValue === 'object') {
     return [rawValue]
+  }
+  return []
+}
+
+export function normalizeRecordList(rawValue: unknown): RecordItem[] {
+  let parsed = rawValue
+  if (typeof rawValue === 'string') {
+    try {
+      parsed = JSON.parse(rawValue)
+    } catch (e) {
+      console.error('Failed to parse List_REcord JSON string:', e)
+    }
+  }
+  if (Array.isArray(parsed)) {
+    return parsed.filter((item): item is RecordItem => typeof item === 'object' && item !== null)
+  }
+  return []
+}
+
+export function normalizeMultiRecordList(rawValue: unknown): MultiRecordItem[] {
+  let parsed = rawValue
+  if (typeof rawValue === 'string') {
+    try {
+      parsed = JSON.parse(rawValue)
+    } catch (e) {
+      console.error('Failed to parse ListMultiREcord JSON string:', e)
+    }
+  }
+  if (Array.isArray(parsed)) {
+    return parsed.filter((item): item is MultiRecordItem => typeof item === 'object' && item !== null)
   }
   return []
 }

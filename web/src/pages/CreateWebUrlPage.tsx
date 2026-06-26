@@ -20,6 +20,7 @@ const AVAILABLE_FEATURES = [
     { id: 'Mobile Monitor', label: 'Mobile Monitor' },
     { id: 'Speedtest', label: 'Speedtest' },
     { id: 'Debug Log', label: 'Debug Log' },
+    { id: 'Record & MultiCorder', label: 'Record & MultiCorder' },
 ]
 
 export default function CreateWebUrlPage() {

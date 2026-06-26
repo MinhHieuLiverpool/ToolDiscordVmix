@@ -15,6 +15,7 @@ const AVAILABLE_PERMISSIONS = [
     'ViewSync',
     'Speedtest',
     'Debug Log',
+    'Record & MultiCorder',
     'Tài khoản',
     'Phân quyền'
 ]

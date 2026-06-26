@@ -1816,12 +1816,12 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                 delay_str = f"{delay} ms"
                 
                 hw = (sub.findtext("HardwareAcceleration") or "0").strip()
-                hw_str = "🟢 Yes" if hw == "1" else "🔴 No"
+                hw_str = "Yes" if hw == "1" else "No"
                 
-                audio_enabled = "🟢 ON" if (sub.findtext("Audio") or "0").strip() == "1" else "🔴 OFF"
+                audio_enabled = "ON" if (sub.findtext("Audio") or "0").strip() == "1" else "OFF"
                 audio_channel = (sub.findtext("AudioChannel") or "—").strip()
                 source_channel = (sub.findtext("Channel") or "—").strip()
-                fragmented = "🟢 Yes" if (sub.findtext("Fragmented") or "0").strip() == "1" else "🔴 No"
+                fragmented = "Yes" if (sub.findtext("Fragmented") or "0").strip() == "1" else "No"
                 
                 results.append({
                     "profile": label,
@@ -1878,7 +1878,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                     
                     audio_src = (sub.findtext("MultiCorderAudioSource") or "—").strip()
                     interval = (sub.findtext("Interval") or "—").strip()
-                    show_all = "🟢 Yes" if (sub.findtext("ShowAllInputs") or "0").strip() == "1" else "🔴 No"
+                    show_all = "Yes" if (sub.findtext("ShowAllInputs") or "0").strip() == "1" else "No"
                     
                     sources_dict = {}
                     for child in sub:
@@ -1905,7 +1905,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                         if folder == "—" or not folder:
                             folder = global_folder or "—"
                         
-                        enabled_lbl = "🟢 ON" if (info["enabled"] and vmix_alive) else "🔴 OFF"
+                        enabled_lbl = "ON" if (info["enabled"] and vmix_alive) else "OFF"
                         results.append({
                             "source": src_name,
                             "status": enabled_lbl,
@@ -1924,7 +1924,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                             folder_tag = f"MultiCorderFolder.Output{i}"
                             enabled_val = (sub.findtext(enabled_tag) or "0").strip()
                             folder_val = (sub.findtext(folder_tag) or sub.findtext(f"MultiCorderFolder{i}") or global_folder or "—").strip()
-                            enabled_lbl = "🟢 ON" if (enabled_val == "1" and vmix_alive) else "🔴 OFF"
+                            enabled_lbl = "ON" if (enabled_val == "1" and vmix_alive) else "OFF"
                             results.append({
                                 "source": f"Output{i}",
                                 "status": enabled_lbl,
