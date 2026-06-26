@@ -3,15 +3,9 @@ import { useDashboardContext } from '../hooks/useDashboardContext'
 import { 
     normalizeRecordList, 
     normalizeMultiRecordList, 
-    type BackendLogItem,
     type RecordItem, 
     type MultiRecordItem 
 } from '../services/api'
-
-function checkOn(value: unknown): boolean {
-    const text = String(value || '').toUpperCase()
-    return ['ONLINE', 'ON', '1', 'TRUE', 'RUNNING', 'LIVE', 'ACTIVE', '🟢 ON'].includes(text) || text.includes('🟢')
-}
 
 function renderStatusPill(val: string | undefined) {
     if (!val) return <span style={{ color: '#94a3b8' }}>-</span>
