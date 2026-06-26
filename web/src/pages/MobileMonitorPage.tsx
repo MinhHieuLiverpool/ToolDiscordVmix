@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import { showToast } from '../components/ui/Toast'
 import { useDashboardContext } from '../hooks/useDashboardContext'
+import { getUserRole, isAuthenticated } from '../services/auth'
 
 // Types based on the backend data structure
 export interface MobileLogItem {
@@ -426,6 +427,20 @@ export default function MobileMonitorPage() {
   // Filter logs based on search term, network type, game assignments and visibility filter
   const filteredLogs = useMemo(() => {
     let result = logs
+
+    // Check role and filter allowed mobile logs for logged in non-admin users
+    const authenticated = isAuthenticated()
+    const role = getUserRole().toLowerCase()
+    if (authenticated && role !== 'admin') {
+      const allowedMachinesSet = new Set<string>()
+      gameAssignments.forEach((a: any) => {
+        a.machines.forEach((m: string) => allowedMachinesSet.add(m))
+      })
+      result = result.filter((item) => {
+        const name = item.deviceName || item.name_device || ''
+        return allowedMachinesSet.has(name)
+      })
+    }
 
     // 1. Filter by allowedMachines (from shared uuid config)
     if (allowedMachines && allowedMachines.length > 0) {

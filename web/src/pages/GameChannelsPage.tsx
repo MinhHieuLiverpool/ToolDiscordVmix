@@ -1,13 +1,29 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { saveGameSelected, deleteGameSelected, toggleVisibleStatus, toggleMachineVisibility } from '../services/api'
 import { showToast } from '../components/ui/Toast'
 import Dialog from '../components/ui/Dialog'
+import axios from 'axios'
 
 export default function GameChannelsPage() {
     const { allRows, gameAssignments, loadAssignments } = useDashboardContext()
     
     const [loading, setLoading] = useState(false)
+    const [mobileDevices, setMobileDevices] = useState<string[]>([])
+
+    useEffect(() => {
+        axios.get('https://mobile-monitor.onrender.com/api/mobile-logs?limit=100')
+            .then(res => {
+                if (res.data && res.data.status === 'success') {
+                    const rawData = res.data.data || []
+                    const names = rawData.map((item: any) => item.name_device || item.deviceName || item.deviceId).filter(Boolean)
+                    setMobileDevices(Array.from(new Set(names)).sort() as string[])
+                }
+            })
+            .catch(err => {
+                console.error('Error fetching mobile devices:', err)
+            })
+    }, [])
 
     // Modal state
     const [showCreateModal, setShowCreateModal] = useState(false)
@@ -32,7 +48,7 @@ export default function GameChannelsPage() {
     }
 
     const handleSelectAll = () => {
-        setSelectedMachines(allMachineNames)
+        setSelectedMachines([...allMachineNames, ...mobileDevices])
     }
 
     const handleDeselectAll = () => {
@@ -398,54 +414,113 @@ export default function GameChannelsPage() {
                             </div>
                         </div>
 
-                        {allMachineNames.length === 0 ? (
-                            <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', color: '#94a3b8', fontSize: '0.8rem', fontStyle: 'italic', textAlign: 'center' }}>
-                                Không tìm thấy máy nào trực tuyến hoặc trong logs.
-                            </div>
-                        ) : (
-                            <div
-                                style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                                    gap: '0.65rem',
-                                    padding: '1rem',
-                                    background: '#f8fafc',
-                                    borderRadius: '10px',
-                                    border: '1px solid #e2e8f0',
-                                    maxHeight: '260px',
-                                    overflowY: 'auto'
-                                }}
-                            >
-                                {allMachineNames.map(name => (
-                                    <label
-                                        key={name}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                                    Máy tính ({allMachineNames.length})
+                                </label>
+                                {allMachineNames.length === 0 ? (
+                                    <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
+                                        Không tìm thấy máy tính nào.
+                                    </div>
+                                ) : (
+                                    <div
                                         style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
                                             gap: '0.5rem',
-                                            cursor: 'pointer',
-                                            fontSize: '0.825rem',
-                                            color: '#334155',
-                                            userSelect: 'none',
-                                            padding: '0.25rem 0.5rem',
-                                            borderRadius: '6px',
-                                            transition: 'background 0.15s',
-                                            background: selectedMachines.includes(name) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                            padding: '0.75rem',
+                                            background: '#f8fafc',
+                                            borderRadius: '10px',
+                                            border: '1px solid #e2e8f0',
+                                            maxHeight: '140px',
+                                            overflowY: 'auto'
                                         }}
                                     >
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedMachines.includes(name)}
-                                            onChange={() => handleToggleMachineSelection(name)}
-                                            style={{ accentColor: '#4f46e5', width: '15px', height: '15px', cursor: 'pointer' }}
-                                        />
-                                        <span style={{ fontWeight: selectedMachines.includes(name) ? 700 : 500 }}>
-                                            {name}
-                                        </span>
-                                    </label>
-                                ))}
+                                        {allMachineNames.map(name => (
+                                            <label
+                                                key={name}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '0.5rem',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.75rem',
+                                                    color: '#334155',
+                                                    userSelect: 'none',
+                                                    padding: '0.2rem 0.4rem',
+                                                    borderRadius: '6px',
+                                                    background: selectedMachines.includes(name) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                                }}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedMachines.includes(name)}
+                                                    onChange={() => handleToggleMachineSelection(name)}
+                                                    style={{ accentColor: '#4f46e5', width: '14px', height: '14px', cursor: 'pointer' }}
+                                                />
+                                                <span style={{ fontWeight: selectedMachines.includes(name) ? 700 : 500 }}>
+                                                    {name}
+                                                </span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
-                        )}
+
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                                    Thiết bị Mobile ({mobileDevices.length})
+                                </label>
+                                {mobileDevices.length === 0 ? (
+                                    <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
+                                        Không tìm thấy thiết bị mobile nào.
+                                    </div>
+                                ) : (
+                                    <div
+                                        style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                                            gap: '0.5rem',
+                                            padding: '0.75rem',
+                                            background: '#f8fafc',
+                                            borderRadius: '10px',
+                                            border: '1px solid #e2e8f0',
+                                            maxHeight: '140px',
+                                            overflowY: 'auto'
+                                        }}
+                                    >
+                                        {mobileDevices.map(name => (
+                                            <label
+                                                key={name}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '0.5rem',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.75rem',
+                                                    color: '#334155',
+                                                    userSelect: 'none',
+                                                    padding: '0.2rem 0.4rem',
+                                                    borderRadius: '6px',
+                                                    background: selectedMachines.includes(name) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                                }}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedMachines.includes(name)}
+                                                    onChange={() => handleToggleMachineSelection(name)}
+                                                    style={{ accentColor: '#10b981', width: '14px', height: '14px', cursor: 'pointer' }}
+                                                />
+                                                <span style={{ fontWeight: selectedMachines.includes(name) ? 700 : 500 }}>
+                                                    {name}
+                                                </span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
@@ -534,54 +609,113 @@ export default function GameChannelsPage() {
                             </div>
                         </div>
 
-                        {allMachineNames.length === 0 ? (
-                            <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', color: '#94a3b8', fontSize: '0.8rem', fontStyle: 'italic', textAlign: 'center' }}>
-                                Không tìm thấy máy nào trực tuyến hoặc trong logs.
-                            </div>
-                        ) : (
-                            <div
-                                style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                                    gap: '0.65rem',
-                                    padding: '1rem',
-                                    background: '#f8fafc',
-                                    borderRadius: '10px',
-                                    border: '1px solid #e2e8f0',
-                                    maxHeight: '260px',
-                                    overflowY: 'auto'
-                                }}
-                            >
-                                {allMachineNames.map(name => (
-                                    <label
-                                        key={name}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                                    Máy tính ({allMachineNames.length})
+                                </label>
+                                {allMachineNames.length === 0 ? (
+                                    <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
+                                        Không tìm thấy máy tính nào.
+                                    </div>
+                                ) : (
+                                    <div
                                         style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
                                             gap: '0.5rem',
-                                            cursor: 'pointer',
-                                            fontSize: '0.825rem',
-                                            color: '#334155',
-                                            userSelect: 'none',
-                                            padding: '0.25rem 0.5rem',
-                                            borderRadius: '6px',
-                                            transition: 'background 0.15s',
-                                            background: selectedMachines.includes(name) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                            padding: '0.75rem',
+                                            background: '#f8fafc',
+                                            borderRadius: '10px',
+                                            border: '1px solid #e2e8f0',
+                                            maxHeight: '140px',
+                                            overflowY: 'auto'
                                         }}
                                     >
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedMachines.includes(name)}
-                                            onChange={() => handleToggleMachineSelection(name)}
-                                            style={{ accentColor: '#4f46e5', width: '15px', height: '15px', cursor: 'pointer' }}
-                                        />
-                                        <span style={{ fontWeight: selectedMachines.includes(name) ? 700 : 500 }}>
-                                            {name}
-                                        </span>
-                                    </label>
-                                ))}
+                                        {allMachineNames.map(name => (
+                                            <label
+                                                key={name}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '0.5rem',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.75rem',
+                                                    color: '#334155',
+                                                    userSelect: 'none',
+                                                    padding: '0.2rem 0.4rem',
+                                                    borderRadius: '6px',
+                                                    background: selectedMachines.includes(name) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                                }}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedMachines.includes(name)}
+                                                    onChange={() => handleToggleMachineSelection(name)}
+                                                    style={{ accentColor: '#4f46e5', width: '14px', height: '14px', cursor: 'pointer' }}
+                                                />
+                                                <span style={{ fontWeight: selectedMachines.includes(name) ? 700 : 500 }}>
+                                                    {name}
+                                                </span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
-                        )}
+
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
+                                    Thiết bị Mobile ({mobileDevices.length})
+                                </label>
+                                {mobileDevices.length === 0 ? (
+                                    <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
+                                        Không tìm thấy thiết bị mobile nào.
+                                    </div>
+                                ) : (
+                                    <div
+                                        style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                                            gap: '0.5rem',
+                                            padding: '0.75rem',
+                                            background: '#f8fafc',
+                                            borderRadius: '10px',
+                                            border: '1px solid #e2e8f0',
+                                            maxHeight: '140px',
+                                            overflowY: 'auto'
+                                        }}
+                                    >
+                                        {mobileDevices.map(name => (
+                                            <label
+                                                key={name}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '0.5rem',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.75rem',
+                                                    color: '#334155',
+                                                    userSelect: 'none',
+                                                    padding: '0.2rem 0.4rem',
+                                                    borderRadius: '6px',
+                                                    background: selectedMachines.includes(name) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                                }}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedMachines.includes(name)}
+                                                    onChange={() => handleToggleMachineSelection(name)}
+                                                    style={{ accentColor: '#10b981', width: '14px', height: '14px', cursor: 'pointer' }}
+                                                />
+                                                <span style={{ fontWeight: selectedMachines.includes(name) ? 700 : 500 }}>
+                                                    {name}
+                                                </span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>

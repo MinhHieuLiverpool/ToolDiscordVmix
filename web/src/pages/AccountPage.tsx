@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchAccounts, createAccount, updateAccount, deleteAccount, fetchRoles } from '../services/api'
+import { fetchAccounts, createAccount, updateAccount, deleteAccount, fetchRoles, fetchGameSelected } from '../services/api'
 import type { BackendRoleItem } from '../services/api'
 import { showToast } from '../components/ui/Toast'
 import Dialog from '../components/ui/Dialog'
@@ -12,6 +12,7 @@ interface AccountItem {
     phone?: string
     is_locked?: boolean
     role?: string
+    allowed_channels?: string[]
 }
 
 export default function AccountPage() {
@@ -32,19 +33,23 @@ export default function AccountPage() {
     const [newEmail, setNewEmail] = useState('')
     const [newPhone, setNewPhone] = useState('')
     const [newRole, setNewRole] = useState('')
+    const [gameChannels, setGameChannels] = useState<string[]>([])
+    const [newAllowedChannels, setNewAllowedChannels] = useState<string[]>([])
 
     const [editEmail, setEditEmail] = useState('')
     const [editPhone, setEditPhone] = useState('')
     const [editPassword, setEditPassword] = useState('')
     const [editRole, setEditRole] = useState('')
+    const [editAllowedChannels, setEditAllowedChannels] = useState<string[]>([])
 
     const loadAccounts = async () => {
         try {
             setError('')
             setLoading(true)
-            const [accountsData, rolesData] = await Promise.all([
+            const [accountsData, rolesData, channelsData] = await Promise.all([
                 fetchAccounts(),
-                fetchRoles()
+                fetchRoles(),
+                fetchGameSelected()
             ])
             const processedAccounts = (accountsData || []).map(acc => ({
                 username: acc.username || '',
@@ -53,10 +58,12 @@ export default function AccountPage() {
                 email: acc.email,
                 phone: acc.phone,
                 is_locked: acc.is_locked,
-                role: acc.role
+                role: acc.role,
+                allowed_channels: acc.allowed_channels || []
             }))
             setAccounts(processedAccounts)
             setRoles(rolesData || [])
+            setGameChannels((channelsData || []).map(c => c.game))
         } catch (err) {
             console.error(err)
             setError('Không thể tải dữ liệu tài khoản và vai trò từ backend.')
@@ -125,7 +132,8 @@ export default function AccountPage() {
                 password: newPassword.trim(),
                 email: newEmail.trim(),
                 phone: newPhone.trim(),
-                role: newRole
+                role: newRole,
+                allowed_channels: newRole.toLowerCase() === 'admin' ? [] : newAllowedChannels
             })
 
             if (res.success) {
@@ -137,6 +145,7 @@ export default function AccountPage() {
                 setNewEmail('')
                 setNewPhone('')
                 setNewRole('')
+                setNewAllowedChannels([])
                 // Reload list
                 await loadAccounts()
             } else {
@@ -164,10 +173,12 @@ export default function AccountPage() {
         }
 
         try {
+            const isTargetAdmin = (isMasterAdmin ? 'admin' : editRole).toLowerCase() === 'admin'
             const updates: any = {
                 email: editEmail.trim(),
                 phone: editPhone.trim(),
-                role: isMasterAdmin ? 'admin' : editRole
+                role: isMasterAdmin ? 'admin' : editRole,
+                allowed_channels: isTargetAdmin ? [] : editAllowedChannels
             }
             if (editPassword) {
                 updates.password = editPassword.trim()
@@ -184,6 +195,7 @@ export default function AccountPage() {
                 setSelectedAccount(null)
                 setEditPassword('')
                 setEditRole('')
+                setEditAllowedChannels([])
                 await loadAccounts()
             } else {
                 showToast(res.message || 'Cập nhật tài khoản thất bại.', 'error')
@@ -276,13 +288,14 @@ export default function AccountPage() {
                     <div className="account-table-wrap">
                         <table className="account-table">
                             <colgroup>
-                                <col style={{ width: '15%' }} />
-                                <col style={{ width: '17%' }} />
                                 <col style={{ width: '12%' }} />
-                                <col style={{ width: '12%' }} />
-                                <col style={{ width: '12%' }} />
-                                <col style={{ width: '12%' }} />
-                                <col style={{ width: '20%' }} />
+                                <col style={{ width: '14%' }} />
+                                <col style={{ width: '10%' }} />
+                                <col style={{ width: '10%' }} />
+                                <col style={{ width: '16%' }} />
+                                <col style={{ width: '10%' }} />
+                                <col style={{ width: '10%' }} />
+                                <col style={{ width: '18%' }} />
                             </colgroup>
                             <thead>
                                 <tr>
@@ -290,6 +303,7 @@ export default function AccountPage() {
                                     <th>Email</th>
                                     <th>Số điện thoại</th>
                                     <th>Vai trò</th>
+                                    <th>Kênh truy cập</th>
                                     <th>Trạng thái</th>
                                     <th>Mật khẩu</th>
                                     <th>Hành động</th>
@@ -322,6 +336,37 @@ export default function AccountPage() {
                                             </td>
                                             <td>
                                                 {getRoleName(account.role || '')}
+                                            </td>
+                                            <td>
+                                                {isMasterAdmin || account.role?.toLowerCase() === 'admin' ? (
+                                                    <span style={{
+                                                        fontSize: '0.7rem',
+                                                        fontWeight: 500,
+                                                        color: '#16a34a',
+                                                        background: 'rgba(22, 163, 74, 0.08)',
+                                                        padding: '0.15rem 0.35rem',
+                                                        borderRadius: '4px'
+                                                    }}>
+                                                        Tất cả
+                                                    </span>
+                                                ) : account.allowed_channels && account.allowed_channels.length > 0 ? (
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', maxWidth: '200px' }}>
+                                                        {account.allowed_channels.map(ch => (
+                                                            <span key={ch} style={{
+                                                                fontSize: '0.7rem',
+                                                                color: '#4f46e5',
+                                                                background: 'rgba(99, 102, 241, 0.08)',
+                                                                padding: '0.15rem 0.35rem',
+                                                                borderRadius: '4px',
+                                                                whiteSpace: 'nowrap'
+                                                            }}>
+                                                                {ch}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.75rem' }}>Chưa gán kênh</span>
+                                                )}
                                             </td>
                                             <td>
                                                 <span className={`account-status ${account.is_locked ? 'account-status-off' : 'account-status-on'}`}>
@@ -390,6 +435,7 @@ export default function AccountPage() {
                                                             setEditPhone(account.phone || '')
                                                             setEditPassword('')
                                                             setEditRole(account.role || '')
+                                                            setEditAllowedChannels(account.allowed_channels || [])
                                                             setShowEditModal(true)
                                                         }}
                                                     >
@@ -531,6 +577,55 @@ export default function AccountPage() {
                             </select>
                         </div>
                     </div>
+                    {newRole.toLowerCase() !== 'admin' && gameChannels.length > 0 && (
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>
+                                Kênh được phép truy cập
+                            </label>
+                            <div style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: '0.5rem',
+                                padding: '0.75rem',
+                                background: '#f8fafc',
+                                borderRadius: '8px',
+                                border: '1px solid #e2e8f0',
+                                maxHeight: '150px',
+                                overflowY: 'auto'
+                            }}>
+                                {gameChannels.map(channel => {
+                                    const checked = newAllowedChannels.includes(channel)
+                                    return (
+                                        <label key={channel} style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '0.35rem',
+                                            background: '#fff',
+                                            padding: '0.25rem 0.5rem',
+                                            borderRadius: '6px',
+                                            border: '1px solid #e2e8f0',
+                                            fontSize: '0.75rem',
+                                            cursor: 'pointer',
+                                            userSelect: 'none'
+                                        }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setNewAllowedChannels(prev => [...prev, channel])
+                                                    } else {
+                                                        setNewAllowedChannels(prev => prev.filter(c => c !== channel))
+                                                    }
+                                                }}
+                                            />
+                                            {channel}
+                                        </label>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
                         <button
                             type="button"
@@ -650,6 +745,55 @@ export default function AccountPage() {
                                 </select>
                             </div>
                         </div>
+                        {editRole.toLowerCase() !== 'admin' && gameChannels.length > 0 && (
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>
+                                    Kênh được phép truy cập
+                                </label>
+                                <div style={{
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    gap: '0.5rem',
+                                    padding: '0.75rem',
+                                    background: '#f8fafc',
+                                    borderRadius: '8px',
+                                    border: '1px solid #e2e8f0',
+                                    maxHeight: '150px',
+                                    overflowY: 'auto'
+                                }}>
+                                    {gameChannels.map(channel => {
+                                        const checked = editAllowedChannels.includes(channel)
+                                        return (
+                                            <label key={channel} style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '0.35rem',
+                                                background: '#fff',
+                                                padding: '0.25rem 0.5rem',
+                                                borderRadius: '6px',
+                                                border: '1px solid #e2e8f0',
+                                                fontSize: '0.75rem',
+                                                cursor: 'pointer',
+                                                userSelect: 'none'
+                                            }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checked}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setEditAllowedChannels(prev => [...prev, channel])
+                                                        } else {
+                                                            setEditAllowedChannels(prev => prev.filter(c => c !== channel))
+                                                        }
+                                                    }}
+                                                />
+                                                {channel}
+                                            </label>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
                             <button
                                 type="button"

@@ -168,6 +168,7 @@ export interface LoginResponse {
   message?: string
   role?: string
   permissions?: string[]
+  allowed_channels?: string[]
 }
 
 export interface BackendAccountItem {
@@ -178,6 +179,7 @@ export interface BackendAccountItem {
   phone?: string
   is_locked?: boolean
   role?: string
+  allowed_channels?: string[]
 }
 
 export interface BackendRoleItem {
@@ -226,6 +228,11 @@ export async function loginAccount(username: string, password: string): Promise<
   return response.data
 }
 
+export async function fetchUserProfile(username: string): Promise<LoginResponse> {
+  const response = await apiClient.get<LoginResponse>(`/user_profile/${encodeURIComponent(username)}`)
+  return response.data
+}
+
 export async function fetchAccounts(): Promise<BackendAccountItem[]> {
   const response = await apiClient.get<BackendAccountItem[]>(API_ENDPOINTS.accounts)
   return response.data
@@ -237,6 +244,7 @@ export async function createAccount(payload: {
   email?: string
   phone?: string
   role?: string
+  allowed_channels?: string[]
 }): Promise<{ success: boolean; username?: string; message?: string }> {
   const response = await apiClient.post('/create_account', payload)
   return response.data
@@ -249,6 +257,7 @@ export async function updateAccount(payload: {
   phone?: string
   is_locked?: boolean
   role?: string
+  allowed_channels?: string[]
 }): Promise<{ success: boolean; username?: string; message?: string }> {
   const response = await apiClient.post('/update_account', payload)
   return response.data

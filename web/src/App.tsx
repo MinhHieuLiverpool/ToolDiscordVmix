@@ -20,7 +20,7 @@ import ImportDebugChartsPage from './pages/ImportDebugCharts'
 import CreateWebUrlPage from './pages/CreateWebUrlPage'
 import SharedDashboardPage from './pages/SharedDashboardPage'
 import GameChannelsPage from './pages/GameChannelsPage'
-import { isAuthenticated } from './services/auth'
+import { isAuthenticated, refreshUserSession } from './services/auth'
 import { Outlet, useParams } from 'react-router-dom'
 import { useEffect, useState, useMemo } from 'react'
 import { useDashboardData } from './hooks/useDashboardData'
@@ -149,6 +149,47 @@ function SharedLayout() {
 
 function App() {
   const authenticated = isAuthenticated()
+  const [sessionLoading, setSessionLoading] = useState(authenticated)
+
+  useEffect(() => {
+    if (authenticated) {
+      refreshUserSession().finally(() => {
+        setSessionLoading(false)
+      })
+    }
+  }, [authenticated])
+
+  if (sessionLoading) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100vh',
+        background: '#0f172a',
+        color: '#f8fafc',
+        fontFamily: 'sans-serif'
+      }}>
+        <div style={{
+          border: '4px solid rgba(255, 255, 255, 0.1)',
+          borderTop: '4px solid #4f46e5',
+          borderRadius: '50%',
+          width: '36px',
+          height: '36px',
+          animation: 'spin 1s linear infinite',
+          marginBottom: '1rem'
+        }} />
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}</style>
+        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8' }}>Đang đồng bộ quyền...</span>
+      </div>
+    )
+  }
 
   return (
     <BrowserRouter>

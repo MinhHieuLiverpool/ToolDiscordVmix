@@ -1,10 +1,11 @@
 import axios from 'axios'
-import { loginAccount } from './api'
+import { loginAccount, fetchUserProfile } from './api'
 
 const AUTH_STORAGE_KEY = 'vmix_monitor_authenticated'
 const USERNAME_STORAGE_KEY = 'vmix_monitor_username'
 const ROLE_STORAGE_KEY = 'vmix_monitor_user_role'
 const PERMISSIONS_STORAGE_KEY = 'vmix_monitor_user_permissions'
+const ALLOWED_CHANNELS_STORAGE_KEY = 'vmix_monitor_user_allowed_channels'
 
 export type AuthResult = {
   success: boolean
@@ -20,10 +21,12 @@ export async function authenticate(username: string, password: string): Promise<
       setUsername(result.username || username.trim())
       setUserRole(result.role || '')
       setUserPermissions(result.permissions || [])
+      setUserAllowedChannels((result as any).allowed_channels || [])
     } else {
       setUsername('')
       setUserRole('')
       setUserPermissions([])
+      setUserAllowedChannels([])
     }
     return {
       success,
@@ -34,6 +37,7 @@ export async function authenticate(username: string, password: string): Promise<
     setUsername('')
     setUserRole('')
     setUserPermissions([])
+    setUserAllowedChannels([])
 
     if (axios.isAxiosError(error)) {
       const message = String(error.response?.data?.message || '').trim()
@@ -104,9 +108,54 @@ export function getUserPermissions(): string[] {
   return []
 }
 
+export function setUserAllowedChannels(channels: string[]): void {
+  if (channels && channels.length > 0) {
+    localStorage.setItem(ALLOWED_CHANNELS_STORAGE_KEY, JSON.stringify(channels))
+  } else {
+    localStorage.removeItem(ALLOWED_CHANNELS_STORAGE_KEY)
+  }
+}
+
+export function getUserAllowedChannels(): string[] {
+  const stored = localStorage.getItem(ALLOWED_CHANNELS_STORAGE_KEY)
+  if (stored) {
+    try {
+      return JSON.parse(stored)
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
 export function logout(): void {
   setAuthenticated(false)
   setUsername('')
   setUserRole('')
   setUserPermissions([])
+  setUserAllowedChannels([])
+}
+
+export async function refreshUserSession(): Promise<boolean> {
+  const username = getUsername()
+  if (!username) return false
+  try {
+    const result = await fetchUserProfile(username)
+    if (result.success) {
+      setUserRole(result.role || '')
+      setUserPermissions(result.permissions || [])
+      setUserAllowedChannels(result.allowed_channels || [])
+      return true
+    } else {
+      logout()
+      return false
+    }
+  } catch (error) {
+    console.error('Failed to refresh user session:', error)
+    if (axios.isAxiosError(error) && (error.response?.status === 403 || error.response?.status === 404)) {
+      logout()
+      window.location.reload()
+    }
+    return false
+  }
 }

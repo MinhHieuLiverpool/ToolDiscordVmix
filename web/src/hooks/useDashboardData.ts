@@ -15,6 +15,7 @@ import type {
 } from '../services/api'
 import type { DeviceFilter, MachineMetrics, MetricPoint, TimeFilter } from '../types'
 import { toNumber } from '../types'
+import { getUserRole, getUserAllowedChannels } from '../services/auth'
 
 /* ─── Constants ───────────────────────────────────────── */
 const REALTIME_MAX_POINTS = 360
@@ -77,7 +78,13 @@ export function useDashboardData() {
     const loadAssignments = useCallback(async () => {
         try {
             const data = await fetchGameSelected()
-            setGameAssignments(data)
+            const role = getUserRole().toLowerCase()
+            if (role === 'admin') {
+                setGameAssignments(data)
+            } else {
+                const allowed = getUserAllowedChannels()
+                setGameAssignments(data.filter(a => allowed.includes(a.game)))
+            }
         } catch (err) {
             console.error('Error loading game assignments:', err)
         }
@@ -87,9 +94,21 @@ export function useDashboardData() {
         loadAssignments()
     }, [loadAssignments])
 
+    const userRows = useMemo(() => {
+        const role = getUserRole().toLowerCase()
+        if (role === 'admin') return allRows
+
+        const allowedMachines = new Set<string>()
+        gameAssignments.forEach(a => {
+            a.machines.forEach(m => allowedMachines.add(m))
+        })
+
+        return allRows.filter(row => allowedMachines.has(row.data.name))
+    }, [allRows, gameAssignments])
+
     const rows = useMemo(() => {
         if (selectedGame === '__all__') {
-            return allRows.filter((row) => {
+            return userRows.filter((row) => {
                 const machineName = row.data.name
                 const memberChannels = gameAssignments.filter(a => a.machines.includes(machineName))
                 
@@ -111,7 +130,7 @@ export function useDashboardData() {
         const assignment = gameAssignments.find(a => a.game === selectedGame)
         if (!assignment) return []
 
-        return allRows.filter((row) => {
+        return userRows.filter((row) => {
             const machineName = row.data.name
             if (!assignment.machines.includes(machineName)) return false
 
@@ -123,7 +142,7 @@ export function useDashboardData() {
             if (visibilityFilter === 'hidden') return !isVisible
             return true // 'all'
         })
-    }, [allRows, selectedGame, gameAssignments, visibilityFilter])
+    }, [userRows, selectedGame, gameAssignments, visibilityFilter])
 
     /* ─── Debug logs ─── */
     const [debugLogs, setDebugLogs] = useState<string[]>([])
@@ -534,7 +553,7 @@ export function useDashboardData() {
 
     return {
         rows,
-        allRows,
+        allRows: userRows,
         loading,
         error,
         wsStatus,

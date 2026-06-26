@@ -1773,7 +1773,7 @@ async def list_accounts():
         docs = list(
             accounts_collection.find(
                 {},
-                {"_id": 0, "username": 1, "password": 1, "created_at": 1, "email": 1, "phone": 1, "is_locked": 1, "role": 1}
+                {"_id": 0, "username": 1, "password": 1, "created_at": 1, "email": 1, "phone": 1, "is_locked": 1, "role": 1, "allowed_channels": 1}
             ).sort("username", 1)
         )
         # Normalize returned documents
@@ -1786,7 +1786,8 @@ async def list_accounts():
                 "email": doc.get("email", ""),
                 "phone": doc.get("phone", ""),
                 "is_locked": bool(doc.get("is_locked", False)),
-                "role": doc.get("role", "")
+                "role": doc.get("role", ""),
+                "allowed_channels": doc.get("allowed_channels", [])
             })
         return JSONResponse(content=processed_docs)
     except Exception as e:
@@ -1809,7 +1810,7 @@ async def login_account(payload: dict):
 
         doc = accounts_collection.find_one(
             {"username_key": username.lower()},
-            {"_id": 0, "username": 1, "password": 1, "password_hash": 1, "is_locked": 1, "role": 1},
+            {"_id": 0, "username": 1, "password": 1, "password_hash": 1, "is_locked": 1, "role": 1, "allowed_channels": 1},
         )
         if not doc:
             return JSONResponse(content={"success": False, "message": "invalid credentials"}, status_code=401)
@@ -1841,10 +1842,45 @@ async def login_account(payload: dict):
             "success": True, 
             "username": doc.get("username", username),
             "role": role_name,
-            "permissions": permissions
+            "permissions": permissions,
+            "allowed_channels": doc.get("allowed_channels", [])
         })
     except Exception as e:
         print(f"✗ Login account error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.get("/user_profile/{username}")
+async def get_user_profile(username: str):
+    """Lấy thông tin profile, vai trò, quyền và allowed_channels của user."""
+    try:
+        doc = accounts_collection.find_one(
+            {"username_key": username.lower()},
+            {"_id": 0, "username": 1, "is_locked": 1, "role": 1, "allowed_channels": 1},
+        )
+        if not doc:
+            return JSONResponse(content={"success": False, "message": "Không tìm thấy người dùng"}, status_code=404)
+        if doc.get("is_locked", False):
+            return JSONResponse(content={"success": False, "message": "Tài khoản đã bị khóa"}, status_code=403)
+
+        role_name = doc.get("role", "")
+        permissions = []
+        if role_name:
+            if role_name == "admin":
+                permissions = ["Tổng quan", "SRT", "Thông số Stream", "URL & Key", "FFmpeg", "Thống kê", "Vmix Monitor", "ViewSync", "Speedtest", "Debug Log", "Tài khoản", "Phân quyền"]
+            else:
+                role_doc = roles_collection.find_one({"role_key": role_name.lower()})
+                if role_doc:
+                    permissions = role_doc.get("permissions", [])
+
+        return JSONResponse(content={
+            "success": True,
+            "username": doc.get("username", username),
+            "role": role_name,
+            "permissions": permissions,
+            "allowed_channels": doc.get("allowed_channels", [])
+        })
+    except Exception as e:
+        print(f"✗ Get user profile error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
 @app.post("/create_account")
@@ -1856,6 +1892,9 @@ async def create_account(payload: dict):
         email = str(payload.get("email", "")).strip()
         phone = str(payload.get("phone", "")).strip()
         role = str(payload.get("role", "")).strip()
+        allowed_channels = payload.get("allowed_channels", [])
+        if not isinstance(allowed_channels, list):
+            allowed_channels = []
 
         if not username:
             return JSONResponse(content={"success": False, "message": "username is required"}, status_code=400)
@@ -1878,7 +1917,8 @@ async def create_account(payload: dict):
                         "email": email,
                         "phone": phone,
                         "role": role,
-                        "is_locked": False
+                        "is_locked": False,
+                        "allowed_channels": allowed_channels
                     }}
                 )
                 return JSONResponse(content={"success": True, "username": username, "updated": True}, status_code=200)
@@ -1895,6 +1935,7 @@ async def create_account(payload: dict):
                 "phone": phone,
                 "role": role,
                 "is_locked": False,
+                "allowed_channels": allowed_channels
             })
         except Exception:
             return JSONResponse(content={"success": False, "message": "username already exists"}, status_code=409)
@@ -1946,6 +1987,11 @@ async def update_account(payload: dict):
 
         if "is_locked" in payload:
             update_fields["is_locked"] = bool(payload.get("is_locked", False))
+
+        if "allowed_channels" in payload:
+            allowed_channels = payload.get("allowed_channels", [])
+            if isinstance(allowed_channels, list):
+                update_fields["allowed_channels"] = allowed_channels
 
         if update_fields:
             accounts_collection.update_one({"username_key": username_key}, {"$set": update_fields})
