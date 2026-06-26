@@ -57,6 +57,8 @@ class VmixMonitorUIMixin:
         style = ttk.Style()
         style.configure("Treeview", font=("Segoe UI", 10), rowheight=26)
         style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
+        style.configure("small.Treeview", font=("Segoe UI", 8), rowheight=20)
+        style.configure("small.Treeview.Heading", font=("Segoe UI", 8, "bold"))
         style.configure("warning.Treeview", font=("Segoe UI", 10), rowheight=26)
         style.configure("secondary.Treeview", font=("Segoe UI", 10), rowheight=26)
         style.configure("Header.TLabel", font=("Segoe UI", 20, "bold"))
@@ -183,10 +185,11 @@ class VmixMonitorUIMixin:
             ("Recording", "rec", "🔴", "danger"),
             ("Streaming", "live", "📡", "danger"),
             ("External", "ext", "🟢", "success"),
+            ("Multi Record", "multirec", "🔴", "danger"),
             ("Resolution", "resolution", "📐", "secondary"),
         ]
 
-        m_cols = 7
+        m_cols = 8
         for idx, (label, key, icon, bstyle) in enumerate(metrics_data):
             r, c = divmod(idx, m_cols)
             m_card = ttk.Frame(metrics_frame, padding=5)
@@ -235,6 +238,66 @@ class VmixMonitorUIMixin:
 
         # Placeholder row
         self.srt_ext_tree.insert("", tk.END, values=("⏳ Đang scan...",) + ("—",) * 7)
+
+        # ========== RECORD SETTINGS (AUTO-SCAN) ==========
+        record_wrap = ttk.Labelframe(main_container, text=" 🔴 Record Settings (Auto-Scan) ", padding=10, bootstyle="danger")
+        record_wrap.pack(fill=X, pady=(0, 20))
+
+        record_cols = ("profile", "filename", "format", "resolution", "fps", "v_bitrate", "a_bitrate", "audio_delay")
+        self.record_tree = ttk.Treeview(record_wrap, columns=record_cols, show="headings", height=3, style="small.Treeview")
+        for col, label, width in (
+            ("profile", "Profile", 90),
+            ("filename", "Filename / Path", 250),
+            ("format", "Format", 60),
+            ("resolution", "Res", 80),
+            ("fps", "FPS", 60),
+            ("v_bitrate", "V.Bitrate", 85),
+            ("a_bitrate", "A.Bitrate", 85),
+            ("audio_delay", "A.Delay", 70),
+        ):
+            self.record_tree.heading(col, text=label)
+            self.record_tree.column(col, width=width, anchor=CENTER)
+
+        self.record_tree.column("filename", anchor=W)
+
+        record_sb_v = ttk.Scrollbar(record_wrap, orient=VERTICAL, command=self.record_tree.yview, bootstyle="danger-round")
+        record_sb_h = ttk.Scrollbar(record_wrap, orient=HORIZONTAL, command=self.record_tree.xview, bootstyle="danger-round")
+        self.record_tree.configure(yscrollcommand=record_sb_v.set, xscrollcommand=record_sb_h.set)
+        record_sb_v.pack(side=RIGHT, fill=Y)
+        record_sb_h.pack(side=BOTTOM, fill=X)
+        self.record_tree.pack(side=LEFT, fill=BOTH, expand=YES)
+
+        # Placeholder row
+        self.record_tree.insert("", tk.END, values=("⏳ Đang scan...",) + ("—",) * 7)
+
+        # ========== MULTI RECORD (MULTICORDER) SETTINGS (AUTO-SCAN) ==========
+        multi_record_wrap = ttk.Labelframe(main_container, text=" 🎛️ Multi Record Settings (Auto-Scan) ", padding=10, bootstyle="success")
+        multi_record_wrap.pack(fill=X, pady=(0, 20))
+
+        multi_record_cols = ("source", "status", "folder", "format", "v_bitrate", "a_bitrate")
+        self.multi_record_tree = ttk.Treeview(multi_record_wrap, columns=multi_record_cols, show="headings", height=5, style="small.Treeview")
+        for col, label, width in (
+            ("source", "Source", 90),
+            ("status", "Status", 75),
+            ("folder", "Folder / Path", 250),
+            ("format", "Format", 75),
+            ("v_bitrate", "V.Bitrate", 80),
+            ("a_bitrate", "A.Bitrate", 80),
+        ):
+            self.multi_record_tree.heading(col, text=label)
+            self.multi_record_tree.column(col, width=width, anchor=CENTER)
+
+        self.multi_record_tree.column("folder", anchor=W)
+
+        multi_record_sb_v = ttk.Scrollbar(multi_record_wrap, orient=VERTICAL, command=self.multi_record_tree.yview, bootstyle="success-round")
+        multi_record_sb_h = ttk.Scrollbar(multi_record_wrap, orient=HORIZONTAL, command=self.multi_record_tree.xview, bootstyle="success-round")
+        self.multi_record_tree.configure(yscrollcommand=multi_record_sb_v.set, xscrollcommand=multi_record_sb_h.set)
+        multi_record_sb_v.pack(side=RIGHT, fill=Y)
+        multi_record_sb_h.pack(side=BOTTOM, fill=X)
+        self.multi_record_tree.pack(side=LEFT, fill=BOTH, expand=YES)
+
+        # Placeholder row
+        self.multi_record_tree.insert("", tk.END, values=("⏳ Đang scan...",) + ("—",) * 5)
 
         # ========== STREAM QUALITY SNAPSHOT ==========
         quality_wrap = ttk.Labelframe(main_container, text=" 📋 Stream Quality Health ", padding=10, bootstyle="secondary")
@@ -325,6 +388,7 @@ class VmixMonitorUIMixin:
             "rec": entry.get("rec", "—"),
             "live": entry.get("live", "—"),
             "ext": entry.get("ext", "—"),
+            "multirec": entry.get("multirec", "—"),
             "resolution": entry.get("resolution", "—"),
         }
         for key, val in mapping.items():

@@ -513,6 +513,10 @@ def _zero_out_metrics_if_offline(doc: dict):
         doc["vmix_recording"] = False
         doc["vmix_streaming"] = False
         doc["vmix_external"] = False
+        doc["vmix_multicorder"] = False
+        doc["MultirecordingStatus"] = False
+        doc["List_REcord"] = []
+        doc["ListMultiREcord"] = []
         doc["PIDVMIX"] = ""
         doc["ffmpeg"] = []
         
@@ -578,6 +582,10 @@ async def receive_data(data: dict):
             "vmix_recording": data.get('vmix_recording', False),
             "vmix_streaming": data.get('vmix_streaming', False),
             "vmix_external":  data.get('vmix_external', False),
+            "vmix_multicorder": data.get('vmix_multicorder', False),
+            "MultirecordingStatus": data.get('MultirecordingStatus', False),
+            "List_REcord": data.get('List_REcord', []),
+            "ListMultiREcord": data.get('ListMultiREcord', []),
             "resolution":     data.get('resolution', '—'),
             "SRT": srt_list,
             "stream": stream_list,
@@ -1624,6 +1632,10 @@ async def get_by_ip(ip: str):
                     "vmix_recording": doc.get("vmix_recording", False),
                     "vmix_streaming": doc.get("vmix_streaming", False),
                     "vmix_external": doc.get("vmix_external", False),
+                    "vmix_multicorder": doc.get("vmix_multicorder", False),
+                    "MultirecordingStatus": doc.get("MultirecordingStatus", False),
+                    "List_REcord": doc.get("List_REcord", []),
+                    "ListMultiREcord": doc.get("ListMultiREcord", []),
                     "resolution": doc.get("resolution", "—"),
                     "SRT": srt_list,
                     "stream": stream_list,

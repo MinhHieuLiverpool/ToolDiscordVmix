@@ -1654,22 +1654,35 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
         return results
 
     def auto_scan_srt(self):
-        """Start continuous SRT external output scanning in a background thread.
+        """Start continuous SRT, Record, and Multi Record scanning in a background thread.
         Called automatically on app launch.
         """
         if getattr(self, "_srt_scan_running", False):
             return  # Already running
 
         self._srt_scan_running = True
-        self.log("🔍 Auto Scan SRT External Outputs đã bắt đầu...")
+        self.log("🔍 Auto Scan SRT, Record & Multi Record đã bắt đầu...")
 
         def _scan_loop():
             while getattr(self, "_srt_scan_running", False):
                 try:
+                    # 1) Scan SRT External Outputs
                     srt_outputs = self._parse_srt_external_outputs()
                     self.root.after(0, lambda data=srt_outputs: self._update_srt_external_table(data))
+                    
+                    # 2) Scan Record and Multi Record Settings
+                    vmix_stats = self.get_vmix_stats()
+                    multicorder_active = vmix_stats.get("connected", False) and vmix_stats.get("multicorder", False)
+                    config_file = self._get_current_config_file_path()
+                    if config_file:
+                        record_data = self._parse_config_file_record(config_file)
+                        multi_data = self._parse_config_file_multirecord(config_file, multicorder_active)
+                        self._latest_record_data = record_data
+                        self._latest_multi_data = multi_data
+                        self.root.after(0, lambda r=record_data: self._update_record_table(r))
+                        self.root.after(0, lambda m=multi_data: self._update_multirecord_table(m))
                 except Exception as e:
-                    self.log(f"❌ SRT Scan error: {e}")
+                    self.log(f"❌ Auto Scan error: {e}")
                 # Scan every 3 seconds
                 for _ in range(30):
                     if not getattr(self, "_srt_scan_running", False):
@@ -1737,6 +1750,249 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                     hostname,
                     stream_id,
                     quality,
+                ),
+            )
+
+    def _get_current_config_file_path(self) -> str | None:
+        manual_path = getattr(self, "_manual_config_path", None)
+        if manual_path and os.path.isfile(manual_path) and not manual_path.lower().endswith(".vmix"):
+            return manual_path
+        
+        config_file = self._find_latest_studiocoast_config()
+        if not config_file or not os.path.isfile(config_file):
+            vmix_dir = self._vmix_data_dir()
+            fallback = os.path.join(vmix_dir, "settingbackups", "current.config")
+            if os.path.isfile(fallback):
+                config_file = fallback
+        return config_file
+
+    def _parse_config_file_record(self, config_file: str) -> list[dict]:
+        results: list[dict] = []
+        if not config_file or not os.path.isfile(config_file):
+            return results
+        try:
+            content = self._read_file_shared(config_file)
+            for setting_name, label in [("RecordingSettings", "Recording 1"), ("RecordingSettings2", "Recording 2")]:
+                m = re.search(
+                    rf'name="{re.escape(setting_name)}"[^>]*>\s*<value>(.*?)</value>',
+                    content, re.DOTALL,
+                )
+                if not m:
+                    continue
+                decoded = html.unescape(m.group(1).strip())
+                if not decoded:
+                    continue
+                try:
+                    sub = ET.fromstring(f"<root>{decoded}</root>")
+                except ET.ParseError:
+                    continue
+                
+                size = (sub.findtext("Size") or "—").strip()
+                fr_ticks = (sub.findtext("FrameRate") or "").strip()
+                fps_str = self._fps_from_ticks(fr_ticks) if fr_ticks else "—"
+                filename = (sub.findtext("Filename") or "—").strip()
+                
+                selected_tab = (sub.findtext("SelectedTab") or "").strip()
+                format_map = {
+                    "0": "AVI",
+                    "1": "WMV",
+                    "2": "MPEG-2",
+                    "3": "FFMPEG",
+                    "4": "MP4",
+                    "5": "NDI"
+                }
+                fmt = format_map.get(selected_tab, "—")
+                if fmt == "—" and filename != "—":
+                    _, ext = os.path.splitext(filename)
+                    if ext:
+                        fmt = ext[1:].upper()
+                
+                v_bitrate = (sub.findtext("MPEGBitRate") or "—").strip()
+                a_bitrate = (sub.findtext("AudioBitRate") or "—").strip()
+                v_bitrate_str = f"{v_bitrate} Mbps" if v_bitrate != "—" else "—"
+                a_bitrate_str = f"{a_bitrate} kbps" if a_bitrate != "—" else "—"
+                
+                delay = (sub.findtext("AudioDelay") or "0").strip()
+                delay_str = f"{delay} ms"
+                
+                hw = (sub.findtext("HardwareAcceleration") or "0").strip()
+                hw_str = "🟢 Yes" if hw == "1" else "🔴 No"
+                
+                audio_enabled = "🟢 ON" if (sub.findtext("Audio") or "0").strip() == "1" else "🔴 OFF"
+                audio_channel = (sub.findtext("AudioChannel") or "—").strip()
+                source_channel = (sub.findtext("Channel") or "—").strip()
+                fragmented = "🟢 Yes" if (sub.findtext("Fragmented") or "0").strip() == "1" else "🔴 No"
+                
+                results.append({
+                    "profile": label,
+                    "filename": filename,
+                    "format": fmt,
+                    "resolution": size,
+                    "fps": fps_str,
+                    "v_bitrate": v_bitrate_str,
+                    "a_bitrate": a_bitrate_str,
+                    "audio_delay": delay_str,
+                    "hw_accel": hw_str,
+                    "audio_enabled": audio_enabled,
+                    "audio_channel": audio_channel,
+                    "source_channel": source_channel,
+                    "fragmented": fragmented
+                })
+        except Exception:
+            pass
+        return results
+
+    def _parse_config_file_multirecord(self, config_file: str, vmix_alive: bool) -> list[dict]:
+        results: list[dict] = []
+        if not config_file or not os.path.isfile(config_file):
+            return results
+        try:
+            content = self._read_file_shared(config_file)
+            m = re.search(
+                r'name="MultiCorderSettings"[^>]*>\s*<value>(.*?)</value>',
+                content, re.DOTALL,
+            )
+            if m:
+                decoded = html.unescape(m.group(1).strip())
+                if decoded:
+                    try:
+                        sub = ET.fromstring(f"<root>{decoded}</root>")
+                    except ET.ParseError:
+                        return results
+                    
+                    selected_tab = (sub.findtext("SelectedTab") or "").strip()
+                    format_map = {
+                        "0": "AVI",
+                        "1": "WMV",
+                        "2": "MPEG-2",
+                        "3": "FFMPEG",
+                        "4": "MP4",
+                        "5": "NDI"
+                    }
+                    fmt = format_map.get(selected_tab, "MP4")
+                    
+                    v_bitrate = (sub.findtext("MPEGBitRate") or "—").strip()
+                    a_bitrate = (sub.findtext("AudioBitRate") or "—").strip()
+                    v_bitrate_str = f"{v_bitrate} Mbps" if v_bitrate != "—" else "—"
+                    a_bitrate_str = f"{a_bitrate} kbps" if a_bitrate != "—" else "—"
+                    
+                    audio_src = (sub.findtext("MultiCorderAudioSource") or "—").strip()
+                    interval = (sub.findtext("Interval") or "—").strip()
+                    show_all = "🟢 Yes" if (sub.findtext("ShowAllInputs") or "0").strip() == "1" else "🔴 No"
+                    
+                    sources_dict = {}
+                    for child in sub:
+                        if child.tag.startswith("MultiCorderEnabled."):
+                            source_name = child.tag[len("MultiCorderEnabled."):]
+                            enabled_val = (child.text or "0").strip()
+                            sources_dict[source_name] = {
+                                "enabled": enabled_val == "1",
+                                "folder": "—"
+                            }
+                    
+                    for child in sub:
+                        if child.tag.startswith("MultiCorderFolder."):
+                            source_name = child.tag[len("MultiCorderFolder."):]
+                            folder_val = (child.text or "").strip()
+                            if source_name in sources_dict:
+                                sources_dict[source_name]["folder"] = folder_val
+                    
+                    global_folder = (sub.findtext("MultiCorderFolder0") or "").strip()
+                    
+                    sorted_sources = sorted(sources_dict.items())
+                    for src_name, info in sorted_sources:
+                        folder = info["folder"]
+                        if folder == "—" or not folder:
+                            folder = global_folder or "—"
+                        
+                        enabled_lbl = "🟢 ON" if (info["enabled"] and vmix_alive) else "🔴 OFF"
+                        results.append({
+                            "source": src_name,
+                            "status": enabled_lbl,
+                            "folder": folder,
+                            "format": fmt,
+                            "v_bitrate": v_bitrate_str,
+                            "a_bitrate": a_bitrate_str,
+                            "audio_src": audio_src,
+                            "interval": interval,
+                            "show_all": show_all
+                        })
+                    
+                    if not results:
+                        for i in range(1, 5):
+                            enabled_tag = f"MultiCorderEnabled.Output{i}"
+                            folder_tag = f"MultiCorderFolder.Output{i}"
+                            enabled_val = (sub.findtext(enabled_tag) or "0").strip()
+                            folder_val = (sub.findtext(folder_tag) or sub.findtext(f"MultiCorderFolder{i}") or global_folder or "—").strip()
+                            enabled_lbl = "🟢 ON" if (enabled_val == "1" and vmix_alive) else "🔴 OFF"
+                            results.append({
+                                "source": f"Output{i}",
+                                "status": enabled_lbl,
+                                "folder": folder_val,
+                                "format": fmt,
+                                "v_bitrate": v_bitrate_str,
+                                "a_bitrate": a_bitrate_str,
+                                "audio_src": audio_src,
+                                "interval": interval,
+                                "show_all": show_all
+                            })
+        except Exception:
+            pass
+        return results
+
+    def _update_record_table(self, record_data: list[dict]):
+        """Update the Record Settings table on the GUI."""
+        if not hasattr(self, "record_tree"):
+            return
+
+        tree = self.record_tree
+        for item in tree.get_children():
+            tree.delete(item)
+
+        if not record_data:
+            tree.insert("", tk.END, values=("(no data)",) + ("—",) * 7)
+            return
+
+        for entry in record_data:
+            tree.insert(
+                "",
+                tk.END,
+                values=(
+                    entry.get("profile", "—"),
+                    entry.get("filename", "—"),
+                    entry.get("format", "—"),
+                    entry.get("resolution", "—"),
+                    entry.get("fps", "—"),
+                    entry.get("v_bitrate", "—"),
+                    entry.get("a_bitrate", "—"),
+                    entry.get("audio_delay", "—"),
+                ),
+            )
+
+    def _update_multirecord_table(self, multi_data: list[dict]):
+        """Update the Multi Record Settings table on the GUI."""
+        if not hasattr(self, "multi_record_tree"):
+            return
+
+        tree = self.multi_record_tree
+        for item in tree.get_children():
+            tree.delete(item)
+
+        if not multi_data:
+            tree.insert("", tk.END, values=("(no data)",) + ("—",) * 5)
+            return
+
+        for entry in multi_data:
+            tree.insert(
+                "",
+                tk.END,
+                values=(
+                    entry.get("source", "—"),
+                    entry.get("status", "—"),
+                    entry.get("folder", "—"),
+                    entry.get("format", "—"),
+                    entry.get("v_bitrate", "—"),
+                    entry.get("a_bitrate", "—"),
                 ),
             )
 
@@ -1810,6 +2066,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                     "recording": root.findtext("recording", "False").strip() == "True",
                     "streaming": root.findtext("streaming", "False").strip() == "True",
                     "external": root.findtext("external", "False").strip() == "True",
+                    "multicorder": root.findtext("multiCorder", "False").strip() == "True",
                     "fullscreen": root.findtext("fullscreen", "False").strip() == "True",
                     "version": root.findtext("version", "—"),
                     "edition": root.findtext("edition", "—"),
@@ -1830,6 +2087,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
             "recording": False,
             "streaming": False,
             "external": False,
+            "multicorder": False,
             "fullscreen": False,
             "version": "—",
             "edition": "—",
@@ -2675,6 +2933,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
             rec_str = "🔴 ON" if vmix_stats["recording"] else "OFF"
             live_str = "🔴 ON" if vmix_stats["streaming"] else "OFF"
             ext_str = "🟢 ON" if vmix_stats["external"] else "OFF"
+            multirec_str = "🔴 ON" if vmix_stats.get("multicorder", False) else "OFF"
             res_str = vmix_stats.get("resolution", "—") or "—"
             srt_by_port = vmix_stats.get("srt_by_port", {})
             if not srt_by_port:
@@ -2702,6 +2961,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                 entry["rec"] = rec_str
                 entry["live"] = live_str
                 entry["ext"] = ext_str
+                entry["multirec"] = multirec_str
                 entry["resolution"] = res_str
                 entry["srt"] = srt_str
 
@@ -2768,6 +3028,10 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                     "vmix_recording": vmix_stats.get("recording", False),
                     "vmix_streaming": vmix_stats.get("streaming", False),
                     "vmix_external": vmix_stats.get("external", False),
+                    "vmix_multicorder": vmix_stats.get("multicorder", False),
+                    "MultirecordingStatus": vmix_stats.get("multicorder", False),
+                    "List_REcord": getattr(self, "_latest_record_data", []),
+                    "ListMultiREcord": getattr(self, "_latest_multi_data", []),
                     "resolution": res_str,
                     "SRT": srt_list,
                     "stream": stream_rows,
@@ -2806,6 +3070,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                 "rec": rec_str,
                 "live": live_str,
                 "ext": ext_str,
+                "multirec": multirec_str,
                 "resolution": res_str,
             }
             self.root.after(0, lambda e=metrics_entry: self.update_table_display(e))
