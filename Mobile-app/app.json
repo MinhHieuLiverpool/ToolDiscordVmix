@@ -8,7 +8,11 @@
     "scheme": "mobilemonitor",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "bundleIdentifier": "com.minhhieu.mobilemonitor",
+      "icon": "./assets/expo.icon",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.minhhieu.mobilemonitor",
@@ -35,7 +39,9 @@
             "imageWidth": 76
           }
         }
-      ]
+      ],
+      "expo-font",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -44,8 +50,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "e84d7e73-61a1-413d-89f6-43b3fe1449cd"
+        "projectId": "e2dce450-5777-4383-9acd-ab5747724862"
       }
-    }
+    },
+    "owner": "hieu1682004"
   }
 }

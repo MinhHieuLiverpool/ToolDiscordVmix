@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "MobileMonitor",
+    "slug": "mobile-monitor-ios",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "mobilemonitor",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "com.minhhieu.mobilemonitor",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#208AEF"
+        }
+      ],
+      "expo-font",
+      "expo-web-browser",
+      "./plugins/withDeviceMonitorIOS"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "e2dce450-5777-4383-9acd-ab5747724862"
+      }
+    },
+    "owner": "hieu1682004"
+  }
+}

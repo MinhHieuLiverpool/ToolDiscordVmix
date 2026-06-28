@@ -90,6 +90,7 @@ def build_executable(
         "-m",
         "PyInstaller",
         "--onefile",
+        "--noupx",
         f"--name={exe_name}",
     ]
 

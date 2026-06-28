@@ -5,7 +5,10 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      }
     },
     "preview": {
       "developmentClient": false,
@@ -16,9 +19,6 @@
     },
     "production": {
       "developmentClient": false,
-      "android": {
-        "buildType": "apk"
-      },
       "ios": {}
     }
   },
