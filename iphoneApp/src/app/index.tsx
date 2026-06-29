@@ -31,6 +31,8 @@ export default function HomeScreen() {
     packetLoss,
     startScanning,
     stopScanning,
+    nameDevice,
+    saveNameDevice,
   } = useDeviceStats();
 
   return (
@@ -84,6 +86,8 @@ export default function HomeScreen() {
           savedServerIp={savedServerIp}
           serverPing={isScanning ? serverPing : '-'}
           onSaveServerIp={saveServerIp}
+          nameDevice={nameDevice}
+          onSaveNameDevice={saveNameDevice}
         />
 
         {/* Performance Monitor */}

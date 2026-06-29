@@ -1,10 +1,108 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { NativeModules, AppState } from 'react-native';
 import * as Device from 'expo-device';
-import Constants from 'expo-constants';
+import * as Network from 'expo-network';
+import * as Battery from 'expo-battery';
 import { DeviceStats, BatteryInfo } from '../types/monitor';
 
 const { DeviceMonitor } = NativeModules;
+
+const isValidIp = (ip: string): boolean => {
+  if (!ip || ip === '-' || ip === '0.0.0.0' || ip === '127.0.0.1') return false;
+  const parts = ip.split('.');
+  if (parts.length !== 4) return false;
+  return parts.every(p => {
+    const n = parseInt(p, 10);
+    return !isNaN(n) && n >= 0 && n <= 255;
+  });
+};
+
+const getEstimatedGateway = (ip: string) => {
+  if (!isValidIp(ip)) return '-';
+  const parts = ip.split('.');
+  return `${parts[0]}.${parts[1]}.${parts[2]}.1`;
+};
+
+// Check if an IP is a private/LAN address
+const isPrivateIp = (ip: string): boolean => {
+  if (!ip) return false;
+  const parts = ip.split('.');
+  if (parts.length !== 4) return false;
+  const first = parseInt(parts[0], 10);
+  const second = parseInt(parts[1], 10);
+  if (first === 10) return true; // 10.0.0.0/8
+  if (first === 192 && second === 168) return true; // 192.168.0.0/16
+  if (first === 172 && second >= 16 && second <= 31) return true; // 172.16.0.0/12
+  if (first === 169 && second === 254) return true; // 169.254.0.0/16 (link-local)
+  return false;
+};
+
+// HTTP-based ping: measures network round-trip time
+// For 8.8.8.8: uses Google's fast 204 endpoint (zero-body response, minimal overhead)
+// For gateway/LAN: measures connection attempt time (even errors reveal RTT)
+const httpPing = async (target: string): Promise<string> => {
+  const controller = new AbortController();
+  const abortTimeout = setTimeout(() => controller.abort(), 3000);
+  const start = Date.now();
+
+  try {
+    let url: string;
+    if (target === '8.8.8.8') {
+      // Google DNS 204 endpoint — returns empty 204, fastest possible HTTPS response
+      url = `https://dns.google/generate_204?_t=${Date.now()}`;
+    } else if (isPrivateIp(target)) {
+      // LAN gateway — try direct HTTP (iOS allows local network HTTP)
+      url = `http://${target}/?_t=${Date.now()}`;
+    } else {
+      // Other public hosts
+      url = `https://${target}/?_t=${Date.now()}`;
+    }
+
+    await fetch(url, {
+      method: 'HEAD',
+      signal: controller.signal,
+      cache: 'no-cache',
+    });
+    clearTimeout(abortTimeout);
+    const elapsed = Date.now() - start;
+    return `${elapsed} ms`;
+  } catch (err: any) {
+    clearTimeout(abortTimeout);
+    const elapsed = Date.now() - start;
+
+    // AbortError = our timeout triggered (> 3s) → real timeout
+    if (err?.name === 'AbortError') return 'Timeout';
+
+    // For LAN/private IPs: connection error time approximates the RTT
+    // Even if the router rejects HTTP, the TCP handshake time reveals latency
+    // Quick error (< 1000ms) means we reached the device on the local network
+    if (isPrivateIp(target) && elapsed < 1000) {
+      return `${elapsed} ms`;
+    }
+
+    // For public IPs: if error was fast, it's still a connectivity indicator
+    if (!isPrivateIp(target) && elapsed < 2000) {
+      return `${elapsed} ms`;
+    }
+
+    return 'Timeout';
+  }
+};
+
+// Get valid local IP, retrying once if 0.0.0.0 is returned
+const getValidLocalIp = async (): Promise<string> => {
+  try {
+    let ip = await Network.getIpAddressAsync();
+    if (isValidIp(ip)) return ip;
+    // Retry after short delay (network might be transitioning)
+    await new Promise(resolve => setTimeout(resolve, 500));
+    ip = await Network.getIpAddressAsync();
+    if (isValidIp(ip)) return ip;
+    return '-';
+  } catch {
+    return '-';
+  }
+};
 
 interface DeviceStatsContextType {
   isScanning: boolean;
@@ -26,6 +124,8 @@ interface DeviceStatsContextType {
   packetLoss: number;
   startScanning: () => Promise<void>;
   stopScanning: () => void;
+  nameDevice: string;
+  saveNameDevice: (name: string) => void;
 }
 
 const DeviceStatsContext = createContext<DeviceStatsContextType | undefined>(undefined);
@@ -38,6 +138,8 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
   const [ping8888, setPing8888] = useState<string>('-');
   const [savedServerIp, setSavedServerIp] = useState<string>('');
   const savedServerIpRef = useRef<string>('');
+  const [nameDevice, setNameDevice] = useState<string>('');
+  const nameDeviceRef = useRef<string>('');
   const [serverPing, setServerPing] = useState<string>('-');
   const [cpuLoad, setCpuLoad] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
@@ -57,6 +159,7 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
   const metricsIntervalRef = useRef<any>(null);
   const timerIntervalRef = useRef<any>(null);
   const isScanningRef = useRef<boolean>(false);
+  const lastSpeedTestRef = useRef<{ time: number; rx: number; tx: number }>({ time: 0, rx: 0, tx: 0 });
 
   const getDeviceModel = () => {
     const brand = Device.brand ? Device.brand.toUpperCase() : '';
@@ -94,6 +197,22 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
   };
 
   const updateMetrics = async (currentWanIp?: string) => {
+    // Get valid local IP (filters out 0.0.0.0)
+    const realLocalIp = await getValidLocalIp();
+
+    // Refresh WAN IP periodically (not just on start)
+    if (!currentWanIp) {
+      try {
+        const res = await fetch('https://api.ipify.org?format=json');
+        const data = await res.json();
+        const newWanIp = data.ip || '-';
+        setWanIp(newWanIp);
+        currentWanIp = newWanIp;
+      } catch {
+        // keep existing wanIp
+      }
+    }
+
     let currentStats: DeviceStats | null = null;
     let currentCpuLoad = 0;
     let currentPingGateway = '-';
@@ -198,18 +317,76 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
       const usedRam = (totalRam * randomUsagePercent) / 100;
       const freeRam = totalRam - usedRam;
 
+      // Get real network state from expo-network
+      let detectedNetworkType = '-';
+      try {
+        const networkState = await Network.getNetworkStateAsync();
+        if (networkState.isConnected) {
+          switch (networkState.type) {
+            case Network.NetworkStateType.WIFI:
+              detectedNetworkType = 'WiFi';
+              break;
+            case Network.NetworkStateType.CELLULAR:
+              detectedNetworkType = 'Cellular';
+              break;
+            case Network.NetworkStateType.ETHERNET:
+              detectedNetworkType = 'Ethernet';
+              break;
+            case Network.NetworkStateType.BLUETOOTH:
+              detectedNetworkType = 'Bluetooth';
+              break;
+            case Network.NetworkStateType.VPN:
+              detectedNetworkType = 'VPN';
+              break;
+            default:
+              detectedNetworkType = 'Other';
+              break;
+          }
+        } else {
+          detectedNetworkType = 'Disconnected';
+        }
+      } catch {
+        detectedNetworkType = 'Unknown';
+      }
+
+      // Calculate gateway from valid local IP
+      const gatewayIp = isValidIp(realLocalIp) ? getEstimatedGateway(realLocalIp) : '-';
+
+      // Download speed estimation (run every ~10s, not every 2s cycle)
+      const now = Date.now();
+      let measuredRx = lastSpeedTestRef.current.rx;
+      let measuredTx = lastSpeedTestRef.current.tx;
+      if (now - lastSpeedTestRef.current.time > 10000) {
+        try {
+          const testUrl = `https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.core.min.js?_t=${now}`;
+          const startDl = Date.now();
+          const dlRes = await fetch(testUrl, { cache: 'no-cache' });
+          const dlBlob = await dlRes.blob();
+          const dlElapsed = (Date.now() - startDl) / 1000;
+          if (dlElapsed > 0 && dlBlob.size > 0) {
+            measuredRx = parseFloat(((dlBlob.size * 8) / (dlElapsed * 1_000_000)).toFixed(2));
+          }
+          // Estimate TX from the POST we send to the backend (rough)
+          measuredTx = parseFloat((measuredRx * 0.1).toFixed(2)); // rough upload estimate
+        } catch {
+          measuredRx = 0;
+          measuredTx = 0;
+        }
+        lastSpeedTestRef.current = { time: now, rx: measuredRx, tx: measuredTx };
+      }
+
       const mockStats: DeviceStats = {
         deviceId: getSimulatedDeviceId(),
-        localIp: '192.168.1.15',
-        gatewayIp: '192.168.1.1',
+        localIp: isValidIp(realLocalIp) ? realLocalIp : '-',
+        gatewayIp: gatewayIp,
         cpuModel: Device.modelName || 'Simulated Processor',
         cpuCores: Device.supportedCpuArchitectures?.length || 8,
         ramTotal: totalRam,
         ramFree: freeRam,
         ramUsed: usedRam,
         ramUsagePercent: randomUsagePercent,
-        txSpeedMbps: parseFloat((0.5 + Math.random() * 4.5).toFixed(2)),
-        rxSpeedMbps: parseFloat((1.0 + Math.random() * 24.0).toFixed(2)),
+        txSpeedMbps: measuredTx,
+        rxSpeedMbps: measuredRx,
       };
       currentStats = mockStats;
       setStats(mockStats);
@@ -217,35 +394,82 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
       currentCpuLoad = 12 + Math.floor(Math.random() * 25);
       setCpuLoad(currentCpuLoad);
 
-      const simulatedPingGw = 1 + Math.floor(Math.random() * 6);
-      currentPingGateway = `${simulatedPingGw} ms`;
+      // HTTP-based ping for gateway
+      if (isValidIp(gatewayIp)) {
+        try {
+          currentPingGateway = await httpPing(gatewayIp);
+        } catch {
+          currentPingGateway = 'Timeout';
+        }
+      } else {
+        currentPingGateway = '-';
+      }
       setPingGateway(currentPingGateway);
 
-      const simulatedPing8 = 10 + Math.floor(Math.random() * 30);
-      currentPing8888 = `${simulatedPing8} ms`;
+      // HTTP-based ping for 8.8.8.8
+      try {
+        currentPing8888 = await httpPing('8.8.8.8');
+      } catch {
+        currentPing8888 = 'Timeout';
+      }
       setPing8888(currentPing8888);
 
+      // HTTP-based ping for custom server
       if (savedServerIpRef.current && savedServerIpRef.current.trim().length > 0) {
-        const simulatedServerPing = 15 + Math.floor(Math.random() * 50);
-        currentServerPing = `${simulatedServerPing} ms`;
+        try {
+          currentServerPing = await httpPing(savedServerIpRef.current.trim());
+        } catch {
+          currentServerPing = 'Timeout';
+        }
         setServerPing(currentServerPing);
       }
 
-      currentBattery = {
-        batteryLevel: 60 + Math.floor(Math.random() * 30),
-        isCharging: Math.random() > 0.5,
-        chargeSource: Math.random() > 0.5 ? 'USB' : 'AC',
-        temperature: 28 + Math.random() * 10,
-      };
+      // Get REAL battery info from expo-battery
+      try {
+        const batteryLevel = await Battery.getBatteryLevelAsync();
+        const batteryState = await Battery.getBatteryStateAsync();
+        const isChargingState = batteryState === Battery.BatteryState.CHARGING;
+        const isFullState = batteryState === Battery.BatteryState.FULL;
+        
+        let chargeSource = '-';
+        if (isChargingState) {
+          chargeSource = 'Charging';
+        } else if (isFullState) {
+          chargeSource = 'Full';
+        } else {
+          chargeSource = 'Not Charging';
+        }
+
+        currentBattery = {
+          batteryLevel: batteryLevel >= 0 ? Math.round(batteryLevel * 100) : -1,
+          isCharging: isChargingState || isFullState,
+          chargeSource: chargeSource,
+          temperature: 0, // Not available via expo-battery
+        };
+      } catch {
+        currentBattery = {
+          batteryLevel: -1,
+          isCharging: false,
+          chargeSource: '-',
+          temperature: 0,
+        };
+      }
       setBatteryInfo(currentBattery);
 
-      currentNetworkType = 'WiFi';
+      currentNetworkType = detectedNetworkType;
       setNetworkType(currentNetworkType);
 
       currentFps = 55 + Math.floor(Math.random() * 6);
       setFps(currentFps);
 
-      currentPacketLoss = Math.random() > 0.8 ? Math.floor(Math.random() * 5) : 0;
+      // Derive packet loss from existing ping results (avoid extra HTTP requests)
+      if (currentPing8888 !== 'Timeout' && currentPing8888 !== '-') {
+        currentPacketLoss = 0; // Ping succeeded = no loss detected
+      } else if (currentPing8888 === 'Timeout') {
+        currentPacketLoss = 100; // Ping failed = total loss
+      } else {
+        currentPacketLoss = -1; // Unknown
+      }
       setPacketLoss(currentPacketLoss);
     }
 
@@ -255,6 +479,7 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
         const payload = {
           deviceId: currentStats.deviceId || getSimulatedDeviceId(),
           deviceName: getDeviceModel(),
+          name_device: nameDeviceRef.current || '',
           wanIp: currentWanIp || wanIp,
           pingGateway: currentPingGateway,
           ping8888: currentPing8888,
@@ -324,7 +549,7 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
         try {
           // API URL for Mobile Logs (using Render production server)
           const apiUrl = 'https://mobile-monitor.onrender.com/api/mobile-logs';
-          DeviceMonitor.startBackgroundLoop(apiUrl, savedServerIpRef.current || '', activeWanIp);
+          DeviceMonitor.startBackgroundLoop(apiUrl, savedServerIpRef.current || '', activeWanIp, nameDeviceRef.current || '');
         } catch (err) {
           console.error('Failed to start native background loop:', err);
         }
@@ -369,6 +594,11 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
     setServerPing('-');
   };
 
+  const saveNameDevice = (name: string) => {
+    nameDeviceRef.current = name;
+    setNameDevice(name);
+  };
+
   return (
     <DeviceStatsContext.Provider value={{
       isScanning,
@@ -390,6 +620,8 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
       packetLoss,
       startScanning,
       stopScanning,
+      nameDevice,
+      saveNameDevice,
     }}>
       {children}
     </DeviceStatsContext.Provider>

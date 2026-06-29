@@ -10,6 +10,7 @@ interface BandwidthStatsCardProps {
 export function BandwidthStatsCard({ stats }: BandwidthStatsCardProps) {
   const formatSpeed = (speedMbps: number | undefined) => {
     if (speedMbps === undefined || stats === null) return '- Mbps';
+    if (speedMbps < 0) return 'N/A';
     return `${speedMbps.toFixed(2)} Mbps`;
   };
 

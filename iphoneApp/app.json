@@ -11,7 +11,13 @@
       "bundleIdentifier": "com.minhhieu.mobilemonitor",
       "supportsTablet": false,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": [
+          "location"
+        ],
+        "NSLocationWhenInUseUsageDescription": "This app requires location access to monitor device status in the background.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app requires background location access to monitor device status when tabbed out.",
+        "NSLocationAlwaysUsageDescription": "This app requires background location access to monitor device status when tabbed out."
       }
     },
     "plugins": [

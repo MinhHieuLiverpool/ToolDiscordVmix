@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View, Text, Dimensions } from 'react-native';
+import { StyleSheet, View, Text, Dimensions, Platform } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { DeviceStats } from '../types/monitor';
 
@@ -27,14 +27,18 @@ export function HardwareStatsCard({ stats, cpuLoad }: HardwareStatsCardProps) {
 
       {/* CPU Section */}
       <Text style={styles.sectionHeader}>CPU Info</Text>
-      <View style={styles.metricRow}>
-        <Text style={styles.metricLabel}>Processor</Text>
-        <Text style={styles.metricValue} numberOfLines={1}>{stats?.cpuModel || '-'}</Text>
-      </View>
-      <View style={styles.metricRow}>
-        <Text style={styles.metricLabel}>Cores</Text>
-        <Text style={styles.metricValue}>{stats?.cpuCores ? `${stats.cpuCores} Cores` : '-'}</Text>
-      </View>
+      {stats?.cpuModel && stats.cpuModel !== '-' && !stats.cpuModel.includes('Unknown') && (
+        <View style={styles.metricRow}>
+          <Text style={styles.metricLabel}>Processor</Text>
+          <Text style={styles.metricValue} numberOfLines={1}>{stats.cpuModel}</Text>
+        </View>
+      )}
+      {Platform.OS !== 'ios' && (
+        <View style={styles.metricRow}>
+          <Text style={styles.metricLabel}>Cores</Text>
+          <Text style={styles.metricValue}>{stats?.cpuCores ? `${stats.cpuCores} Cores` : '-'}</Text>
+        </View>
+      )}
 
       <View style={styles.progressContainer}>
         <View style={styles.progressLabels}>

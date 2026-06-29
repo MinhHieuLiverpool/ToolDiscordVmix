@@ -3,22 +3,34 @@ import UIKit
 import Darwin
 import QuartzCore
 import Network
+import CoreLocation
 
 @objc(DeviceMonitor)
-class DeviceMonitorModule: NSObject {
+class DeviceMonitorModule: NSObject, CLLocationManagerDelegate {
+    
+    private var locationManager: CLLocationManager?
+    private var nameDevice: String = ""
     
     private var lastTxBytes: UInt64 = 0
     private var lastRxBytes: UInt64 = 0
     private var lastStatsTime: TimeInterval = 0
     private var backgroundTimer: Timer?
     private var displayLink: CADisplayLink?
-    private var lastFrameTimestamp: CFTimeInterval = 0
     private var currentFps: Double = 60.0
+    private var frameCount: Int = 0
+    private var lastFpsUpdateTime: CFTimeInterval = 0
     
     // MARK: - Module Setup
     
     @objc static func requiresMainQueueSetup() -> Bool {
-        return false
+        return true
+    }
+    
+    override init() {
+        super.init()
+        DispatchQueue.main.async {
+            UIDevice.current.isBatteryMonitoringEnabled = true
+        }
     }
     
     @objc static func moduleName() -> String! {
@@ -67,7 +79,7 @@ class DeviceMonitorModule: NSObject {
                 "deviceId": deviceId,
                 "localIp": localIp,
                 "gatewayIp": gatewayIp,
-                "cpuModel": "\(modelInfo.name) (\(modelInfo.chip))",
+                "cpuModel": modelInfo.chip == "Unknown" ? modelInfo.name : "\(modelInfo.name) (\(modelInfo.chip))",
                 "cpuCores": cpuCores,
                 "ramTotal": ramTotal,
                 "ramFree": ramInfo.free,
@@ -135,7 +147,7 @@ class DeviceMonitorModule: NSObject {
             }
             
             let result: [String: Any] = [
-                "batteryLevel": batteryLevel >= 0 ? Int(batteryLevel * 100) : -1,
+                "batteryLevel": batteryLevel >= 0 ? Int((batteryLevel * 100).rounded()) : -1,
                 "isCharging": isCharging,
                 "chargeSource": chargeSource,
                 "temperature": temperature
@@ -194,15 +206,24 @@ class DeviceMonitorModule: NSObject {
     }
     
     @objc private func handleDisplayLink(_ displayLink: CADisplayLink) {
-        if lastFrameTimestamp > 0 {
-            let diff = displayLink.timestamp - lastFrameTimestamp
-            if diff > 0 {
-                let fps = 1.0 / diff
-                currentFps = min(fps, 240.0)
-                currentFps = (currentFps * 10).rounded() / 10
-            }
+        frameCount += 1
+        
+        let currentTime = displayLink.timestamp
+        if lastFpsUpdateTime == 0 {
+            lastFpsUpdateTime = currentTime
+            return
         }
-        lastFrameTimestamp = displayLink.timestamp
+        
+        let elapsed = currentTime - lastFpsUpdateTime
+        if elapsed >= 1.0 {
+            let calculatedFps = Double(frameCount) / elapsed
+            currentFps = min(calculatedFps, 240.0)
+            currentFps = (currentFps * 10).rounded() / 10
+            
+            // Reset
+            frameCount = 0
+            lastFpsUpdateTime = currentTime
+        }
     }
     
     // MARK: - getPacketLoss
@@ -230,11 +251,19 @@ class DeviceMonitorModule: NSObject {
     
     @objc func startBackgroundLoop(_ apiUrl: String,
                                     serverIp: String,
-                                    wanIp: String) {
+                                    wanIp: String,
+                                    nameDevice: String) {
         stopBackgroundLoop()
         
+        self.nameDevice = nameDevice
+        
         DispatchQueue.main.async { [weak self] in
-            self?.backgroundTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            
+            // Request low-power location updates to keep background execution alive
+            self.setupLocationManager()
+            
+            self.backgroundTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
                 self?.postMetricsToServer(apiUrl: apiUrl, serverIp: serverIp, wanIp: wanIp)
             }
         }
@@ -246,18 +275,47 @@ class DeviceMonitorModule: NSObject {
         DispatchQueue.main.async { [weak self] in
             self?.backgroundTimer?.invalidate()
             self?.backgroundTimer = nil
+            self?.locationManager?.stopUpdatingLocation()
         }
+    }
+    
+    private func setupLocationManager() {
+        if self.locationManager == nil {
+            let lm = CLLocationManager()
+            lm.delegate = self
+            lm.desiredAccuracy = kCLLocationAccuracyThreeKilometers
+            lm.distanceFilter = 999999
+            lm.allowsBackgroundLocationUpdates = true
+            lm.pausesLocationUpdatesAutomatically = false
+            self.locationManager = lm
+        }
+        
+        let status: CLAuthorizationStatus
+        if #available(iOS 14.0, *) {
+            status = self.locationManager?.authorizationStatus ?? .notDetermined
+        } else {
+            status = CLLocationManager.authorizationStatus()
+        }
+        
+        if status == .notDetermined {
+            self.locationManager?.requestAlwaysAuthorization()
+        }
+        
+        self.locationManager?.startUpdatingLocation()
     }
     
     // MARK: - Private Helpers
     
-    /// Get local IP address (WiFi interface en0)
+    /// Get local IP address (WiFi en0, fallback to cellular pdp_ip)
+    /// Checks IFF_UP and IFF_RUNNING flags to ensure the interface is actually active
     private func getLocalIpAddress() -> String {
-        var address = "-"
+        var wifiAddress: String? = nil
+        var cellularAddress: String? = nil
+        var ethernetAddress: String? = nil
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
         
         guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else {
-            return address
+            return "-"
         }
         
         defer { freeifaddrs(ifaddr) }
@@ -266,16 +324,31 @@ class DeviceMonitorModule: NSObject {
         while true {
             let interface = ptr.pointee
             let addrFamily = interface.ifa_addr.pointee.sa_family
+            let flags = Int32(interface.ifa_flags)
             
-            if addrFamily == UInt8(AF_INET) {
+            // Only consider interfaces that are UP and RUNNING
+            let isUp = (flags & IFF_UP) != 0
+            let isRunning = (flags & IFF_RUNNING) != 0
+            
+            if addrFamily == UInt8(AF_INET) && isUp && isRunning {
                 let name = String(cString: interface.ifa_name)
-                if name == "en0" { // WiFi
+                if name != "lo0" { // Exclude loopback
                     var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
                     getnameinfo(interface.ifa_addr, socklen_t(interface.ifa_addr.pointee.sa_len),
                                 &hostname, socklen_t(hostname.count),
                                 nil, 0, NI_NUMERICHOST)
-                    address = String(cString: hostname)
-                    break
+                    let ipStr = String(cString: hostname)
+                    
+                    // Skip invalid/transitional IPs
+                    if ipStr == "0.0.0.0" || ipStr == "127.0.0.1" || ipStr.isEmpty {
+                        // do nothing
+                    } else if name == "en0" { // WiFi
+                        wifiAddress = ipStr
+                    } else if name.hasPrefix("pdp_ip") { // Cellular
+                        cellularAddress = ipStr
+                    } else if name == "en1" || name == "en2" || name == "en3" { // Ethernet/USB
+                        ethernetAddress = ipStr
+                    }
                 }
             }
             
@@ -283,7 +356,61 @@ class DeviceMonitorModule: NSObject {
             ptr = next
         }
         
-        return address
+        // Priority: WiFi > Ethernet > Cellular
+        if let wifi = wifiAddress { return wifi }
+        if let ethernet = ethernetAddress { return ethernet }
+        if let cellular = cellularAddress { return cellular }
+        return "-"
+    }
+    
+    /// Synchronously get network type using active network interfaces
+    /// Checks IFF_UP and IFF_RUNNING flags to determine the actual active connection
+    private func getNetworkTypeSynchronous() -> String {
+        var networkType = "-"
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else {
+            return networkType
+        }
+        defer { freeifaddrs(ifaddr) }
+        
+        var hasWifi = false
+        var hasCellular = false
+        var hasEthernet = false
+        
+        var ptr = firstAddr
+        while true {
+            let interface = ptr.pointee
+            let addrFamily = interface.ifa_addr.pointee.sa_family
+            let flags = Int32(interface.ifa_flags)
+            
+            // Only consider interfaces that are UP and RUNNING
+            let isUp = (flags & IFF_UP) != 0
+            let isRunning = (flags & IFF_RUNNING) != 0
+            
+            if (addrFamily == UInt8(AF_INET) || addrFamily == UInt8(AF_INET6)) && isUp && isRunning {
+                let name = String(cString: interface.ifa_name)
+                if name == "en0" {
+                    hasWifi = true
+                } else if name.hasPrefix("pdp_ip") {
+                    hasCellular = true
+                } else if name == "en1" || name == "en2" || name == "en3" {
+                    hasEthernet = true
+                }
+            }
+            
+            guard let next = interface.ifa_next else { break }
+            ptr = next
+        }
+        
+        if hasWifi {
+            networkType = "WiFi"
+        } else if hasEthernet {
+            networkType = "Ethernet"
+        } else if hasCellular {
+            networkType = "Cellular"
+        }
+        
+        return networkType
     }
     
     /// Get gateway IP address
@@ -505,83 +632,152 @@ class DeviceMonitorModule: NSObject {
     
     /// Post metrics to backend server
     private func postMetricsToServer(apiUrl: String, serverIp: String, wanIp: String) {
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        // Fetch UI/Main-thread bound values first on the main thread
+        DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            
-            let modelInfo = IPhoneModelMapper.getModelInfo()
-            let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? "unknown_ios"
-            let ramInfo = self.getSystemMemoryInfo()
-            let trafficInfo = self.getNetworkTraffic()
-            let cpuUsage = self.getSystemCpuUsage()
             
             UIDevice.current.isBatteryMonitoringEnabled = true
             let batteryLevel = UIDevice.current.batteryLevel
             let batteryState = UIDevice.current.batteryState
             let isCharging = batteryState == .charging || batteryState == .full
+            let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? "unknown_ios"
+            let currentFpsValue = self.currentFps
+            let networkType = self.getNetworkTypeSynchronous()
             
+            // Determine charge source from battery state
+            var chargeSource = "-"
+            if batteryState == .charging {
+                chargeSource = "Charging"
+            } else if batteryState == .full {
+                chargeSource = "Full"
+            } else {
+                chargeSource = "Not Charging"
+            }
+            
+            // Get temperature approximation from thermal state
             let thermalState = ProcessInfo.processInfo.thermalState
             let temperature: Double
             switch thermalState {
-            case .nominal: temperature = 25.0
-            case .fair: temperature = 35.0
-            case .serious: temperature = 42.0
-            case .critical: temperature = 48.0
-            @unknown default: temperature = 25.0
+            case .nominal:
+                temperature = 25.0
+            case .fair:
+                temperature = 35.0
+            case .serious:
+                temperature = 42.0
+            case .critical:
+                temperature = 48.0
+            @unknown default:
+                temperature = 25.0
             }
             
-            let pingGw = self.pingHost(self.getGatewayIp())
-            let ping8 = self.pingHost("8.8.8.8")
-            var serverPingResult = "-"
-            if !serverIp.isEmpty {
-                serverPingResult = self.pingHost(serverIp)
-            }
-            
-            let formatter = ISO8601DateFormatter()
-            
-            let payload: [String: Any] = [
-                "deviceId": deviceId,
-                "deviceName": modelInfo.name,
-                "wanIp": wanIp,
-                "pingGateway": pingGw == "Timeout" ? "Timeout" : "\(pingGw) ms",
-                "ping8888": ping8 == "Timeout" ? "Timeout" : "\(ping8) ms",
-                "serverIp": serverIp,
-                "serverPing": serverPingResult == "Timeout" ? "Timeout" : (serverPingResult == "-" ? "-" : "\(serverPingResult) ms"),
-                "cpuLoad": Int(cpuUsage),
-                "localIp": self.getLocalIpAddress(),
-                "gatewayIp": self.getGatewayIp(),
-                "cpuModel": "\(modelInfo.name) (\(modelInfo.chip))",
-                "cpuCores": ProcessInfo.processInfo.activeProcessorCount,
-                "ramTotal": Int64(ProcessInfo.processInfo.physicalMemory),
-                "ramFree": ramInfo.free,
-                "ramUsed": ramInfo.used,
-                "ramUsagePercent": ramInfo.usagePercent,
-                "txSpeedMbps": 0,
-                "rxSpeedMbps": 0,
-                "batteryLevel": batteryLevel >= 0 ? Int(batteryLevel * 100) : -1,
-                "isCharging": isCharging,
-                "chargeSource": isCharging ? "Charging" : "-",
-                "temperature": temperature,
-                "networkType": "iOS",
-                "fps": self.currentFps,
-                "packetLoss": 0,
-                "timestamp": formatter.string(from: Date())
-            ]
-            
-            guard let url = URL(string: apiUrl),
-                  let jsonData = try? JSONSerialization.data(withJSONObject: payload) else {
-                return
-            }
-            
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = jsonData
-            
-            URLSession.shared.dataTask(with: request) { _, _, error in
-                if let error = error {
-                    print("Error posting metrics: \(error.localizedDescription)")
+            // Now execute network and heavy system tasks in the background
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                guard let self = self else { return }
+                
+                let modelInfo = IPhoneModelMapper.getModelInfo()
+                let ramInfo = self.getSystemMemoryInfo()
+                let cpuUsage = self.getSystemCpuUsage()
+                let localIp = self.getLocalIpAddress()
+                let gatewayIp = self.getGatewayIp()
+                
+                // Real ping measurements
+                var pingGatewayStr = "-"
+                if gatewayIp != "-" {
+                    let gwResult = self.pingHost(gatewayIp)
+                    pingGatewayStr = gwResult == "Timeout" ? "Timeout" : "\(gwResult) ms"
                 }
-            }.resume()
+                
+                let ping8Result = self.pingHost("8.8.8.8")
+                let ping8888Str = ping8Result == "Timeout" ? "Timeout" : "\(ping8Result) ms"
+                
+                var serverPingStr = "-"
+                if !serverIp.isEmpty {
+                    let srvResult = self.pingHost(serverIp)
+                    serverPingStr = srvResult == "Timeout" ? "Timeout" : "\(srvResult) ms"
+                }
+                
+                // Network traffic for bandwidth
+                let trafficInfo = self.getNetworkTraffic()
+                let currentTime = Date().timeIntervalSince1970
+                var txSpeed: Double = -1.0
+                var rxSpeed: Double = -1.0
+                
+                if self.lastStatsTime > 0 {
+                    let timeDiff = currentTime - self.lastStatsTime
+                    if timeDiff > 0 {
+                        let txDiff = trafficInfo.tx >= self.lastTxBytes ? trafficInfo.tx - self.lastTxBytes : 0
+                        let rxDiff = trafficInfo.rx >= self.lastRxBytes ? trafficInfo.rx - self.lastRxBytes : 0
+                        txSpeed = Double(txDiff) * 8.0 / (timeDiff * 1_000_000.0)
+                        rxSpeed = Double(rxDiff) * 8.0 / (timeDiff * 1_000_000.0)
+                        txSpeed = (txSpeed * 100).rounded() / 100
+                        rxSpeed = (rxSpeed * 100).rounded() / 100
+                    }
+                }
+                
+                self.lastTxBytes = trafficInfo.tx
+                self.lastRxBytes = trafficInfo.rx
+                self.lastStatsTime = currentTime
+                
+                // Real packet loss measurement (3 pings for speed)
+                var packetLossPercent: Double = -1.0
+                let totalPings = 3
+                var successCount = 0
+                for _ in 0..<totalPings {
+                    let result = self.pingHost("8.8.8.8")
+                    if result != "Timeout" {
+                        successCount += 1
+                    }
+                }
+                packetLossPercent = Double(totalPings - successCount) / Double(totalPings) * 100.0
+                
+                let formatter = ISO8601DateFormatter()
+                
+                let payload: [String: Any] = [
+                    "deviceId": deviceId,
+                    "deviceName": modelInfo.name,
+                    "name_device": self.nameDevice,
+                    "wanIp": wanIp,
+                    "pingGateway": pingGatewayStr,
+                    "ping8888": ping8888Str,
+                    "serverIp": serverIp,
+                    "serverPing": serverPingStr,
+                    "cpuLoad": Int(cpuUsage),
+                    "localIp": localIp,
+                    "gatewayIp": gatewayIp,
+                    "cpuModel": modelInfo.chip == "Unknown" ? modelInfo.name : "\(modelInfo.name) (\(modelInfo.chip))",
+                    "cpuCores": ProcessInfo.processInfo.activeProcessorCount,
+                    "ramTotal": Int64(ProcessInfo.processInfo.physicalMemory),
+                    "ramFree": ramInfo.free,
+                    "ramUsed": ramInfo.used,
+                    "ramUsagePercent": ramInfo.usagePercent,
+                    "txSpeedMbps": txSpeed,
+                    "rxSpeedMbps": rxSpeed,
+                    "batteryLevel": batteryLevel >= 0 ? Int((batteryLevel * 100).rounded()) : -1,
+                    "isCharging": isCharging,
+                    "chargeSource": chargeSource,
+                    "temperature": temperature,
+                    "networkType": networkType,
+                    "fps": Int(currentFpsValue.rounded()),
+                    "packetLoss": packetLossPercent,
+                    "timestamp": formatter.string(from: Date())
+                ]
+                
+                guard let url = URL(string: apiUrl),
+                      let jsonData = try? JSONSerialization.data(withJSONObject: payload) else {
+                    return
+                }
+                
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = jsonData
+                
+                URLSession.shared.dataTask(with: request) { _, _, error in
+                    if let error = error {
+                        print("Error posting metrics: \(error.localizedDescription)")
+                    }
+                }.resume()
+            }
         }
     }
 }

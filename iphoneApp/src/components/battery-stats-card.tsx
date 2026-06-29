@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View, Text } from 'react-native';
+import { StyleSheet, View, Text, Platform } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { BatteryInfo } from '../types/monitor';
 
@@ -54,13 +54,15 @@ export function BatteryStatsCard({ batteryInfo, isScanning }: BatteryStatsCardPr
         </View>
 
         {/* Temperature */}
-        <View style={styles.statBox}>
-          <MaterialCommunityIcons name="thermometer" size={28} color={tempColor} />
-          <Text style={[styles.statValue, { color: tempColor }]}>
-            {isScanning && batteryInfo.temperature > 0 ? `${batteryInfo.temperature.toFixed(1)}°` : '-'}
-          </Text>
-          <Text style={styles.statLabel}>Temperature</Text>
-        </View>
+        {Platform.OS !== 'ios' && (
+          <View style={styles.statBox}>
+            <MaterialCommunityIcons name="thermometer" size={28} color={tempColor} />
+            <Text style={[styles.statValue, { color: tempColor }]}>
+              {isScanning && batteryInfo.temperature > 0 ? `${batteryInfo.temperature.toFixed(1)}°` : '-'}
+            </Text>
+            <Text style={styles.statLabel}>Temperature</Text>
+          </View>
+        )}
       </View>
 
       {/* Charging Status Row */}
@@ -82,7 +84,9 @@ export function BatteryStatsCard({ batteryInfo, isScanning }: BatteryStatsCardPr
             { color: isScanning && batteryInfo.isCharging ? '#10b981' : '#64748b' }
           ]}>
             {!isScanning ? '-' : batteryInfo.isCharging
-              ? `Charging (${batteryInfo.chargeSource})`
+              ? (!batteryInfo.chargeSource || batteryInfo.chargeSource === 'Charging' || batteryInfo.chargeSource === '-'
+                 ? 'Charging'
+                 : `Charging (${batteryInfo.chargeSource})`)
               : 'Not Charging'
             }
           </Text>

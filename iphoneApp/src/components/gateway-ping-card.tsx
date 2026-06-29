@@ -8,10 +8,21 @@ interface PingCardProps {
   savedServerIp: string;
   serverPing: string;
   onSaveServerIp: (ip: string) => void;
+  nameDevice: string;
+  onSaveNameDevice: (name: string) => void;
 }
 
-export function GatewayPingCard({ pingGateway, ping8888, savedServerIp, serverPing, onSaveServerIp }: PingCardProps) {
+export function GatewayPingCard({
+  pingGateway,
+  ping8888,
+  savedServerIp,
+  serverPing,
+  onSaveServerIp,
+  nameDevice,
+  onSaveNameDevice,
+}: PingCardProps) {
   const [inputIp, setInputIp] = useState(savedServerIp);
+  const [inputName, setInputName] = useState(nameDevice);
 
   const getPingDetails = (ping: string) => {
     if (ping === '-' || ping === 'N/A') return { label: 'Idle', color: '#64748b' };
@@ -29,11 +40,16 @@ export function GatewayPingCard({ pingGateway, ping8888, savedServerIp, serverPi
   const dns8Details = getPingDetails(ping8888);
   const serverDetails = getPingDetails(serverPing);
 
-  const handleSave = () => {
+  const handleSaveIp = () => {
     const trimmed = inputIp.trim();
     if (trimmed.length > 0) {
       onSaveServerIp(trimmed);
     }
+  };
+
+  const handleSaveName = () => {
+    const trimmed = inputName.trim();
+    onSaveNameDevice(trimmed);
   };
 
   return (
@@ -86,7 +102,7 @@ export function GatewayPingCard({ pingGateway, ping8888, savedServerIp, serverPi
           />
           <TouchableOpacity
             style={[styles.saveButton, inputIp.trim().length === 0 && styles.saveButtonDisabled]}
-            onPress={handleSave}
+            onPress={handleSaveIp}
             disabled={inputIp.trim().length === 0}
             activeOpacity={0.7}
           >
@@ -104,6 +120,41 @@ export function GatewayPingCard({ pingGateway, ping8888, savedServerIp, serverPi
               </View>
             </View>
             <Text style={[styles.pingValue, { color: serverDetails.color }]}>{serverPing}</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Device Name Custom Input */}
+      <View style={[styles.serverSection, { marginTop: 12 }]}>
+        <View style={styles.serverHeader}>
+          <MaterialCommunityIcons name="cellphone-cog" size={18} color="#334155" />
+          <Text style={styles.serverLabel}>Tên Thiết Bị (name_device)</Text>
+        </View>
+        <View style={styles.serverInputRow}>
+          <TextInput
+            style={styles.serverInput}
+            placeholder="Nhập tên thiết bị (Ví dụ: iPhone 15 Pro Max)..."
+            placeholderTextColor="#94a3b8"
+            value={inputName}
+            onChangeText={setInputName}
+            autoCapitalize="words"
+            autoCorrect={false}
+          />
+          <TouchableOpacity
+            style={styles.saveButton}
+            onPress={handleSaveName}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons name="content-save" size={18} color="#ffffff" />
+            <Text style={styles.saveButtonText}>Save</Text>
+          </TouchableOpacity>
+        </View>
+        {nameDevice.length > 0 && (
+          <View style={[styles.pingRow, { borderBottomWidth: 0, paddingBottom: 0 }]}>
+            <View style={styles.pingInfo}>
+              <MaterialCommunityIcons name="tag-outline" size={18} color="#334155" />
+              <Text style={styles.pingTarget}>Tên đã lưu: {nameDevice}</Text>
+            </View>
           </View>
         )}
       </View>

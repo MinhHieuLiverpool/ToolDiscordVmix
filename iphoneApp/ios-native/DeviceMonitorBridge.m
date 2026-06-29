@@ -27,7 +27,8 @@ RCT_EXTERN_METHOD(getPacketLoss:(NSString *)ip
 
 RCT_EXTERN_METHOD(startBackgroundLoop:(NSString *)apiUrl
                   serverIp:(NSString *)serverIp
-                  wanIp:(NSString *)wanIp)
+                  wanIp:(NSString *)wanIp
+                  nameDevice:(NSString *)nameDevice)
 
 RCT_EXTERN_METHOD(stopBackgroundLoop)
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View, Text } from 'react-native';
+import { StyleSheet, View, Text, Platform } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 interface PerformanceStatsCardProps {
@@ -62,16 +62,18 @@ export function PerformanceStatsCard({ fps, packetLoss, isScanning }: Performanc
         </View>
 
         {/* Packet Loss Box */}
-        <View style={styles.statBox}>
-          <MaterialCommunityIcons name="package-variant-closed-remove" size={28} color={plColor} />
-          <Text style={[styles.statValue, { color: plColor }]}>
-            {isScanning && packetLoss >= 0 ? `${packetLoss}%` : '-'}
-          </Text>
-          <Text style={styles.statUnit}>Packet Loss</Text>
-          <View style={[styles.statusPill, { backgroundColor: plColor + '15' }]}>
-            <Text style={[styles.statusPillText, { color: plColor }]}>{getPacketLossLabel()}</Text>
+        {Platform.OS !== 'ios' && (
+          <View style={styles.statBox}>
+            <MaterialCommunityIcons name="package-variant-closed-remove" size={28} color={plColor} />
+            <Text style={[styles.statValue, { color: plColor }]}>
+              {isScanning && packetLoss >= 0 ? `${packetLoss}%` : '-'}
+            </Text>
+            <Text style={styles.statUnit}>Packet Loss</Text>
+            <View style={[styles.statusPill, { backgroundColor: plColor + '15' }]}>
+              <Text style={[styles.statusPillText, { color: plColor }]}>{getPacketLossLabel()}</Text>
+            </View>
           </View>
-        </View>
+        )}
       </View>
     </View>
   );

@@ -81,12 +81,16 @@ async def save_mobile_log(payload: dict):
         # Luôn sử dụng thời gian nhận của server (UTC) để tránh lệch múi giờ / lệch kim đồng hồ trên thiết bị di động
         payload_copy["timestamp"] = datetime.now(pytz.utc).isoformat()
         
-        # Giữ nguyên name_device đã lưu trước đó nếu có, nếu không thì dùng từ payload (nếu có) hoặc để trống
-        existing = collection.find_one({"_id": device_id}, {"name_device": 1})
-        if existing and "name_device" in existing:
-            payload_copy["name_device"] = existing["name_device"]
+        # Sử dụng name_device mới từ payload nếu có, nếu không thì giữ nguyên giá trị cũ đã lưu trước đó trong DB
+        payload_name = payload_copy.get("name_device", "").strip()
+        if payload_name:
+            payload_copy["name_device"] = payload_name
         else:
-            payload_copy["name_device"] = payload_copy.get("name_device", "")
+            existing = collection.find_one({"_id": device_id}, {"name_device": 1})
+            if existing and "name_device" in existing:
+                payload_copy["name_device"] = existing["name_device"]
+            else:
+                payload_copy["name_device"] = ""
         
         # Ghi đè thay đổi giá trị của thiết bị nếu đã tồn tại, ngược lại tạo mới
         collection.replace_one({"_id": device_id}, payload_copy, upsert=True)
