@@ -3,6 +3,7 @@ import { NativeModules, AppState } from 'react-native';
 import * as Device from 'expo-device';
 import * as Network from 'expo-network';
 import * as Battery from 'expo-battery';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DeviceStats, BatteryInfo } from '../types/monitor';
 
 const { DeviceMonitor } = NativeModules;
@@ -588,15 +589,46 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
     };
   }, []);
 
-  const saveServerIp = (ip: string) => {
+  // Load cached values on mount
+  useEffect(() => {
+    const loadCachedData = async () => {
+      try {
+        const cachedIp = await AsyncStorage.getItem('saved_server_ip');
+        if (cachedIp) {
+          savedServerIpRef.current = cachedIp;
+          setSavedServerIp(cachedIp);
+        }
+        const cachedName = await AsyncStorage.getItem('saved_name_device');
+        if (cachedName) {
+          nameDeviceRef.current = cachedName;
+          setNameDevice(cachedName);
+        }
+      } catch (err) {
+        console.log('Failed to load cached config:', err);
+      }
+    };
+    loadCachedData();
+  }, []);
+
+  const saveServerIp = async (ip: string) => {
     savedServerIpRef.current = ip;
     setSavedServerIp(ip);
     setServerPing('-');
+    try {
+      await AsyncStorage.setItem('saved_server_ip', ip);
+    } catch (err) {
+      console.log('Failed to cache server IP:', err);
+    }
   };
 
-  const saveNameDevice = (name: string) => {
+  const saveNameDevice = async (name: string) => {
     nameDeviceRef.current = name;
     setNameDevice(name);
+    try {
+      await AsyncStorage.setItem('saved_name_device', name);
+    } catch (err) {
+      console.log('Failed to cache device name:', err);
+    }
   };
 
   return (
