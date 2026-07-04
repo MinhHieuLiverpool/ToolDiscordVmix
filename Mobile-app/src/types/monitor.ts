@@ -16,6 +16,7 @@ export interface BatteryInfo {
   batteryLevel: number;
   isCharging: boolean;
   chargeSource: string;
+  chargingMode: string;
   temperature: number;
 }
 

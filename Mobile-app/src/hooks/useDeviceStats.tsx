@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeModules, AppState } from 'react-native';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
@@ -26,6 +27,8 @@ interface DeviceStatsContextType {
   packetLoss: number;
   startScanning: () => Promise<void>;
   stopScanning: () => void;
+  nameDevice: string;
+  saveNameDevice: (name: string) => void;
 }
 
 const DeviceStatsContext = createContext<DeviceStatsContextType | undefined>(undefined);
@@ -38,6 +41,8 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
   const [ping8888, setPing8888] = useState<string>('-');
   const [savedServerIp, setSavedServerIp] = useState<string>('');
   const savedServerIpRef = useRef<string>('');
+  const [nameDevice, setNameDevice] = useState<string>('');
+  const nameDeviceRef = useRef<string>('');
   const [serverPing, setServerPing] = useState<string>('-');
   const [cpuLoad, setCpuLoad] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
@@ -48,6 +53,7 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
     batteryLevel: -1,
     isCharging: false,
     chargeSource: '-',
+    chargingMode: 'None',
     temperature: 0,
   });
   const [networkType, setNetworkType] = useState<string>('-');
@@ -99,7 +105,7 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
     let currentPingGateway = '-';
     let currentPing8888 = '-';
     let currentServerPing = '-';
-    let currentBattery: BatteryInfo = { batteryLevel: -1, isCharging: false, chargeSource: '-', temperature: 0 };
+    let currentBattery: BatteryInfo = { batteryLevel: -1, isCharging: false, chargeSource: '-', chargingMode: 'None', temperature: 0 };
     let currentNetworkType = '-';
     let currentFps = 0;
     let currentPacketLoss = -1;
@@ -153,6 +159,7 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
             batteryLevel: battery.batteryLevel,
             isCharging: battery.isCharging,
             chargeSource: battery.chargeSource,
+            chargingMode: battery.chargingMode,
             temperature: battery.temperature,
           };
         } catch {
@@ -231,10 +238,12 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
         setServerPing(currentServerPing);
       }
 
+      const isSimCharging = Math.random() > 0.5;
       currentBattery = {
         batteryLevel: 60 + Math.floor(Math.random() * 30),
-        isCharging: Math.random() > 0.5,
-        chargeSource: Math.random() > 0.5 ? 'USB' : 'AC',
+        isCharging: isSimCharging,
+        chargeSource: isSimCharging ? (Math.random() > 0.5 ? 'USB' : 'AC') : '-',
+        chargingMode: isSimCharging ? (Math.random() > 0.8 ? 'Bypass' : 'Normal') : 'None',
         temperature: 28 + Math.random() * 10,
       };
       setBatteryInfo(currentBattery);
@@ -255,6 +264,7 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
         const payload = {
           deviceId: currentStats.deviceId || getSimulatedDeviceId(),
           deviceName: getDeviceModel(),
+          name_device: nameDeviceRef.current || '',
           wanIp: currentWanIp || wanIp,
           pingGateway: currentPingGateway,
           ping8888: currentPing8888,
@@ -274,6 +284,7 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
           batteryLevel: currentBattery.batteryLevel,
           isCharging: currentBattery.isCharging,
           chargeSource: currentBattery.chargeSource,
+          chargingMode: currentBattery.chargingMode,
           temperature: currentBattery.temperature,
           networkType: currentNetworkType,
           fps: currentFps,
@@ -324,7 +335,7 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
         try {
           // API URL for Mobile Logs (using Render production server)
           const apiUrl = 'https://mobile-monitor.onrender.com/api/mobile-logs';
-          DeviceMonitor.startBackgroundLoop(apiUrl, savedServerIpRef.current || '', activeWanIp);
+          DeviceMonitor.startBackgroundLoop(apiUrl, savedServerIpRef.current || '', activeWanIp, nameDeviceRef.current || '');
         } catch (err) {
           console.error('Failed to start native background loop:', err);
         }
@@ -347,9 +358,21 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
     }
   };
 
-  // Detect device model name on mount
+  // Detect device model name on mount & load cached data
   useEffect(() => {
     setDeviceName(getDeviceModel());
+    const loadCachedData = async () => {
+      try {
+        const cachedName = await AsyncStorage.getItem('saved_name_device');
+        if (cachedName) {
+          nameDeviceRef.current = cachedName;
+          setNameDevice(cachedName);
+        }
+      } catch (err) {
+        console.log('Failed to load cached name_device:', err);
+      }
+    };
+    loadCachedData();
   }, []);
 
   // Listen for app state changes - keep scanning in background
@@ -367,6 +390,32 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
     savedServerIpRef.current = ip;
     setSavedServerIp(ip);
     setServerPing('-');
+    if (isScanning && DeviceMonitor) {
+      try {
+        const apiUrl = 'https://mobile-monitor.onrender.com/api/mobile-logs';
+        DeviceMonitor.startBackgroundLoop(apiUrl, ip, wanIp, nameDeviceRef.current || '');
+      } catch (err) {
+        console.error('Failed to update native background loop Server IP:', err);
+      }
+    }
+  };
+
+  const saveNameDevice = async (name: string) => {
+    nameDeviceRef.current = name;
+    setNameDevice(name);
+    try {
+      await AsyncStorage.setItem('saved_name_device', name);
+      if (isScanning && DeviceMonitor) {
+        try {
+          const apiUrl = 'https://mobile-monitor.onrender.com/api/mobile-logs';
+          DeviceMonitor.startBackgroundLoop(apiUrl, savedServerIpRef.current || '', wanIp, name);
+        } catch (err) {
+          console.error('Failed to update native background loop device name:', err);
+        }
+      }
+    } catch (err) {
+      console.log('Failed to cache device name:', err);
+    }
   };
 
   return (
@@ -390,6 +439,8 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
       packetLoss,
       startScanning,
       stopScanning,
+      nameDevice,
+      saveNameDevice,
     }}>
       {children}
     </DeviceStatsContext.Provider>

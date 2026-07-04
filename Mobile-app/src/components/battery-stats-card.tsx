@@ -10,6 +10,8 @@ interface BatteryStatsCardProps {
 
 export function BatteryStatsCard({ batteryInfo, isScanning }: BatteryStatsCardProps) {
 
+  const isBypassCharging = batteryInfo.chargingMode === 'Bypass';
+
   const getBatteryColor = () => {
     if (!isScanning || batteryInfo.batteryLevel < 0) return '#64748b';
     if (batteryInfo.batteryLevel > 60) return '#10b981';
@@ -33,8 +35,38 @@ export function BatteryStatsCard({ batteryInfo, isScanning }: BatteryStatsCardPr
     return '#ef4444';
   };
 
+  const getChargingColor = () => {
+    if (!isScanning || !batteryInfo.isCharging) return '#64748b';
+    if (isBypassCharging) return '#f59e0b'; // Amber for bypass/direct charging
+    return '#10b981'; // Green for normal charging
+  };
+
+  const formatChargeSource = (source: string) => {
+    switch (source) {
+      case 'AC': return 'AC';
+      case 'DC': return 'DC';
+      case 'USB': return 'USB';
+      case 'Wireless': return 'Sạc không dây';
+      default: return source;
+    }
+  };
+
+  const getChargingLabel = () => {
+    if (!isScanning) return '-';
+    if (!batteryInfo.isCharging) return 'Not Charging';
+    if (isBypassCharging) return '⚡ Sạc Nhánh (AC)';
+    return 'Sạc Thường (DC)';
+  };
+
+  const getChargingIcon = (): keyof typeof MaterialCommunityIcons.glyphMap => {
+    if (!isScanning || !batteryInfo.isCharging) return 'power-plug-off';
+    if (isBypassCharging) return 'flash-alert';
+    return 'lightning-bolt';
+  };
+
   const batteryColor = getBatteryColor();
   const tempColor = getTempColor();
+  const chargingColor = getChargingColor();
 
   return (
     <View style={styles.card}>
@@ -67,27 +99,56 @@ export function BatteryStatsCard({ batteryInfo, isScanning }: BatteryStatsCardPr
       <View style={styles.chargingRow}>
         <View style={styles.chargingInfo}>
           <MaterialCommunityIcons
-            name={isScanning && batteryInfo.isCharging ? 'lightning-bolt' : 'power-plug-off'}
+            name={getChargingIcon()}
             size={18}
-            color={isScanning && batteryInfo.isCharging ? '#10b981' : '#64748b'}
+            color={chargingColor}
           />
           <Text style={styles.chargingLabel}>Charging Status</Text>
         </View>
         <View style={[
           styles.chargingBadge,
-          { backgroundColor: isScanning && batteryInfo.isCharging ? '#10b98115' : '#64748b15' }
+          { backgroundColor: chargingColor + '15' }
         ]}>
           <Text style={[
             styles.chargingBadgeText,
-            { color: isScanning && batteryInfo.isCharging ? '#10b981' : '#64748b' }
+            { color: chargingColor }
           ]}>
-            {!isScanning ? '-' : batteryInfo.isCharging
-              ? `Charging (${batteryInfo.chargeSource})`
-              : 'Not Charging'
-            }
+            {getChargingLabel()}
           </Text>
         </View>
       </View>
+
+      {/* Bypass Charging Info Banner */}
+      {isScanning && batteryInfo.isCharging && isBypassCharging && (
+        <View style={styles.bypassBanner}>
+          <MaterialCommunityIcons name="information-outline" size={14} color="#d97706" />
+          <Text style={styles.bypassBannerText}>
+            Sạc nhánh: Điện đi thẳng vào máy, không qua pin. Phổ biến trên ROG Phone.
+          </Text>
+        </View>
+      )}
+
+      {/* Charge Source Badge */}
+      {isScanning && batteryInfo.isCharging && (
+        <View style={styles.chargeTypeRow}>
+          <View style={[
+            styles.chargeTypeBadge,
+            { backgroundColor: isBypassCharging ? '#fef3c7' : '#d1fae5', borderColor: isBypassCharging ? '#f59e0b' : '#10b981' }
+          ]}>
+            <MaterialCommunityIcons
+              name={isBypassCharging ? 'flash-alert' : 'flash'}
+              size={14}
+              color={isBypassCharging ? '#d97706' : '#059669'}
+            />
+            <Text style={[styles.chargeTypeText, { color: isBypassCharging ? '#92400e' : '#065f46' }]}>
+              {isBypassCharging ? 'BYPASS CHARGE' : 'NORMAL CHARGE'}
+            </Text>
+          </View>
+          <Text style={styles.chargeSourceText}>
+            Nguồn: {formatChargeSource(batteryInfo.chargeSource)}
+          </Text>
+        </View>
+      )}
 
       {/* Battery Progress Bar */}
       {isScanning && batteryInfo.batteryLevel >= 0 && (
@@ -201,5 +262,50 @@ const styles = StyleSheet.create({
   progressBarFill: {
     height: '100%',
     borderRadius: 3,
+  },
+  bypassBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fef3c7',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 8,
+  },
+  bypassBannerText: {
+    flex: 1,
+    fontSize: 11,
+    color: '#92400e',
+    fontWeight: '500',
+  },
+  chargeTypeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  chargeTypeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  chargeTypeText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  chargeSourceText: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '500',
   },
 });

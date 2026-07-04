@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "MobileMonitor",
-    "slug": "mobile-monitor-ios",
+    "slug": "mobile-monitor",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -13,6 +13,7 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
+          "location",
           "location"
         ],
         "NSLocationWhenInUseUsageDescription": "This app requires location access to monitor device status in the background.",
@@ -42,6 +43,13 @@
         "projectId": "e2dce450-5777-4383-9acd-ab5747724862"
       }
     },
-    "owner": "hieu1682004"
+    "owner": "hieu1682004",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e2dce450-5777-4383-9acd-ab5747724862"
+    },
+    "android": {}
   }
 }

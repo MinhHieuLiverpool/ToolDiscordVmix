@@ -28,6 +28,7 @@ export interface MobileLogItem {
   batteryLevel: number
   isCharging: boolean
   chargeSource: string
+  chargingMode?: string
   temperature: number
   networkType: string
   fps: number
@@ -299,8 +300,14 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                       Pin & Nhiệt
                   </span>
                   {item.isCharging && (
-                      <span className="text-[9px] font-black text-amber-500">
-                          SẠC
+                      <span className={`text-[9.5px] font-black tracking-wider px-1.5 py-0.5 rounded leading-none ${
+                          item.chargingMode === 'Bypass' || item.chargeSource === 'AC'
+                              ? 'text-amber-500 bg-amber-50 dark:bg-amber-950/30 border border-amber-200/50 dark:border-amber-900/30'
+                              : 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/50 dark:border-emerald-900/30'
+                      }`}>
+                          {item.chargingMode === 'Bypass' || item.chargeSource === 'AC'
+                              ? '⚡ SẠC NHÁNH (AC)'
+                              : `SẠC THƯỜNG (${item.chargeSource || 'DC'})`}
                       </span>
                   )}
               </div>

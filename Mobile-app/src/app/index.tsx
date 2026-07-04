@@ -1,5 +1,5 @@
-import React from 'react';
-import { StyleSheet, ScrollView, View, Text, StatusBar } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, ScrollView, View, Text, TextInput, TouchableOpacity, StatusBar, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDeviceStats } from '../hooks/useDeviceStats';
 import { ScanControlCard } from '../components/scan-control-card';
@@ -31,8 +31,18 @@ export default function HomeScreen() {
     packetLoss,
     startScanning,
     stopScanning,
+    nameDevice,
+    saveNameDevice,
   } = useDeviceStats();
 
+  const [inputNameDevice, setInputNameDevice] = useState(nameDevice);
+
+  // Sync input when cached nameDevice loads asynchronously
+  useEffect(() => {
+    if (nameDevice && !inputNameDevice) {
+      setInputNameDevice(nameDevice);
+    }
+  }, [nameDevice]);
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
@@ -43,6 +53,35 @@ export default function HomeScreen() {
         <View style={styles.brandingRow}>
           <Text style={styles.brandingSub}>Diagnostics Terminal</Text>
         </View>
+      </View>
+
+      {/* Name Device Input Bar - Sticky at Top */}
+      <View style={styles.nameDeviceBar}>
+        <Text style={styles.nameDeviceLabel}>📱 Thiết bị:</Text>
+        <TextInput
+          style={styles.nameDeviceInput}
+          placeholder="Nhập tên thiết bị (name_device)..."
+          placeholderTextColor="#fca5a5"
+          value={inputNameDevice}
+          onChangeText={setInputNameDevice}
+          autoCapitalize="words"
+          autoCorrect={false}
+        />
+        <TouchableOpacity
+          style={styles.nameDeviceSaveBtn}
+          onPress={() => {
+            const trimmed = inputNameDevice.trim();
+            saveNameDevice(trimmed);
+            Alert.alert(
+              '✅ Đã lưu',
+              `Tên thiết bị đã được lưu: "${trimmed || '(trống)'}"`,
+              [{ text: 'OK' }]
+            );
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.nameDeviceSaveBtnText}>💾 Save</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Warning Banner for Simulator Fallback */}
@@ -156,5 +195,43 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     paddingBottom: 40,
+  },
+  nameDeviceBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fef2f2',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#fee2e2',
+    gap: 8,
+  },
+  nameDeviceLabel: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#dc2626',
+  },
+  nameDeviceInput: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#fca5a5',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 14,
+    color: '#b91c1c',
+    fontWeight: '900',
+  },
+  nameDeviceSaveBtn: {
+    backgroundColor: '#dc2626',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+  },
+  nameDeviceSaveBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: 'bold',
   },
 });
