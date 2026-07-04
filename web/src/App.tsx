@@ -21,6 +21,7 @@ import CreateWebUrlPage from './pages/CreateWebUrlPage'
 import SharedDashboardPage from './pages/SharedDashboardPage'
 import GameChannelsPage from './pages/GameChannelsPage'
 import RecordMulticorderPage from './pages/RecordMulticorderPage'
+import NotificationPage from './pages/NotificationPage'
 import { isAuthenticated, refreshUserSession } from './services/auth'
 import { Outlet, useParams } from 'react-router-dom'
 import { useEffect, useState, useMemo } from 'react'
@@ -215,6 +216,7 @@ function App() {
            <Route path="/vmix-monitor" element={<VmixMonitorPage />} />
           <Route path="/record-multicorder" element={<RecordMulticorderPage />} />
           <Route path="/mobile-monitor" element={<MobileMonitorPage />} />
+          <Route path="/notification" element={<NotificationPage />} />
           <Route path="/viewsync" element={<ViewSyncPage />} />
           <Route path="/speedtest" element={<SpeedtestPage />} />
           <Route path="/account" element={<AccountPage />} />

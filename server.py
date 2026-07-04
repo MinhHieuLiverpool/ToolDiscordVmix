@@ -216,28 +216,52 @@ def _normalize_payload_list(raw_value):
 
 def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port: str, status: str,
                                quality: str = "", srt_type: str = "", hostname: str = ""):
-    """Gửi notification lên Discord & SeaTalk (đọc từ settings.json)"""
+    """Gửi notification lên Discord & SeaTalk (đọc từ settings.json hoặc srt_settings)"""
     import json
     import os
     import requests
+    from bson import ObjectId
     
+    # 1. First, check if we have webhooks configured in srt_settings collection
     webhooks = []
-    prefix = "SRT"
-    fpath = "C:\\VmixMonitor\\Setting\\settings.json"
-    if os.path.exists(fpath):
-        try:
-            with open(fpath, "r", encoding="utf-8") as f:
-                saved = json.load(f)
-            if isinstance(saved, dict):
-                if "webhooks" in saved:
-                    webhooks = saved["webhooks"]
-                elif "webhook" in saved and saved["webhook"]:
-                    webhooks = [{"type": "Discord", "url": saved["webhook"]}]
-                if "prefix" in saved and saved["prefix"]:
-                    prefix = saved["prefix"].strip()
-        except Exception as e:
-            print(f"⚠ Server: Error reading settings.json: {e}")
-            
+    try:
+        config = db["srt_settings"].find_one({"_id": "srt_config"})
+        if config:
+            # Machine selection filter for SRT status alerts
+            devices = config.get("devices", ["all"])
+            if "all" not in devices and machine_name not in devices:
+                return  # Machine not selected for SRT status updates
+                
+            if config.get("auto_send"):
+                webhook_ids = config.get("webhooks", [])
+                if webhook_ids:
+                    wh_docs = list(db["notification_webhooks"].find({
+                        "_id": {"$in": [ObjectId(wid) for wid in webhook_ids if ObjectId.is_valid(wid)]},
+                        "statusnotification": {"$ne": 0}
+                    }))
+                    for wh in wh_docs:
+                        webhooks.append({
+                            "type": wh.get("type", "Discord"),
+                            "url": wh.get("url", "")
+                        })
+    except Exception as e:
+        print(f"Error reading srt_settings for send_discord_notification: {e}")
+        
+    # 2. Fallback to settings.json
+    if not webhooks:
+        fpath = "C:\\VmixMonitor\\Setting\\settings.json"
+        if os.path.exists(fpath):
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    saved = json.load(f)
+                if isinstance(saved, dict):
+                    if "webhooks" in saved:
+                        webhooks = saved["webhooks"]
+                    elif "webhook" in saved and saved["webhook"]:
+                        webhooks = [{"type": "Discord", "url": saved["webhook"]}]
+            except Exception as e:
+                print(f"⚠ Server: Error reading settings.json: {e}")
+                
     if not webhooks:
         if DISCORD_WEBHOOK:
             webhooks = [{"type": "Discord", "url": DISCORD_WEBHOOK}]
@@ -254,16 +278,9 @@ def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port
 
         if w_type == "Discord":
             try:
-                parts = [f"[{prefix}][{label}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"]
-                if srt_type:
-                    parts.append(f"Type: {srt_type}")
-                if hostname:
-                    parts.append(f"Host: {hostname}")
-                if quality:
-                    parts.append(f"Quality: {quality}")
-                message = " | ".join(parts)
+                # Format: [SRT][PC-POV-01] SRT OFF | IPWAN: 101.53.36.132 | PORT: 5001
+                message = f"[SRT][{label}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
                 payload = {"content": message}
-                
                 response = requests.post(w_url, json=payload, timeout=5)
                 if response.status_code in [200, 204]:
                     print(f"✓ Discord notification sent for {label} to {w_url[:30]}...")
@@ -273,15 +290,7 @@ def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port
                 print(f"✗ Discord notification error for {w_url[:30]}...: {e}")
         elif w_type == "Seatalk":
             try:
-                parts = [f"**[{prefix}][{label}]** SRT {status}\nIPWAN: {ipwan} | PORT: {port}"]
-                if srt_type:
-                    parts.append(f"Type: {srt_type}")
-                if hostname:
-                    parts.append(f"Host: {hostname}")
-                if quality:
-                    parts.append(f"Quality: {quality}")
-                content = "\n".join(parts)
-                
+                content = f"**[SRT][{label}]** SRT {status}\nIPWAN: {ipwan} | PORT: {port}"
                 payload = {
                     "tag": "markdown",
                     "markdown": {
@@ -2969,7 +2978,7 @@ async def startup_event():
                 "role_key": "admin",
                 "name": "Admin",
                 "description": "Quản trị viên toàn quyền hệ thống",
-                "permissions": ["Tổng quan", "SRT", "Thông số Stream", "URL & Key", "FFmpeg", "Thống kê", "Vmix Monitor", "ViewSync", "Speedtest", "Debug Log", "Tài khoản", "Phân quyền"],
+                "permissions": ["Tổng quan", "SRT", "Thông số Stream", "URL & Key", "FFmpeg", "Thống kê", "Vmix Monitor", "ViewSync", "Speedtest", "Debug Log", "Tài khoản", "Phân quyền", "Notification"],
                 "created_at": datetime.now(VIETNAM_TZ).isoformat()
             })
             print("✓ Seeded default admin role successfully!")
@@ -3040,12 +3049,450 @@ async def startup_event():
     asyncio.create_task(ipwan_bandwidth_monitor_task())
     asyncio.create_task(_daily_cleanup_task()) # Chạy task dọn dẹp 3h sáng
     asyncio.create_task(debug_logs_monitoring_task())
+    asyncio.create_task(check_alerts_loop())
     print("✓ Background task started: Auto-OFF inactive machines (1 min timeout)")
     print(f"✓ Background task started: Statistics cache flush every {_stats_flush_interval_sec}s")
     print(f"✓ Background task started: Tiered rollup every {_TIERED_ROLLUP_INTERVAL_SEC}s (raw→1m→5m→15m→hours)")
     print("✓ Background task started: WAN IP Bandwidth monitoring every 3 minutes")
     print("✓ Background task started: Daily cleanup scheduled at 03:00 AM")
     print("✓ Background task started: Debug Logs collection writer every 3 seconds")
+    print("✓ Background task started: Notification and alert rules checking every 10 seconds")
+
+# --- Notification & Alert Engine ---
+webhooks_collection = db["notification_webhooks"]
+rules_collection = db["notification_rules"]
+_triggered_alerts = {}  # Cache triggered state: {device_id}:{rule_id} -> boolean
+
+def check_condition(current_val, operator, target_val):
+    try:
+        # Convert target value to standard boolean if it matches true/false string
+        if str(target_val).lower() == 'true':
+            target_val_typed = True
+        elif str(target_val).lower() == 'false':
+            target_val_typed = False
+        else:
+            target_val_typed = target_val
+            
+        if current_val is None:
+            return False
+            
+        if isinstance(target_val_typed, bool):
+            curr_bool = bool(current_val)
+            if isinstance(current_val, str):
+                curr_bool = current_val.lower() in ('true', '1', 'on', 'online')
+            elif isinstance(current_val, (int, float)):
+                curr_bool = current_val > 0
+            if operator in ('=', '=='):
+                return curr_bool == target_val_typed
+            elif operator == '!=':
+                return curr_bool != target_val_typed
+            return False
+            
+        # Try numeric comparison
+        try:
+            curr_num = float(current_val)
+            target_num = float(target_val)
+            if operator in ('=', '=='):
+                return curr_num == target_num
+            elif operator == '!=':
+                return curr_num != target_num
+            elif operator == '>':
+                return curr_num > target_num
+            elif operator == '<':
+                return curr_num < target_num
+            elif operator == '>=':
+                return curr_num >= target_num
+            elif operator == '<=':
+                return curr_num <= target_num
+        except (ValueError, TypeError):
+            # Fallback to string comparison
+            curr_str = str(current_val).strip().lower()
+            target_str = str(target_val).strip().lower()
+            if operator in ('=', '=='):
+                return curr_str == target_str
+            elif operator == '!=':
+                return curr_str != target_str
+    except Exception as e:
+        print(f"Error checking condition: {e}")
+    return False
+
+def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_status: str, current_value):
+    import requests
+    from datetime import datetime
+    
+
+        
+    w_type = webhook.get("type", "Discord")
+    w_url = webhook.get("url", "").strip()
+    if not w_url:
+        return
+        
+    rule_name = rule.get("name", "Cảnh báo hệ thống")
+    param = rule.get("parameter", "")
+    op = rule.get("operator", "")
+    val = rule.get("value", "")
+    
+    # Translate parameter keys to friendly Vietnamese names
+    param_map = {
+        "isOnline": "Trạng thái kết nối",
+        "statusapp": "Trạng thái ứng dụng",
+        "temperature": "Nhiệt độ",
+        "memory": "Bộ nhớ RAM sử dụng",
+        "gpu": "Bộ nhớ GPU sử dụng",
+        "fps": "Tốc độ khung hình (FPS)",
+        "packetLoss": "Tỷ lệ mất gói (Packet Loss)",
+        "status": "Trạng thái SRT output"
+    }
+    param_name = param_map.get(param, param)
+
+    # Unit mapping
+    unit = ""
+    if param in ("temperature", "cpu"):
+        unit = "°C"
+    elif param in ("memory", "gpu", "packetLoss"):
+        unit = "%"
+    elif param == "fps":
+        unit = " FPS"
+    elif param == "batteryLevel":
+        unit = "% Pin"
+
+    # Value descriptions
+    curr_desc = str(current_value)
+    target_desc = str(val)
+    if param == "isOnline":
+        curr_desc = "Trực tuyến (Online)" if current_value else "Ngoại tuyến (Offline)"
+        target_desc = "Trực tuyến (Online)" if str(val).lower() in ("true", "1", "on") else "Ngoại tuyến (Offline)"
+    
+    now_str = datetime.now(VIETNAM_TZ).strftime("%d/%m/%Y %H:%M:%S")
+
+    # Get friendly display for parameter warning title
+    title = f"🚨 **CẢNH BÁO: {rule_name.upper()}**"
+    reason = f"Thiết bị vi phạm điều kiện: `{param_name}` hiện tại là **{curr_desc}{unit}** (Ngưỡng thiết lập: `{op} {target_desc}{unit}`)."
+
+    if w_type == "Discord":
+        try:
+            content = f"{title}\n" \
+                      f"• **Thiết bị:** `{device_name}`\n" \
+                      f"• **Chi tiết:** {reason}\n" \
+                      f"• **Thời gian:** `{now_str}`"
+            payload = {"content": content}
+            resp = requests.post(w_url, json=payload, timeout=5)
+            print(f"✓ Discord rule warning notification sent to {w_url[:30]}... status: {resp.status_code}")
+        except Exception as e:
+            print(f"Error sending Discord rule alert: {e}")
+    elif w_type == "Seatalk":
+        try:
+            content = f"{title}\n" \
+                      f"• **Thiết bị:** **{device_name}**\n" \
+                      f"• **Chi tiết:** {reason}\n" \
+                      f"• **Thời gian:** *{now_str}*"
+            payload = {
+                "tag": "markdown",
+                "markdown": {
+                    "content": content
+                }
+            }
+            resp = requests.post(w_url, json=payload, timeout=5)
+            print(f"✓ SeaTalk rule warning notification sent to {w_url[:30]}... status: {resp.status_code}")
+        except Exception as e:
+            print(f"Error sending Seatalk rule alert: {e}")
+
+async def check_alerts_loop():
+    import requests
+    while True:
+        try:
+            await asyncio.sleep(10)
+            
+
+
+            # Fetch active webhooks
+            webhooks = list(webhooks_collection.find())
+            if not webhooks:
+                continue
+                
+            # Load current desktop logs from cache
+            desktop_devices = {name: doc for name, doc in _data_cache.items()}
+            
+            # Load mobile devices from database
+            mobile_devices = {}
+            try:
+                mobile_logs = list(db["mobile_logs"].find())
+                mobile_devices = {doc.get("deviceId"): doc for doc in mobile_logs if doc.get("deviceId")}
+            except Exception as e:
+                print(f"Error reading mobile logs for check_alerts_loop: {e}")
+                
+            for webhook in webhooks:
+                w_id = str(webhook["_id"])
+                w_status = webhook.get("statusnotification", 1 if webhook.get("enabled", True) else 0)
+                if w_status != 1:
+                    continue
+                    
+                target_devices = webhook.get("devices", [])
+                rules = webhook.get("rules", [])
+                
+                # Expand "all" or specific devices
+                devices_to_check = []
+                if "all" in target_devices or not target_devices:
+                    for dev_id, doc in desktop_devices.items():
+                        devices_to_check.append((dev_id, doc, "desktop"))
+                    for dev_id, doc in mobile_devices.items():
+                        devices_to_check.append((dev_id, doc, "mobile"))
+                else:
+                    for d_id in target_devices:
+                        if d_id in desktop_devices:
+                            devices_to_check.append((d_id, desktop_devices[d_id], "desktop"))
+                        elif d_id in mobile_devices:
+                            devices_to_check.append((d_id, mobile_devices[d_id], "mobile"))
+                            
+                for rule in rules:
+                    if not rule.get("enabled", False):
+                        continue
+                        
+                    param = rule.get("parameter")
+                    op = rule.get("operator")
+                    target_val = rule.get("value")
+                    rule_id = rule.get("parameter", "") # use parameter as part of state ID
+                    
+                    for dev_id, doc, dev_type in devices_to_check:
+                        current_value = None
+                        device_name = dev_id
+                        
+                        if dev_type == "desktop":
+                            name_edit = doc.get("name_edit", "")
+                            device_name = name_edit if name_edit else dev_id
+                            
+                            if param == "isOnline":
+                                current_value = doc.get("statusapp", 0) == 1
+                            elif param == "statusapp":
+                                current_value = doc.get("statusapp", 0)
+                            elif param == "temperature":
+                                current_value = doc.get("temperature", doc.get("cpu"))
+                            elif param == "memory":
+                                current_value = doc.get("ramUsagePercent", doc.get("memory", doc.get("ram")))
+                            elif param == "cpuLoad":
+                                current_value = doc.get("cpuLoad", doc.get("cpu"))
+                            elif param in doc:
+                                current_value = doc.get(param)
+                        else: # mobile
+                            name_dev = doc.get("name_device") or doc.get("deviceName") or dev_id
+                            device_name = name_dev
+                            
+                            if param == "isOnline":
+                                ts_str = doc.get("timestamp", "")
+                                if ts_str:
+                                    try:
+                                        clean_ts = ts_str.replace("Z", "+00:00")
+                                        ts = datetime.fromisoformat(clean_ts)
+                                        now_utc = datetime.now(pytz.utc)
+                                        current_value = (now_utc - ts).total_seconds() < 25
+                                    except Exception:
+                                        current_value = False
+                                else:
+                                    current_value = False
+                            elif param == "batteryLevel":
+                                current_value = doc.get("batteryLevel")
+                            elif param == "temperature":
+                                current_value = doc.get("temperature")
+                            elif param == "fps":
+                                current_value = doc.get("fps")
+                            elif param == "packetLoss":
+                                current_value = doc.get("packetLoss")
+                            elif param == "cpuLoad":
+                                current_value = doc.get("cpuLoad")
+                            elif param == "memory":
+                                current_value = doc.get("ramUsagePercent")
+                            elif param in doc:
+                                current_value = doc.get(param)
+                                
+                        # Special check for SRT status (only for desktop)
+                        if dev_type == "desktop" and param == "status" and doc.get("SRT"):
+                            srt_list = doc.get("SRT", [])
+                            matching = False
+                            for srt_item in srt_list:
+                                s_val = srt_item.get("status", "")
+                                if check_condition(s_val, op, target_val):
+                                    matching = True
+                                    current_value = f"PORT {srt_item.get('port')}: {s_val}"
+                                    break
+                            is_triggered = matching
+                        else:
+                            is_triggered = check_condition(current_value, op, target_val)
+                            
+                        if is_triggered:
+                            print(f"🔔 Warning Rule Triggered: {device_name} - {param} {op} {target_val} (Current: {current_value})")
+                            send_rule_notification(webhook, device_name, rule, "TRIGGERED", current_value)
+                            
+        except Exception as e:
+            print(f"Error in check_alerts_loop: {e}")
+
+@app.get("/api/notifications/devices")
+async def get_notification_devices():
+    try:
+        devices = []
+        for name, doc in _data_cache.items():
+            name_edit = doc.get("name_edit", "")
+            devices.append({
+                "id": name,
+                "name": name_edit if name_edit else name,
+                "type": "desktop"
+            })
+        try:
+            mobile_logs = list(db["mobile_logs"].find())
+            for m in mobile_logs:
+                d_id = m.get("deviceId", "")
+                if d_id:
+                    name_dev = m.get("name_device") or m.get("deviceName") or d_id
+                    devices.append({
+                        "id": d_id,
+                        "name": name_dev,
+                        "type": "mobile"
+                    })
+        except Exception as e:
+            print(f"Error fetching mobile devices: {e}")
+        return {"status": "success", "data": devices}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.get("/api/notifications/webhooks")
+async def get_webhooks():
+    try:
+        webhooks = list(webhooks_collection.find())
+        for w in webhooks:
+            w["id"] = str(w["_id"])
+            del w["_id"]
+        return {"status": "success", "data": webhooks}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.post("/api/notifications/webhooks")
+async def save_webhook(payload: dict):
+    try:
+        w_id = payload.get("id")
+        enabled_val = payload.get("enabled")
+        if enabled_val is None:
+            enabled_val = payload.get("statusnotification", 1) == 1
+        status_notif = 1 if enabled_val is True or enabled_val == 1 else 0
+
+        doc = {
+            "name": payload.get("name", "").strip(),
+            "type": payload.get("type", "Discord").strip(),
+            "url": payload.get("url", "").strip(),
+            "enabled": status_notif == 1,
+            "statusnotification": status_notif,
+            "devices": payload.get("devices", ["all"]),
+            "rules": payload.get("rules", [])
+        }
+        if not doc["name"] or not doc["url"]:
+            return JSONResponse(status_code=400, content={"status": "error", "message": "Name and URL are required"})
+            
+        if w_id:
+            webhooks_collection.update_one({"_id": ObjectId(w_id)}, {"$set": doc})
+        else:
+            webhooks_collection.insert_one(doc)
+        return {"status": "success", "message": "Webhook configuration saved successfully"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.delete("/api/notifications/webhooks/{webhook_id}")
+async def delete_webhook(webhook_id: str):
+    try:
+        webhooks_collection.delete_one({"_id": ObjectId(webhook_id)})
+        return {"status": "success", "message": "Webhook configuration deleted successfully"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.get("/api/notifications/srt-settings")
+async def get_srt_settings():
+    try:
+        config = db["srt_settings"].find_one({"_id": "srt_config"})
+        if not config:
+            config = {"auto_send": False, "webhooks": [], "devices": ["all"], "active": False}
+        else:
+            config["id"] = "srt_config"
+            if "_id" in config:
+                del config["_id"]
+            if "active" not in config:
+                config["active"] = False
+            if "devices" not in config:
+                config["devices"] = ["all"]
+        return {"status": "success", "data": config}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.post("/api/notifications/srt-settings")
+async def save_srt_settings(payload: dict):
+    try:
+        doc = {
+            "auto_send": bool(payload.get("auto_send", False)),
+            "webhooks": payload.get("webhooks", []),
+            "devices": payload.get("devices", ["all"]),
+            "active": bool(payload.get("active", False))
+        }
+        db["srt_settings"].update_one({"_id": "srt_config"}, {"$set": doc}, upsert=True)
+        return {"status": "success", "message": "SRT settings saved successfully"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.post("/api/notifications/srt-settings/send-all")
+async def trigger_send_all_srt():
+    try:
+        import requests
+        # Find active settings
+        config = db["srt_settings"].find_one({"_id": "srt_config"})
+        if not config:
+            return JSONResponse(status_code=400, content={"status": "error", "message": "SRT configuration not found or disabled"})
+            
+        webhook_ids = config.get("webhooks", [])
+        if not webhook_ids:
+            return JSONResponse(status_code=400, content={"status": "error", "message": "No webhooks mapped to SRT notification settings"})
+            
+        wh_docs = list(db["notification_webhooks"].find({
+            "_id": {"$in": [ObjectId(wid) for wid in webhook_ids if ObjectId.is_valid(wid)]},
+            "statusnotification": {"$ne": 0}
+        }))
+        if not wh_docs:
+            return JSONResponse(status_code=400, content={"status": "error", "message": "Selected Webhook channels not found or are disabled"})
+            
+        sent_count = 0
+        for machine_name, doc in _data_cache.items():
+            ipwan = doc.get("ipwan", "")
+            srt_list = doc.get("SRT", [])
+            if not isinstance(srt_list, list):
+                continue
+            for srt_item in srt_list:
+                if not isinstance(srt_item, dict):
+                    continue
+                srt_name = srt_item.get("nameSRT", srt_item.get("name", ""))
+                port = str(srt_item.get("port", ""))
+                status = srt_item.get("status", "OFF")
+                
+                label = srt_name if srt_name else machine_name
+                discord_msg = f"[SRT][{label}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
+                seatalk_msg = f"**[SRT][{label}]** SRT {status}\nIPWAN: {ipwan} | PORT: {port}"
+                
+                for wh in wh_docs:
+                    w_type = wh.get("type", "Discord")
+                    w_url = wh.get("url", "").strip()
+                    if not w_url:
+                        continue
+                    try:
+                        if w_type == "Discord":
+                            requests.post(w_url, json={"content": discord_msg}, timeout=5)
+                        elif w_type == "Seatalk":
+                            payload = {
+                                "tag": "markdown",
+                                "markdown": {
+                                    "content": seatalk_msg
+                                }
+                            }
+                            requests.post(w_url, json=payload, timeout=5)
+                        sent_count += 1
+                    except Exception as e:
+                        print(f"Error sending bulk SRT message to {w_url[:30]}: {e}")
+                        
+        return {"status": "success", "message": f"Successfully sent status reports for {sent_count} SRT stream instances."}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 
 def run_server():
