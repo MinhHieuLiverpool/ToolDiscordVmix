@@ -3,6 +3,7 @@ import { API_ENDPOINTS, BACKEND_BASE_URL, REQUEST_TIMEOUT_MS } from '../config/c
 
 export interface BackendSrtItem {
   nameSRT?: string
+  name?: string
   port?: number | string
   quality?: string
   status?: string

@@ -10,6 +10,7 @@ interface RuleCondition {
   operator: string
   value: string
   enabled: boolean
+  alert_cooldown?: number
 }
 
 interface WebhookItem {
