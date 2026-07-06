@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import axios from 'axios'
 import { showToast } from '../components/ui/Toast'
 import { BACKEND_BASE_URL } from '../config/constants'
+import { useDashboardContext } from '../hooks/useDashboardContext'
+import { normalizeSrtList } from '../services/api'
 
 interface RuleCondition {
   parameter: string
@@ -19,6 +21,9 @@ interface WebhookItem {
   statusnotification?: number
   devices: string[]
   rules: RuleCondition[]
+  alert_cooldown?: number
+  srt_auto_send?: boolean
+  srt_streams?: string[]
 }
 
 interface DeviceOption {
@@ -47,9 +52,6 @@ export default function NotificationPage() {
   const [webhooks, setWebhooks] = useState<WebhookItem[]>([])
   const [devices, setDevices] = useState<DeviceOption[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'channels' | 'srt'>('channels')
-
-
 
   // Webhook Modal / Form states
   const [modalOpen, setModalOpen] = useState(false)
@@ -62,16 +64,16 @@ export default function NotificationPage() {
   const [whDevices, setWhDevices] = useState<string[]>(['all'])
   
   // Rule checkboxes/values state in Form
-  const [ruleStates, setRuleStates] = useState<Record<string, { enabled: boolean; operator: string; value: string }>>({})
+  const [ruleStates, setRuleStates] = useState<Record<string, { enabled: boolean; operator: string; value: string; alert_cooldown: number }>>({})
 
-  // SRT settings states
-  const [srtAutoSend, setSrtAutoSend] = useState(false)
-  const [globalActive, setGlobalActive] = useState(false)
-  const [srtWebhooks, setSrtWebhooks] = useState<string[]>([])
-  const [srtDevices, setSrtDevices] = useState<string[]>(['all'])
+  // SRT states in Form
+  const [whSrtAutoSend, setWhSrtAutoSend] = useState(false)
+  const [whSrtStreams, setWhSrtStreams] = useState<string[]>(['all'])
+
+  // SRT trigger states
   const [sendingSrt, setSendingSrt] = useState(false)
-  const [savingSrt, setSavingSrt] = useState(false)
-  const [savingGlobal, setSavingGlobal] = useState(false)
+
+  const { rows } = useDashboardContext()
 
   useEffect(() => {
     fetchData()
@@ -80,20 +82,13 @@ export default function NotificationPage() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [whRes, devRes, srtRes] = await Promise.all([
+      const [whRes, devRes] = await Promise.all([
         axios.get(`${BACKEND_BASE_URL}/api/notifications/webhooks`),
-        axios.get(`${BACKEND_BASE_URL}/api/notifications/devices`),
-        axios.get(`${BACKEND_BASE_URL}/api/notifications/srt-settings`)
+        axios.get(`${BACKEND_BASE_URL}/api/notifications/devices`)
       ])
       
       if (whRes.data.status === 'success') setWebhooks(whRes.data.data)
       if (devRes.data.status === 'success') setDevices(devRes.data.data)
-      if (srtRes.data.status === 'success' && srtRes.data.data) {
-        setSrtAutoSend(!!srtRes.data.data.auto_send)
-        setSrtWebhooks(srtRes.data.data.webhooks || [])
-        setSrtDevices(srtRes.data.data.devices || ['all'])
-        setGlobalActive(!!srtRes.data.data.active)
-      }
     } catch (err: any) {
       console.error(err)
       showToast('Lỗi tải dữ liệu cấu hình thông báo!', 'error')
@@ -102,37 +97,15 @@ export default function NotificationPage() {
     }
   }
 
-  // --- Toggle Global Engine Switch ---
-  const handleToggleGlobalActive = async () => {
-    setSavingGlobal(true)
-    const nextState = !globalActive
-    try {
-      const payload = {
-        auto_send: srtAutoSend,
-        webhooks: srtWebhooks,
-        devices: srtDevices,
-        active: nextState
-      }
-      const res = await axios.post(`${BACKEND_BASE_URL}/api/notifications/srt-settings`, payload)
-      if (res.data.status === 'success') {
-        setGlobalActive(nextState)
-        showToast(nextState ? 'Đã bật gửi thông báo hệ thống!' : 'Đã tắt gửi thông báo hệ thống!', 'success')
-      }
-    } catch (err) {
-      showToast('Lỗi khi thay đổi trạng thái gửi thông báo!', 'error')
-    } finally {
-      setSavingGlobal(false)
-    }
-  }
-
   // --- Webhook Actions ---
   const handleOpenModal = (wh: WebhookItem | null = null) => {
-    const initialRuleStates: Record<string, { enabled: boolean; operator: string; value: string }> = {}
+    const initialRuleStates: Record<string, { enabled: boolean; operator: string; value: string; alert_cooldown: number }> = {}
     DEFAULT_PARAMETERS.forEach(p => {
       initialRuleStates[p.parameter] = {
         enabled: false,
         operator: p.operator,
-        value: p.defaultValue
+        value: p.defaultValue,
+        alert_cooldown: 60
       }
     })
 
@@ -142,7 +115,9 @@ export default function NotificationPage() {
       setWhType(wh.type)
       setWhUrl(wh.url)
       setWhEnabled(wh.statusnotification !== 0)
-      setWhDevices(wh.devices || ['all'])
+      setWhDevices(wh.devices || [])
+      setWhSrtAutoSend(!!wh.srt_auto_send)
+      setWhSrtStreams(wh.srt_streams || ['all'])
       
       if (wh.rules && Array.isArray(wh.rules)) {
         wh.rules.forEach(r => {
@@ -150,7 +125,8 @@ export default function NotificationPage() {
             initialRuleStates[r.parameter] = {
               enabled: r.enabled,
               operator: r.operator,
-              value: r.value
+              value: r.value,
+              alert_cooldown: r.alert_cooldown ?? 60
             }
           }
         })
@@ -162,6 +138,8 @@ export default function NotificationPage() {
       setWhUrl('')
       setWhEnabled(true)
       setWhDevices(['all'])
+      setWhSrtAutoSend(false)
+      setWhSrtStreams(['all'])
     }
     
     setRuleStates(initialRuleStates)
@@ -181,7 +159,8 @@ export default function NotificationPage() {
         parameter: p.parameter,
         operator: state?.operator || p.operator,
         value: state?.value || p.defaultValue,
-        enabled: !!state?.enabled
+        enabled: !!state?.enabled,
+        alert_cooldown: state?.alert_cooldown !== undefined ? Math.max(10, parseInt(String(state.alert_cooldown)) || 60) : 60
       }
     })
 
@@ -194,7 +173,10 @@ export default function NotificationPage() {
         enabled: whEnabled,
         statusnotification: whEnabled ? 1 : 0,
         devices: whDevices,
-        rules: assembledRules
+        rules: assembledRules,
+        alert_cooldown: 60,
+        srt_auto_send: whSrtAutoSend,
+        srt_streams: whSrtStreams
       }
       
       const response = await axios.post(`${BACKEND_BASE_URL}/api/notifications/webhooks`, payload)
@@ -227,7 +209,8 @@ export default function NotificationPage() {
       const payload = {
         ...wh,
         statusnotification: nextStatus,
-        enabled: nextStatus === 1
+        enabled: nextStatus === 1,
+        devices: wh.devices || []
       }
       const response = await axios.post(`${BACKEND_BASE_URL}/api/notifications/webhooks`, payload)
       if (response.data.status === 'success') {
@@ -236,6 +219,18 @@ export default function NotificationPage() {
       }
     } catch (err) {
       showToast('Lỗi thay đổi trạng thái Webhook!', 'error')
+    }
+  }
+
+  const handleEnableAllWebhooks = async () => {
+    try {
+      const res = await axios.post(`${BACKEND_BASE_URL}/api/notifications/webhooks/enable-all`)
+      if (res.data.status === 'success') {
+        showToast(res.data.message || 'Đã bật tất cả kênh Webhook!', 'success')
+        fetchData()
+      }
+    } catch (err) {
+      showToast('Lỗi bật tất cả Webhook!', 'error')
     }
   }
 
@@ -268,7 +263,7 @@ export default function NotificationPage() {
     }))
   }
 
-  const handleRuleStateChange = (parameter: string, field: 'operator' | 'value', val: string) => {
+  const handleRuleStateChange = (parameter: string, field: 'operator' | 'value' | 'alert_cooldown', val: any) => {
     setRuleStates(prev => ({
       ...prev,
       [parameter]: {
@@ -279,44 +274,31 @@ export default function NotificationPage() {
   }
 
   // --- SRT Tab Actions ---
-  const handleSaveSrtSettings = async () => {
-    setSavingSrt(true)
-    try {
-      const payload = {
-        auto_send: srtAutoSend,
-        webhooks: srtWebhooks,
-        devices: srtDevices,
-        active: globalActive
+  const handleSrtStreamSelect = (srtId: string) => {
+    if (srtId === 'all') {
+      if (whSrtStreams.includes('all')) {
+        setWhSrtStreams([])
+      } else {
+        setWhSrtStreams(['all'])
       }
-      const res = await axios.post(`${BACKEND_BASE_URL}/api/notifications/srt-settings`, payload)
-      if (res.data.status === 'success') {
-        showToast('Lưu cấu hình SRT thành công!', 'success')
-      }
-    } catch (err) {
-      showToast('Lỗi lưu cấu hình SRT!', 'error')
-    } finally {
-      setSavingSrt(false)
+      return
     }
+    
+    let updated = [...whSrtStreams].filter(s => s !== 'all')
+    if (updated.includes(srtId)) {
+      updated = updated.filter(s => s !== srtId)
+    } else {
+      updated.push(srtId)
+    }
+    setWhSrtStreams(updated)
   }
 
   const handleSendAllSrtNow = async () => {
-    if (srtWebhooks.length === 0) {
-      showToast('Vui lòng chọn ít nhất một Webhook để gửi báo cáo SRT!', 'error')
-      return
-    }
     setSendingSrt(true)
     try {
-      const payload = {
-        auto_send: srtAutoSend,
-        webhooks: srtWebhooks,
-        devices: srtDevices,
-        active: globalActive
-      }
-      await axios.post(`${BACKEND_BASE_URL}/api/notifications/srt-settings`, payload)
-      
       const res = await axios.post(`${BACKEND_BASE_URL}/api/notifications/srt-settings/send-all`)
       if (res.data.status === 'success') {
-        showToast(res.data.message || 'Đã gửi toàn bộ list SRT thành công!', 'success')
+        showToast(res.data.message || 'Đã gửi báo cáo SRT thành công!', 'success')
       }
     } catch (err: any) {
       showToast(err.response?.data?.message || 'Lỗi gửi danh sách SRT!', 'error')
@@ -325,32 +307,34 @@ export default function NotificationPage() {
     }
   }
 
-  const handleSrtWebhookToggle = (whId: string) => {
-    if (srtWebhooks.includes(whId)) {
-      setSrtWebhooks(srtWebhooks.filter(id => id !== whId))
-    } else {
-      setSrtWebhooks([...srtWebhooks, whId])
-    }
-  }
-
-  const handleSrtDeviceSelect = (devId: string) => {
-    if (devId === 'all') {
-      if (srtDevices.includes('all')) {
-        setSrtDevices([])
-      } else {
-        setSrtDevices(['all'])
-      }
-      return
-    }
-    
-    let updated = [...srtDevices].filter(d => d !== 'all')
-    if (updated.includes(devId)) {
-      updated = updated.filter(d => d !== devId)
-    } else {
-      updated.push(devId)
-    }
-    setSrtDevices(updated)
-  }
+  const allAvailableSrts = useMemo(() => {
+    const list: { machineName: string; name: string; port: string; id: string; hostname: string; type: string }[] = []
+    if (!rows || !Array.isArray(rows)) return list
+    rows.forEach(row => {
+      const machineName = row.data?.name || 'Unknown'
+      const srtList = normalizeSrtList(row.data?.SRT)
+      srtList.forEach(srt => {
+        const srtName = srt.nameSRT || srt.name || '-'
+        const port = String(srt.port || '')
+        const hostname = srt.hostname || row.data?.ipwan || row.data?.ip || '-'
+        const type = srt.type || '-'
+        if (port) {
+          const id = `${machineName}/${srtName}:${port}`
+          if (!list.some(item => item.id === id)) {
+            list.push({
+              machineName,
+              name: srtName,
+              port,
+              id,
+              hostname,
+              type
+            })
+          }
+        }
+      })
+    })
+    return list
+  }, [rows])
 
   return (
     <div className="p-6 text-slate-800 dark:text-slate-100 min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
@@ -366,43 +350,45 @@ export default function NotificationPage() {
         </div>
         
         <div className="flex items-center gap-2">
-          {activeTab === 'channels' && (
-            <button
-              onClick={() => handleOpenModal()}
-              className="px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-[10px] shadow-sm transition-all flex items-center gap-1.5"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              Tạo kênh thông báo mới
-            </button>
-          )}
+          <button
+            onClick={handleSendAllSrtNow}
+            disabled={sendingSrt}
+            className="px-4 py-2.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/35 border border-indigo-100 dark:border-indigo-900/30 rounded-[10px] transition-all disabled:opacity-50 flex items-center gap-1.5"
+          >
+            {sendingSrt ? (
+              <>
+                <div className="w-3.5 h-3.5 border-2 border-slate-300 border-t-indigo-600 rounded-full animate-spin"></div>
+                Đang gửi SRT...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                Báo cáo SRT ngay
+              </>
+            )}
+          </button>
+          <button
+            onClick={handleEnableAllWebhooks}
+            className="px-4 py-2.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/35 border border-emerald-100 dark:border-emerald-900/30 rounded-[10px] transition-all flex items-center gap-1.5"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Bật tất cả kênh
+          </button>
+          <button
+            onClick={() => handleOpenModal()}
+            className="px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-[10px] shadow-sm transition-all flex items-center gap-1.5"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Tạo kênh thông báo mới
+          </button>
         </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-4 my-6 border-b border-slate-200 dark:border-slate-800">
-        <button
-          onClick={() => setActiveTab('channels')}
-          className={`pb-3 text-sm font-black transition-all ${
-            activeTab === 'channels'
-              ? 'text-indigo-600 border-b-2 border-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
-              : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-          }`}
-        >
-          Kênh Webhook & Cảnh báo ({webhooks.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('srt')}
-          className={`pb-3 text-sm font-black transition-all ${
-            activeTab === 'srt'
-              ? 'text-indigo-600 border-b-2 border-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
-              : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
-          }`}
-        >
-          Cấu hình SRT Auto Send 📡
-        </button>
       </div>
 
       {loading ? (
@@ -410,8 +396,9 @@ export default function NotificationPage() {
           <div className="w-8 h-8 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin mb-3"></div>
           <span className="text-xs font-bold text-slate-400">Đang tải cấu hình thông báo...</span>
         </div>
-      ) : activeTab === 'channels' ? (
-        webhooks.length === 0 ? (
+      ) : (
+        <>
+        {webhooks.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-slate-900/30 border border-slate-200 dark:border-slate-900 rounded-[12px] p-6 text-center mt-6">
             <svg className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9z" />
@@ -545,157 +532,15 @@ export default function NotificationPage() {
               </table>
             </div>
           </div>
-        )
-      ) : (
-        /* SRT Settings Tab */
-        <div className="max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-[12px] p-6 shadow-sm mt-6">
-          <h2 className="text-base font-black text-slate-800 dark:text-slate-100 uppercase mb-2">
-            📡 Cấu hình Auto Send SRT Status
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
-            Bật tính năng này để hệ thống tự động kiểm tra và đồng bộ trạng thái SRT của tất cả các máy. Gửi tin nhắn về Discord/SeaTalk đúng định dạng quy định.
-          </p>
-
-          <div className="space-y-6 text-xs">
-            {/* Global Enable Toggle */}
-            <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-[10px]">
-              <div>
-                <span className="block font-bold text-slate-700 dark:text-slate-300">Kích hoạt cảnh báo SRT toàn hệ thống</span>
-                <span className="text-[11px] text-slate-400">Bật hoặc tắt toàn bộ cơ chế gửi thông báo SRT cho cấu hình hiện tại.</span>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={globalActive}
-                  onChange={handleToggleGlobalActive}
-                  disabled={savingGlobal}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-slate-300 dark:bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600 opacity-100 disabled:opacity-60"></div>
-              </label>
-            </div>
-
-            {/* Enabled Toggle */}
-            <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-[10px]">
-              <div>
-                <span className="block font-bold text-slate-700 dark:text-slate-300">Kích hoạt Auto Send SRT</span>
-                <span className="text-[11px] text-slate-400">Tự động giám sát và thông báo trạng thái luồng SRT (ON/OFF) của toàn bộ hệ thống.</span>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={srtAutoSend}
-                  onChange={(e) => setSrtAutoSend(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-slate-300 dark:bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-              </label>
-            </div>
-
-            {/* Target Webhooks */}
-            <div>
-              <span className="block font-bold text-slate-500 uppercase mb-2">Gửi tin nhắn SRT về Kênh Webhook:</span>
-              {webhooks.length === 0 ? (
-                <p className="text-rose-500 font-bold">* Vui lòng tạo ít nhất một Kênh Webhook ở tab bên cạnh.</p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 border border-slate-200 dark:border-slate-800 rounded-[10px] p-3 bg-slate-50/50 dark:bg-slate-900/30">
-                  {webhooks.map(wh => (
-                    <label key={wh.id} className="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-300 cursor-pointer py-1.5 px-2 hover:bg-slate-100/50 dark:hover:bg-slate-800/40 rounded">
-                      <input
-                        type="checkbox"
-                        checked={srtWebhooks.includes(wh.id)}
-                        onChange={() => handleSrtWebhookToggle(wh.id)}
-                        className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
-                      />
-                      <span>{wh.name} ({wh.type})</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Apply Devices Section for SRT */}
-            <div>
-              <span className="block font-bold text-slate-500 uppercase mb-2">Chọn thiết bị áp dụng theo dõi SRT:</span>
-              <div className="border border-slate-200 dark:border-slate-800 rounded-[10px] p-3 max-h-40 overflow-y-auto space-y-2 bg-slate-50/50 dark:bg-slate-900/30">
-                <label className="flex items-center gap-2 font-bold text-indigo-600 dark:text-indigo-400 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={srtDevices.includes('all')}
-                    onChange={() => handleSrtDeviceSelect('all')}
-                    className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
-                  />
-                  Tất cả thiết bị (Desktop & Mobile)
-                </label>
-                <div className="h-px bg-slate-200 dark:bg-slate-800 my-2"></div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-                  {devices.map(dev => (
-                    <label key={dev.id} className="flex items-center gap-2 font-semibold text-slate-600 dark:text-slate-300 cursor-pointer py-0.5 pl-1">
-                      <input
-                        type="checkbox"
-                        checked={srtDevices.includes(dev.id)}
-                        onChange={() => handleSrtDeviceSelect(dev.id)}
-                        disabled={srtDevices.includes('all')}
-                        className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 disabled:opacity-50"
-                      />
-                      <span className="flex items-center gap-1.5 truncate">
-                        <span className={`w-1.5 h-1.5 rounded-full ${dev.type === 'desktop' ? 'bg-sky-500' : 'bg-rose-500'}`} />
                         {dev.name} ({dev.type})
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Message Format Example Card */}
-            <div className="p-4 bg-slate-100/50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-[10px] font-mono">
-              <span className="block font-bold text-[10px] text-slate-400 uppercase mb-2">Định dạng tin nhắn gửi đi:</span>
-              <p className="text-slate-800 dark:text-slate-200">
-                [SRT][PC-POV-01] SRT OFF | IPWAN: 101.53.36.132 | PORT: 5001
-              </p>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex justify-between items-center border-t border-slate-100 dark:border-slate-800 pt-5 gap-3">
-              <button
-                type="button"
-                onClick={handleSendAllSrtNow}
-                disabled={sendingSrt || webhooks.length === 0}
-                className="px-4 py-2.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/35 border border-indigo-100 dark:border-indigo-900/30 rounded-[10px] transition-all disabled:opacity-50 flex items-center gap-1.5"
-              >
-                {sendingSrt ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-slate-300 border-t-indigo-600 rounded-full animate-spin"></div>
-                    Đang gửi toàn bộ...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                    </svg>
-                    Bật gửi ngay (Gửi toàn bộ máy)
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleSaveSrtSettings}
-                disabled={savingSrt}
-                className="px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-[10px] shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5"
-              >
-                {savingSrt ? 'Đang lưu...' : 'Lưu cấu hình SRT'}
-              </button>
-            </div>
-          </div>
-        </div>
+        )}
+      </>
       )}
 
       {/* Webhook and Rules Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
-          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[16px] shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          <div className="w-full max-w-4xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[16px] shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
               <h3 className="text-sm font-black text-rose-600 dark:text-rose-500 uppercase tracking-wide">
                 {editingWebhook ? '✏️ Cập nhật Kênh Thông Báo' : '➕ Thêm Kênh Thông Báo Mới'}
@@ -801,6 +646,115 @@ export default function NotificationPage() {
                   </div>
                 </div>
 
+
+
+                {/* SRT Config */}
+                <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4">
+                  <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-[10px] mb-3">
+                    <div>
+                      <span className="block font-bold text-slate-700 dark:text-slate-300">Kích hoạt Auto Send SRT</span>
+                      <span className="text-[11px] text-slate-400">Tự động giám sát và thông báo trạng thái luồng SRT (ON/OFF) gửi tới Webhook này.</span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={whSrtAutoSend}
+                        onChange={(e) => setWhSrtAutoSend(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-300 dark:bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </label>
+                  </div>
+
+                  {whSrtAutoSend && (
+                    <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+                      <span className="block font-bold text-slate-500 uppercase">Chọn danh sách SRT cần theo dõi:</span>
+                      <div className="border border-slate-200 dark:border-slate-800 rounded-[10px] p-3 max-h-48 overflow-y-auto space-y-2 bg-slate-50/50 dark:bg-slate-900/30 text-xs">
+                        <label className="flex items-center gap-2 font-bold text-indigo-600 dark:text-indigo-400 cursor-pointer mb-2">
+                          <input
+                            type="checkbox"
+                            checked={whSrtStreams.includes('all')}
+                            onChange={() => handleSrtStreamSelect('all')}
+                            className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                          />
+                          Tất cả các luồng SRT
+                        </label>
+                        
+                        {allAvailableSrts.length === 0 ? (
+                          <p className="text-slate-400 italic py-1">Không có luồng SRT nào hoạt động hoặc được tìm thấy.</p>
+                        ) : (
+                          <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-lg">
+                            <table className="w-full text-left border-collapse bg-white dark:bg-slate-900">
+                              <thead>
+                                <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                  <th className="py-2 px-3 w-10 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={whSrtStreams.includes('all')}
+                                      onChange={() => handleSrtStreamSelect('all')}
+                                      className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                                    />
+                                  </th>
+                                  <th className="py-2 px-3">Tên máy</th>
+                                  <th className="py-2 px-3">Tên SRT</th>
+                                  <th className="py-2 px-3">Port</th>
+                                  <th className="py-2 px-3">Type</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                {allAvailableSrts.map(srt => {
+                                  const isSelected = whSrtStreams.includes(srt.id) || whSrtStreams.includes('all');
+                                  return (
+                                    <tr
+                                      key={srt.id}
+                                      className={`text-[11px] transition-all hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer ${
+                                        isSelected ? 'bg-indigo-50/20 dark:bg-indigo-950/10' : ''
+                                      }`}
+                                      onClick={() => {
+                                        if (!whSrtStreams.includes('all')) {
+                                          handleSrtStreamSelect(srt.id);
+                                        }
+                                      }}
+                                    >
+                                      <td className="py-1.5 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={() => handleSrtStreamSelect(srt.id)}
+                                          disabled={whSrtStreams.includes('all')}
+                                          className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 disabled:opacity-50"
+                                        />
+                                      </td>
+                                      <td className="py-1.5 px-3 font-bold text-slate-700 dark:text-slate-200">
+                                        {srt.machineName}
+                                      </td>
+                                      <td className="py-1.5 px-3 text-indigo-600 dark:text-indigo-400 font-bold">
+                                        {srt.name}
+                                      </td>
+                                      <td className="py-1.5 px-3 font-mono font-semibold text-slate-600 dark:text-slate-300">
+                                        {srt.port}
+                                      </td>
+                                      <td className="py-1.5 px-3">
+                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold leading-none uppercase ${
+                                          srt.type.toLowerCase() === 'caller'
+                                            ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400 border border-blue-100 dark:border-blue-900/30'
+                                            : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/30'
+                                        }`}>
+                                          {srt.type}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* Checked parameter conditions */}
                 <div>
                   <label className="block font-bold text-slate-500 uppercase mb-1.5">
@@ -812,13 +766,14 @@ export default function NotificationPage() {
                         <tr className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                           <th className="py-2 px-3 text-center w-12">Dùng</th>
                           <th className="py-2 px-3">Nội dung cảnh báo</th>
-                          <th className="py-2 px-3 w-28">Phép toán</th>
-                          <th className="py-2 px-3 w-32">Ngưỡng</th>
+                          <th className="py-2 px-3 w-24">Phép toán</th>
+                          <th className="py-2 px-3 w-28">Ngưỡng</th>
+                          <th className="py-2 px-3 w-28">Quét lại (giây)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-900">
                         {DEFAULT_PARAMETERS.map(p => {
-                          const state = ruleStates[p.parameter] || { enabled: false, operator: p.operator, value: p.defaultValue };
+                          const state = ruleStates[p.parameter] || { enabled: false, operator: p.operator, value: p.defaultValue, alert_cooldown: 60 };
                           return (
                             <tr key={p.parameter} className={`hover:bg-slate-50/50 dark:hover:bg-slate-900/10 transition-all ${state.enabled ? 'bg-indigo-50/10 dark:bg-indigo-950/5' : ''}`}>
                               <td className="py-2.5 px-3 text-center">
@@ -859,6 +814,17 @@ export default function NotificationPage() {
                                   disabled={!state.enabled}
                                   value={state.value}
                                   onChange={(e) => handleRuleStateChange(p.parameter, 'value', e.target.value)}
+                                  className="w-full px-2 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-[11px] font-mono font-bold disabled:opacity-50"
+                                />
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <input
+                                  type="number"
+                                  min={10}
+                                  required={state.enabled}
+                                  disabled={!state.enabled}
+                                  value={state.alert_cooldown !== undefined ? state.alert_cooldown : 60}
+                                  onChange={(e) => handleRuleStateChange(p.parameter, 'alert_cooldown', e.target.value)}
                                   className="w-full px-2 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-[11px] font-mono font-bold disabled:opacity-50"
                                 />
                               </td>

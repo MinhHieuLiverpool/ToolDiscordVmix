@@ -216,36 +216,30 @@ def _normalize_payload_list(raw_value):
 
 def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port: str, status: str,
                                quality: str = "", srt_type: str = "", hostname: str = ""):
-    """Gửi notification lên Discord & SeaTalk (đọc từ settings.json hoặc srt_settings)"""
+    """Gửi notification lên Discord & SeaTalk — per-webhook SRT config"""
     import json
     import os
     import requests
-    from bson import ObjectId
     
-    # 1. First, check if we have webhooks configured in srt_settings collection
+    stream_id = f"{machine_name}/{srt_name}:{port}"
+    
+    # 1. Iterate all webhooks that have srt_auto_send enabled
     webhooks = []
     try:
-        config = db["srt_settings"].find_one({"_id": "srt_config"})
-        if config:
-            # Machine selection filter for SRT status alerts
-            devices = config.get("devices", ["all"])
-            if "all" not in devices and machine_name not in devices:
-                return  # Machine not selected for SRT status updates
-                
-            if config.get("auto_send"):
-                webhook_ids = config.get("webhooks", [])
-                if webhook_ids:
-                    wh_docs = list(db["notification_webhooks"].find({
-                        "_id": {"$in": [ObjectId(wid) for wid in webhook_ids if ObjectId.is_valid(wid)]},
-                        "statusnotification": {"$ne": 0}
-                    }))
-                    for wh in wh_docs:
-                        webhooks.append({
-                            "type": wh.get("type", "Discord"),
-                            "url": wh.get("url", "")
-                        })
+        wh_docs = list(db["notification_webhooks"].find({
+            "srt_auto_send": True,
+            "statusnotification": {"$ne": 0}
+        }))
+        for wh in wh_docs:
+            wh_srt_streams = wh.get("srt_streams", ["all"])
+            if "all" not in wh_srt_streams and stream_id not in wh_srt_streams:
+                continue  # This webhook doesn't monitor this SRT stream
+            webhooks.append({
+                "type": wh.get("type", "Discord"),
+                "url": wh.get("url", "")
+            })
     except Exception as e:
-        print(f"Error reading srt_settings for send_discord_notification: {e}")
+        print(f"Error reading webhooks for send_discord_notification: {e}")
         
     # 2. Fallback to settings.json
     if not webhooks:
@@ -654,27 +648,8 @@ async def receive_data(data: dict):
         ip_val = data.get('ip', '')
         statistics_id = _build_statistics_id(ip_val, data.get('port', ''), machine_name)
 
-        # Compare SRT status changes for Discord + SeaTalk notifications
-        prev_srt_list = _normalize_payload_list(prev.get('SRT', []))
-        prev_stream_list = _normalize_payload_list(prev.get('stream', []))
-        prev_stream_keys_list = _normalize_payload_list(prev.get('stream_keys', []))
-        prev_srt_map = {str(s.get('port', '')).strip(): s for s in prev_srt_list if isinstance(s, dict)}
-        for srt_item in srt_list:
-            if not isinstance(srt_item, dict):
-                continue
-            port_val = str(srt_item.get('port', '')).strip()
-            if not port_val or port_val in ('-', '—', 'None', 'null'):
-                continue
-            new_status = srt_item.get('status', '')
-            prev_srt_entry = prev_srt_map.get(port_val, {})
-            old_status = prev_srt_entry.get('status', '')
-            if old_status and old_status != new_status and new_status in ('ON', 'OFF'):
-                srt_name = srt_item.get('nameSRT', '')
-                srt_quality = srt_item.get('quality', '')
-                srt_type = srt_item.get('type', '')
-                srt_hostname = srt_item.get('hostname', '')
-                send_discord_notification(machine_name, data.get('ipwan', ''), srt_name, port_val, new_status,
-                                          quality=srt_quality, srt_type=srt_type, hostname=srt_hostname)
+        # SRT status updates are collected in the status payload and evaluated/grouped in check_alerts_loop.
+        # No more individual send_discord_notification calls here to prevent rate limiting.
 
         # Check for general field changes
         fields_to_check = ['ip', 'ipwan']
@@ -3043,6 +3018,56 @@ async def startup_event():
     except Exception as preload_err:
         print(f"✗ WAN IP bandwidth cache preload error: {preload_err}")
 
+    # Preload alert cooldowns from MongoDB
+    try:
+        import time as _time
+        system_now = _time.time()
+        mono_now = _time.monotonic()
+        time_offset = system_now - mono_now
+        
+        cooldown_s = list(db["alert_cooldowns"].find())
+        for c in cooldown_s:
+            _alert_cooldowns[c["_id"]] = c["last_sent"] - time_offset
+        print(f"✓ Alert cooldowns cache preloaded: {len(_alert_cooldowns)} active cooldowns")
+    except Exception as cooldown_preload_err:
+        print(f"✗ Alert cooldowns cache preload error: {cooldown_preload_err}")
+
+    # Preload srt_last_statuses from MongoDB
+    try:
+        srt_s = list(db["srt_last_statuses"].find())
+        existing_whs_in_db = set()
+        for s in srt_s:
+            _last_sent_srt_statuses[s["_id"]] = s["statuses"]
+            existing_whs_in_db.add(s["_id"])
+            
+        # Khởi tạo cache và DB cho các webhook bật Auto-Send nhưng chưa có lịch sử, tránh gửi tin nhắn lúc khởi động server
+        webhooks = list(db["notification_webhooks"].find({"srt_auto_send": True}))
+        for wh in webhooks:
+            wh_id = str(wh["_id"])
+            if wh_id not in existing_whs_in_db:
+                current_statuses = {}
+                srt_streams = wh.get("srt_streams", ["all"])
+                for machine_name, doc in _data_cache.items():
+                    srt_list = doc.get("SRT", [])
+                    if not isinstance(srt_list, list):
+                        continue
+                    for srt_item in srt_list:
+                        if not isinstance(srt_item, dict):
+                            continue
+                        srt_name = srt_item.get("nameSRT", srt_item.get("name", ""))
+                        port = str(srt_item.get("port", ""))
+                        status = srt_item.get("status", "OFF")
+                        stream_id = f"{machine_name}/{srt_name}:{port}"
+                        if "all" not in srt_streams and stream_id not in srt_streams:
+                            continue
+                        current_statuses[stream_id] = status
+                _last_sent_srt_statuses[wh_id] = current_statuses
+                db["srt_last_statuses"].update_one({"_id": wh_id}, {"$set": {"statuses": current_statuses}}, upsert=True)
+                
+        print(f"✓ SRT last sent statuses cache preloaded: {len(_last_sent_srt_statuses)} webhooks")
+    except Exception as srt_preload_err:
+        print(f"✗ SRT last sent statuses cache preload error: {srt_preload_err}")
+
     asyncio.create_task(check_inactive_machines())
     asyncio.create_task(flush_statistics_from_cache())
     asyncio.create_task(rollup_statistics_scheduler())
@@ -3062,6 +3087,32 @@ async def startup_event():
 webhooks_collection = db["notification_webhooks"]
 rules_collection = db["notification_rules"]
 _triggered_alerts = {}  # Cache triggered state: {device_id}:{rule_id} -> boolean
+_alert_cooldowns = {}  # Cooldown cache: "{wh_id}:{param}:{dev_id}" -> last_sent_timestamp
+_last_sent_srt_statuses = {}  # Cache of last sent statuses: {webhook_id} -> {stream_id: status}
+
+async def _mongo_upsert_cooldown(key: str, ts: float):
+    try:
+        db["alert_cooldowns"].update_one({"_id": key}, {"$set": {"last_sent": ts}}, upsert=True)
+    except Exception as e:
+        print(f"Error saving cooldown to MongoDB: {e}")
+
+async def _mongo_delete_cooldown(key: str):
+    try:
+        db["alert_cooldowns"].delete_one({"_id": key})
+    except Exception as e:
+        print(f"Error deleting cooldown from MongoDB: {e}")
+
+async def _mongo_save_srt_statuses(wh_id: str, statuses: dict):
+    try:
+        db["srt_last_statuses"].update_one({"_id": wh_id}, {"$set": {"statuses": statuses}}, upsert=True)
+    except Exception as e:
+        print(f"Error saving SRT statuses to MongoDB: {e}")
+
+async def _mongo_delete_srt_statuses(wh_id: str):
+    try:
+        db["srt_last_statuses"].delete_one({"_id": wh_id})
+    except Exception as e:
+        print(f"Error deleting SRT statuses from MongoDB: {e}")
 
 def check_condition(current_val, operator, target_val):
     try:
@@ -3116,6 +3167,65 @@ def check_condition(current_val, operator, target_val):
         print(f"Error checking condition: {e}")
     return False
 
+def send_webhook_grouped_srt_status(webhook):
+    """Gom toàn bộ danh sách SRT thành 1 tin nhắn duy nhất để gửi, tránh spam rate limit"""
+    import requests
+    w_type = webhook.get("type", "Discord")
+    w_url = webhook.get("url", "").strip()
+    if not w_url:
+        return False
+        
+    wh_id = str(webhook.get("_id") or webhook.get("id"))
+    srt_streams = webhook.get("srt_streams", ["all"])
+    
+    # Thu thập tất cả các luồng srt đang hoạt động/theo dõi
+    lines = []
+    for machine_name, doc in _data_cache.items():
+        ipwan = doc.get("ipwan", "")
+        srt_list = doc.get("SRT", [])
+        if not isinstance(srt_list, list):
+            continue
+        for srt_item in srt_list:
+            if not isinstance(srt_item, dict):
+                continue
+            srt_name = srt_item.get("nameSRT", srt_item.get("name", ""))
+            port = str(srt_item.get("port", ""))
+            status = srt_item.get("status", "OFF")
+            stream_id = f"{machine_name}/{srt_name}:{port}"
+            
+            if "all" not in srt_streams and stream_id not in srt_streams:
+                continue
+                
+            label = srt_name if srt_name else machine_name
+            if w_type == "Discord":
+                lines.append(f"• [SRT][{label}] SRT {status} | IPWAN: {ipwan} | PORT: {port}")
+            else:  # Seatalk
+                lines.append(f"• **[SRT][{label}]** SRT {status} | IPWAN: {ipwan} | PORT: {port}")
+                
+    if not lines:
+        return False
+        
+    title = "📡 **TRẠNG THÁI DANH SÁCH LUỒNG SRT**"
+    message_content = title + "\n" + "\n".join(lines)
+    
+    try:
+        if w_type == "Discord":
+            resp = requests.post(w_url, json={"content": message_content}, timeout=5)
+            print(f"✓ Grouped SRT status list sent to Discord {w_url[:30]}... status: {resp.status_code}")
+        elif w_type == "Seatalk":
+            payload = {
+                "tag": "markdown",
+                "markdown": {
+                    "content": message_content
+                }
+            }
+            resp = requests.post(w_url, json=payload, timeout=5)
+            print(f"✓ Grouped SRT status list sent to Seatalk {w_url[:30]}... status: {resp.status_code}")
+        return True
+    except Exception as e:
+        print(f"Error sending grouped SRT status list to {w_url[:30]}: {e}")
+        return False
+
 def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_status: str, current_value):
     import requests
     from datetime import datetime
@@ -3165,6 +3275,40 @@ def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_
     
     now_str = datetime.now(VIETNAM_TZ).strftime("%d/%m/%Y %H:%M:%S")
 
+    # If it is a status trigger for SRT, format exactly as requested:
+    # [SRT][PC-POV-01] SRT OFF | IPWAN: 101.53.36.132 | PORT: 5001
+    if param == "status" and isinstance(current_value, dict):
+        srt_name = current_value.get("srt_name", "")
+        label = srt_name if srt_name else device_name
+        port = current_value.get("port", "")
+        status = current_value.get("status", "OFF")
+        ipwan = current_value.get("ipwan", "")
+        
+        discord_msg = f"[SRT][{label}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
+        seatalk_msg = f"**[SRT][{label}]** SRT {status}\nIPWAN: {ipwan} | PORT: {port}"
+        
+        content = discord_msg if w_type == "Discord" else seatalk_msg
+        
+        if w_type == "Discord":
+            try:
+                resp = requests.post(w_url, json={"content": content}, timeout=5)
+                print(f"✓ Discord rule warning notification sent to {w_url[:30]}... status: {resp.status_code}")
+            except Exception as e:
+                print(f"Error sending Discord rule alert: {e}")
+        elif w_type == "Seatalk":
+            try:
+                payload = {
+                    "tag": "markdown",
+                    "markdown": {
+                        "content": content
+                    }
+                }
+                resp = requests.post(w_url, json=payload, timeout=5)
+                print(f"✓ SeaTalk rule warning notification sent to {w_url[:30]}... status: {resp.status_code}")
+            except Exception as e:
+                print(f"Error sending Seatalk rule alert: {e}")
+        return
+
     # Get friendly display for parameter warning title
     title = f"🚨 **CẢNH BÁO: {rule_name.upper()}**"
     reason = f"Thiết bị vi phạm điều kiện: `{param_name}` hiện tại là **{curr_desc}{unit}** (Ngưỡng thiết lập: `{op} {target_desc}{unit}`)."
@@ -3201,13 +3345,10 @@ async def check_alerts_loop():
     import requests
     while True:
         try:
-            await asyncio.sleep(10)
-            
-
-
             # Fetch active webhooks
             webhooks = list(webhooks_collection.find())
             if not webhooks:
+                await asyncio.sleep(10)
                 continue
                 
             # Load current desktop logs from cache
@@ -3227,12 +3368,14 @@ async def check_alerts_loop():
                 if w_status != 1:
                     continue
                     
-                target_devices = webhook.get("devices", [])
+                target_devices = webhook.get("devices")
+                if target_devices is None:
+                    target_devices = []
                 rules = webhook.get("rules", [])
                 
                 # Expand "all" or specific devices
                 devices_to_check = []
-                if "all" in target_devices or not target_devices:
+                if "all" in target_devices:
                     for dev_id, doc in desktop_devices.items():
                         devices_to_check.append((dev_id, doc, "desktop"))
                     for dev_id, doc in mobile_devices.items():
@@ -3312,18 +3455,87 @@ async def check_alerts_loop():
                                 s_val = srt_item.get("status", "")
                                 if check_condition(s_val, op, target_val):
                                     matching = True
-                                    current_value = f"PORT {srt_item.get('port')}: {s_val}"
+                                    current_value = {
+                                        "srt_name": srt_item.get("nameSRT", srt_item.get("name", "")),
+                                        "port": str(srt_item.get("port", "")),
+                                        "status": s_val,
+                                        "ipwan": doc.get("ipwan", "")
+                                    }
                                     break
                             is_triggered = matching
                         else:
                             is_triggered = check_condition(current_value, op, target_val)
                             
                         if is_triggered:
-                            print(f"🔔 Warning Rule Triggered: {device_name} - {param} {op} {target_val} (Current: {current_value})")
-                            send_rule_notification(webhook, device_name, rule, "TRIGGERED", current_value)
+                            cooldown_key = f"{w_id}:{param}:{dev_id}"
+                            cooldown_sec = rule.get("alert_cooldown")
+                            if cooldown_sec is None:
+                                cooldown_sec = webhook.get("alert_cooldown", 60)
+                            try:
+                                cooldown_sec = int(cooldown_sec)
+                            except (ValueError, TypeError):
+                                cooldown_sec = 60
+                            if cooldown_sec < 10:
+                                cooldown_sec = 10
+                            
+                            import time as _time
+                            now_ts = _time.monotonic()
+                            last_sent = _alert_cooldowns.get(cooldown_key, 0)
+                            
+                            if now_ts - last_sent >= cooldown_sec or now_ts - last_sent < 0:
+                                print(f"🔔 Warning Rule Triggered: {device_name} - {param} {op} {target_val} (Current: {current_value})")
+                                send_rule_notification(webhook, device_name, rule, "TRIGGERED", current_value)
+                                _alert_cooldowns[cooldown_key] = now_ts
+                                system_now = _time.time()
+                                asyncio.create_task(_mongo_upsert_cooldown(cooldown_key, system_now))
+                        else:
+                            cooldown_key = f"{w_id}:{param}:{dev_id}"
+                            if cooldown_key in _alert_cooldowns:
+                                del _alert_cooldowns[cooldown_key]
+                                asyncio.create_task(_mongo_delete_cooldown(cooldown_key))
+                                
+            # Check SRT Auto-Send for webhooks (grouped message)
+            for webhook in webhooks:
+                wh_id = str(webhook.get("_id") or webhook.get("id"))
+                w_status = webhook.get("statusnotification", 1 if webhook.get("enabled", True) else 0)
+                if w_status != 1 or not webhook.get("srt_auto_send"):
+                    if wh_id in _last_sent_srt_statuses:
+                        del _last_sent_srt_statuses[wh_id]
+                        asyncio.create_task(_mongo_delete_srt_statuses(wh_id))
+                    continue
+                srt_streams = webhook.get("srt_streams", ["all"])
+                
+                # Gather current status of all monitored streams for this webhook
+                current_statuses = {}
+                for machine_name, doc in _data_cache.items():
+                    srt_list = doc.get("SRT", [])
+                    if not isinstance(srt_list, list):
+                        continue
+                    for srt_item in srt_list:
+                        if not isinstance(srt_item, dict):
+                            continue
+                        srt_name = srt_item.get("nameSRT", srt_item.get("name", ""))
+                        port = str(srt_item.get("port", ""))
+                        status = srt_item.get("status", "OFF")
+                        stream_id = f"{machine_name}/{srt_name}:{port}"
+                        
+                        if "all" not in srt_streams and stream_id not in srt_streams:
+                            continue
+                        current_statuses[stream_id] = status
+                
+                # Compare with last sent
+                last_statuses = _last_sent_srt_statuses.get(wh_id)
+                print(f"DEBUG SRT COMPARE: wh_id={wh_id}, last={last_statuses}, curr={current_statuses}, eq={last_statuses == current_statuses}")
+                if last_statuses != current_statuses:
+                    # Send grouped message
+                    send_webhook_grouped_srt_status(webhook)
+                    # Update cache
+                    _last_sent_srt_statuses[wh_id] = current_statuses
+                    asyncio.create_task(_mongo_save_srt_statuses(wh_id, current_statuses))
                             
         except Exception as e:
             print(f"Error in check_alerts_loop: {e}")
+        await asyncio.sleep(10)
 
 @app.get("/api/notifications/devices")
 async def get_notification_devices():
@@ -3373,22 +3585,38 @@ async def save_webhook(payload: dict):
             enabled_val = payload.get("statusnotification", 1) == 1
         status_notif = 1 if enabled_val is True or enabled_val == 1 else 0
 
+        alert_cooldown = payload.get("alert_cooldown", 60)
+        try:
+            alert_cooldown = int(alert_cooldown)
+        except (ValueError, TypeError):
+            alert_cooldown = 60
+
         doc = {
             "name": payload.get("name", "").strip(),
             "type": payload.get("type", "Discord").strip(),
             "url": payload.get("url", "").strip(),
             "enabled": status_notif == 1,
             "statusnotification": status_notif,
-            "devices": payload.get("devices", ["all"]),
-            "rules": payload.get("rules", [])
+            "devices": payload.get("devices", []),
+            "rules": payload.get("rules", []),
+            "alert_cooldown": alert_cooldown,
+            "srt_auto_send": bool(payload.get("srt_auto_send", False)),
+            "srt_streams": payload.get("srt_streams", ["all"])
         }
         if not doc["name"] or not doc["url"]:
             return JSONResponse(status_code=400, content={"status": "error", "message": "Name and URL are required"})
             
         if w_id:
             webhooks_collection.update_one({"_id": ObjectId(w_id)}, {"$set": doc})
+            if w_id in _last_sent_srt_statuses:
+                del _last_sent_srt_statuses[w_id]
+                asyncio.create_task(_mongo_delete_srt_statuses(w_id))
         else:
-            webhooks_collection.insert_one(doc)
+            result = webhooks_collection.insert_one(doc)
+            new_id = str(result.inserted_id)
+            if new_id in _last_sent_srt_statuses:
+                del _last_sent_srt_statuses[new_id]
+                asyncio.create_task(_mongo_delete_srt_statuses(new_id))
         return {"status": "success", "message": "Webhook configuration saved successfully"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -3401,12 +3629,25 @@ async def delete_webhook(webhook_id: str):
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
+@app.post("/api/notifications/webhooks/enable-all")
+async def enable_all_webhooks():
+    try:
+        result = webhooks_collection.update_many({}, {"$set": {"statusnotification": 1, "enabled": True}})
+        _last_sent_srt_statuses.clear()
+        try:
+            db["srt_last_statuses"].delete_many({})
+        except Exception as e:
+            print(f"Error clearing srt_last_statuses in DB: {e}")
+        return {"status": "success", "message": f"Đã bật {result.modified_count} kênh Webhook thành công!"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
 @app.get("/api/notifications/srt-settings")
 async def get_srt_settings():
     try:
         config = db["srt_settings"].find_one({"_id": "srt_config"})
         if not config:
-            config = {"auto_send": False, "webhooks": [], "devices": ["all"], "active": False}
+            config = {"auto_send": False, "webhooks": [], "devices": ["all"], "srt_streams": ["all"], "active": False}
         else:
             config["id"] = "srt_config"
             if "_id" in config:
@@ -3415,6 +3656,8 @@ async def get_srt_settings():
                 config["active"] = False
             if "devices" not in config:
                 config["devices"] = ["all"]
+            if "srt_streams" not in config:
+                config["srt_streams"] = ["all"]
         return {"status": "success", "data": config}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -3426,6 +3669,7 @@ async def save_srt_settings(payload: dict):
             "auto_send": bool(payload.get("auto_send", False)),
             "webhooks": payload.get("webhooks", []),
             "devices": payload.get("devices", ["all"]),
+            "srt_streams": payload.get("srt_streams", ["all"]),
             "active": bool(payload.get("active", False))
         }
         db["srt_settings"].update_one({"_id": "srt_config"}, {"$set": doc}, upsert=True)
@@ -3435,62 +3679,22 @@ async def save_srt_settings(payload: dict):
 
 @app.post("/api/notifications/srt-settings/send-all")
 async def trigger_send_all_srt():
+    """Send all SRT status using per-webhook srt_auto_send config"""
     try:
-        import requests
-        # Find active settings
-        config = db["srt_settings"].find_one({"_id": "srt_config"})
-        if not config:
-            return JSONResponse(status_code=400, content={"status": "error", "message": "SRT configuration not found or disabled"})
-            
-        webhook_ids = config.get("webhooks", [])
-        if not webhook_ids:
-            return JSONResponse(status_code=400, content={"status": "error", "message": "No webhooks mapped to SRT notification settings"})
-            
         wh_docs = list(db["notification_webhooks"].find({
-            "_id": {"$in": [ObjectId(wid) for wid in webhook_ids if ObjectId.is_valid(wid)]},
+            "srt_auto_send": True,
             "statusnotification": {"$ne": 0}
         }))
         if not wh_docs:
-            return JSONResponse(status_code=400, content={"status": "error", "message": "Selected Webhook channels not found or are disabled"})
+            all_whs = list(db["notification_webhooks"].find())
+            print(f"DEBUG: No webhook with srt_auto_send=True found. Database webhooks: {[{'name': w.get('name'), 'srt_auto_send': w.get('srt_auto_send'), 'statusnotification': w.get('statusnotification')} for w in all_whs]}")
+            return JSONResponse(status_code=400, content={"status": "error", "message": "Không có Webhook nào bật SRT Auto Send!"})
             
         sent_count = 0
-        for machine_name, doc in _data_cache.items():
-            ipwan = doc.get("ipwan", "")
-            srt_list = doc.get("SRT", [])
-            if not isinstance(srt_list, list):
-                continue
-            for srt_item in srt_list:
-                if not isinstance(srt_item, dict):
-                    continue
-                srt_name = srt_item.get("nameSRT", srt_item.get("name", ""))
-                port = str(srt_item.get("port", ""))
-                status = srt_item.get("status", "OFF")
-                
-                label = srt_name if srt_name else machine_name
-                discord_msg = f"[SRT][{label}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
-                seatalk_msg = f"**[SRT][{label}]** SRT {status}\nIPWAN: {ipwan} | PORT: {port}"
-                
-                for wh in wh_docs:
-                    w_type = wh.get("type", "Discord")
-                    w_url = wh.get("url", "").strip()
-                    if not w_url:
-                        continue
-                    try:
-                        if w_type == "Discord":
-                            requests.post(w_url, json={"content": discord_msg}, timeout=5)
-                        elif w_type == "Seatalk":
-                            payload = {
-                                "tag": "markdown",
-                                "markdown": {
-                                    "content": seatalk_msg
-                                }
-                            }
-                            requests.post(w_url, json=payload, timeout=5)
-                        sent_count += 1
-                    except Exception as e:
-                        print(f"Error sending bulk SRT message to {w_url[:30]}: {e}")
-                        
-        return {"status": "success", "message": f"Successfully sent status reports for {sent_count} SRT stream instances."}
+        for wh in wh_docs:
+            if send_webhook_grouped_srt_status(wh):
+                sent_count += 1
+        return {"status": "success", "message": f"Đã gửi báo cáo nhóm SRT cho {sent_count} Webhook thành công!"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
