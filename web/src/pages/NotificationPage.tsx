@@ -532,7 +532,6 @@ export default function NotificationPage() {
               </table>
             </div>
           </div>
-                        {dev.name} ({dev.type})
         )}
       </>
       )}
