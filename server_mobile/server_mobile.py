@@ -81,6 +81,26 @@ async def save_mobile_log(payload: dict):
         # Luôn sử dụng thời gian nhận của server (UTC) để tránh lệch múi giờ / lệch kim đồng hồ trên thiết bị di động
         payload_copy["timestamp"] = datetime.now(pytz.utc).isoformat()
         
+        # Normalize statusapp to integer (1 = ON, 0 = OFF)
+        statusapp_raw = payload_copy.get("statusapp")
+        if statusapp_raw is not None:
+            payload_copy["statusapp"] = 1 if statusapp_raw else 0
+        else:
+            payload_copy["statusapp"] = 1  # Default to ON if field is missing (device is sending data = it's active)
+        
+        # If statusapp=0 (stop signal), only update statusapp + timestamp, keep other data intact
+        if payload_copy["statusapp"] == 0:
+            update_fields = {
+                "statusapp": 0,
+                "timestamp": payload_copy["timestamp"],
+            }
+            # Keep name_device if provided
+            name_in_payload = payload_copy.get("name_device", "").strip()
+            if name_in_payload:
+                update_fields["name_device"] = name_in_payload
+            collection.update_one({"_id": device_id}, {"$set": update_fields}, upsert=True)
+            return {"status": "success", "message": f"Device {device_id} marked as offline (statusapp=0)"}
+        
         # Sử dụng name_device mới từ payload nếu có, nếu không thì giữ nguyên giá trị cũ đã lưu trước đó trong DB
         payload_name = payload_copy.get("name_device", "").strip()
         if payload_name:

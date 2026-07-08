@@ -94,6 +94,23 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
       } catch (err) {
         console.error('Failed to stop native background loop:', err);
       }
+    } else {
+      // JS fallback: send final statusapp=0
+      try {
+        const deviceId = stats?.deviceId || getSimulatedDeviceId();
+        const apiUrl = 'https://mobile-monitor.onrender.com/api/mobile-logs';
+        fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceId,
+            deviceName: getDeviceModel(),
+            name_device: nameDeviceRef.current || '',
+            statusapp: 0,
+            timestamp: new Date().toISOString(),
+          }),
+        }).catch(() => {});
+      } catch (_) {}
     }
     isScanningRef.current = false;
     setIsScanning(false);
@@ -289,6 +306,7 @@ export function DeviceStatsProvider({ children }: { children: React.ReactNode })
           networkType: currentNetworkType,
           fps: currentFps,
           packetLoss: currentPacketLoss,
+          statusapp: 1,
           timestamp: new Date().toISOString(),
         };
 
