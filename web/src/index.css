@@ -613,6 +613,26 @@
     color: #818cf8;
   }
 
+  .toast-danger {
+    background: #dc2626 !important;
+    border-color: #b91c1c !important;
+    color: #ffffff !important;
+    box-shadow: 0 6px 20px rgba(220, 38, 38, 0.35) !important;
+  }
+
+  .toast-danger .toast-msg {
+    color: #ffffff !important;
+  }
+
+  .toast-danger .toast-icon {
+    background: rgba(255, 255, 255, 0.22) !important;
+    color: #ffffff !important;
+  }
+
+  .toast-danger .toast-close {
+    color: #ffffff !important;
+  }
+
   /* ═══════════════════ HEADER ═══════════════════ */
   .dashboard-header {
     background: #fff;

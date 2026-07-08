@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import axios from 'axios'
 import { showToast } from '../components/ui/Toast'
 import { useDashboardContext } from '../hooks/useDashboardContext'
@@ -35,6 +35,55 @@ export interface MobileLogItem {
   packetLoss: number
   timestamp: string
   statusapp?: number
+}
+
+// ── Network category helpers (for change-detection toasts) ──
+type NetCategory = 'lan' | 'wifi' | 'mobile' | 'other'
+
+function getNetworkCategory(networkType?: string): NetCategory {
+  const net = (networkType || '').toLowerCase()
+  if (!net) return 'other'
+  if (net.includes('lan') || net.includes('ethernet')) return 'lan'
+  if (net.includes('wifi') || net.includes('wi-fi')) return 'wifi'
+  if (
+    net.includes('mobile') ||
+    net.includes('cellular') ||
+    net.includes('4g') ||
+    net.includes('5g') ||
+    net.includes('3g') ||
+    net.includes('lte')
+  ) {
+    return 'mobile'
+  }
+  return 'other'
+}
+
+const NET_LABELS: Record<NetCategory, string> = {
+  lan: 'LAN',
+  wifi: 'Wifi',
+  mobile: 'Mạng di động',
+  other: 'Khác',
+}
+
+function computeIsOnline(item: MobileLogItem): boolean {
+  if (item.statusapp === 1) return true
+  if (item.statusapp === 0) return false
+  try {
+    const now = new Date().getTime()
+    const logTime = new Date(item.timestamp).getTime()
+    return now - logTime < 20000
+  } catch {
+    return false
+  }
+}
+
+function getDeviceDisplayName(item: MobileLogItem): string {
+  return item.name_device || item.deviceName || item.deviceId || 'Thiết bị'
+}
+
+interface DeviceSnapshot {
+  isOnline: boolean
+  netCategory: NetCategory
 }
 
 function MetricBadge({ label, value, unit, isHigh }: { label: string; value: string | number; unit?: string; isHigh?: boolean }) {
@@ -360,6 +409,10 @@ export default function MobileMonitorPage() {
   const [isGameDropdownOpen, setIsGameDropdownOpen] = useState(false)
   const [isVisibilityDropdownOpen, setIsVisibilityDropdownOpen] = useState(false)
 
+  // Track previous online/network state per device to fire alert toasts on change
+  const prevSnapshotsRef = useRef<Map<string, DeviceSnapshot>>(new Map())
+  const snapshotsInitializedRef = useRef(false)
+
   let allowedMachines: string[] | undefined
   let gameAssignments: any[] = []
   let selectedGame = '__all__'
@@ -417,6 +470,58 @@ export default function MobileMonitorPage() {
     }, 3000)
     return () => clearInterval(interval)
   }, [])
+
+  // Detect state changes between polls and fire alert toasts
+  useEffect(() => {
+    if (logs.length === 0) return
+
+    const prev = prevSnapshotsRef.current
+    const next = new Map<string, DeviceSnapshot>()
+
+    for (const item of logs) {
+      const key = item.deviceId || item.deviceName
+      if (!key) continue
+
+      const snapshot: DeviceSnapshot = {
+        isOnline: computeIsOnline(item),
+        netCategory: getNetworkCategory(item.networkType),
+      }
+      next.set(key, snapshot)
+
+      // Skip toasts on the very first snapshot to avoid a flood on initial load
+      if (!snapshotsInitializedRef.current) continue
+
+      const before = prev.get(key)
+      if (!before) continue
+
+      const name = getDeviceDisplayName(item)
+
+      // 1) ON -> OFF
+      if (before.isOnline && !snapshot.isOnline) {
+        showToast(`📴 "${name}" đã OFF (mất kết nối)`, 'danger', 6000)
+      }
+
+      // 2) Network category change (only among real categories, both online)
+      const from = before.netCategory
+      const to = snapshot.netCategory
+      const isRealCategory = (c: NetCategory) => c === 'lan' || c === 'wifi' || c === 'mobile'
+      if (
+        snapshot.isOnline &&
+        from !== to &&
+        isRealCategory(from) &&
+        isRealCategory(to)
+      ) {
+        showToast(
+          `🔄 "${name}" đổi mạng: ${NET_LABELS[from]} → ${NET_LABELS[to]}`,
+          'warning',
+          6000
+        )
+      }
+    }
+
+    prevSnapshotsRef.current = next
+    snapshotsInitializedRef.current = true
+  }, [logs])
 
   // List of channels for filter dropdown (only display active/ON channels)
   const games = useMemo(() => {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-export type ToastType = 'success' | 'error' | 'info' | 'warning'
+export type ToastType = 'success' | 'error' | 'info' | 'warning' | 'danger'
 
 export interface ToastItem {
     id: number
@@ -24,6 +24,7 @@ const ICONS: Record<ToastType, string> = {
     error: '✕',
     warning: '⚠',
     info: 'ℹ',
+    danger: '✕',
 }
 
 function ToastCard({ item, onRemove }: { item: ToastItem; onRemove: (id: number) => void }) {
