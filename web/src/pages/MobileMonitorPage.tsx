@@ -34,6 +34,7 @@ export interface MobileLogItem {
   fps: number
   packetLoss: number
   timestamp: string
+  statusapp?: number
 }
 
 function MetricBadge({ label, value, unit, isHigh }: { label: string; value: string | number; unit?: string; isHigh?: boolean }) {
@@ -106,8 +107,11 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
     }
   }
 
-  // Check if device is online: last packet received within 20 seconds
+  // Check if device is online: statusapp = 1 is ON, statusapp = 0 is OFF, fallback to timestamp if undefined
   const isOnline = useMemo(() => {
+    if (item.statusapp === 1) return true
+    if (item.statusapp === 0) return false
+    
     try {
       const now = new Date().getTime()
       const logTime = new Date(item.timestamp).getTime()
@@ -115,7 +119,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
     } catch {
       return false
     }
-  }, [item.timestamp])
+  }, [item.timestamp, item.statusapp])
 
   const ramTotalGB = (item.ramTotal / (1024 * 1024 * 1024)).toFixed(1)
   const ramUsedGB = (item.ramUsed / (1024 * 1024 * 1024)).toFixed(1)

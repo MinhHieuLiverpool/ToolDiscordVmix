@@ -5,7 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 import os
 import sys
-from datetime import datetime
+import asyncio
+from datetime import datetime, timedelta
 import pytz
 import uvicorn
 
@@ -60,6 +61,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+async def auto_offline_mobile_devices():
+    """Background task to set statusapp = 0 if a device misses 4 consecutive packets (10s threshold)"""
+    print("✓ Starting auto-offline loop for mobile devices...")
+    while True:
+        try:
+            # 4 packets * 2s = 8 seconds. We use a 10s threshold to account for minor network jitter.
+            threshold_time = datetime.now(pytz.utc) - timedelta(seconds=10)
+            threshold_iso = threshold_time.isoformat()
+            
+            result = collection.update_many(
+                {
+                    "statusapp": 1,
+                    "timestamp": {"$lt": threshold_iso}
+                },
+                {
+                    "$set": {
+                        "statusapp": 0,
+                        "timestamp": datetime.now(pytz.utc).isoformat()
+                    }
+                }
+            )
+            if result.modified_count > 0:
+                print(f"⏱️  Auto-OFF (Mobile): Set statusapp = 0 for {result.modified_count} inactive device(s)")
+        except Exception as e:
+            print(f"✗ Error in auto_offline_mobile_devices: {e}")
+        await asyncio.sleep(5)
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(auto_offline_mobile_devices())
 
 @app.get("/")
 async def root():
