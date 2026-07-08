@@ -7,6 +7,10 @@
 
 @layer base {
 
+  html {
+    color-scheme: light;
+  }
+
   html,
   body,
   #root {
