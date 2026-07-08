@@ -206,16 +206,13 @@ export default function NotificationPage() {
 
   const handleToggleWebhookEnabled = async (wh: WebhookItem) => {
     try {
-      const nextStatus = wh.statusnotification === 0 ? 1 : 0;
-      const payload = {
-        ...wh,
-        statusnotification: nextStatus,
-        enabled: nextStatus === 1,
-        devices: wh.devices || []
-      }
-      const response = await axios.post(`${BACKEND_BASE_URL}/api/notifications/webhooks`, payload)
+      const response = await axios.post(`${BACKEND_BASE_URL}/api/notifications/webhooks/toggle-status`, {
+        webhook_id: wh.id
+      })
       if (response.data.status === 'success') {
-        showToast(`Đã ${nextStatus === 1 ? 'bật' : 'tắt'} kênh Webhook thành công!`, 'success')
+        const newStatus = response.data.statusnotification
+        const srtNote = response.data.srt_sent ? ' (đã gửi báo cáo SRT)' : ''
+        showToast(`Đã ${newStatus === 1 ? 'bật' : 'tắt'} kênh Webhook thành công!${srtNote}`, 'success')
         fetchData()
       }
     } catch (err) {
@@ -315,16 +312,17 @@ export default function NotificationPage() {
       const machineName = row.data?.name || 'Unknown'
       const srtList = normalizeSrtList(row.data?.SRT)
       srtList.forEach(srt => {
-        const srtName = srt.nameSRT || srt.name || '-'
+        const srtNameDisplay = srt.nameSRT || srt.name || '-'
+        const srtNameForId = srt.nameSRT || srt.name || ''
         const port = String(srt.port || '')
         const hostname = srt.hostname || row.data?.ipwan || row.data?.ip || '-'
         const type = srt.type || '-'
         if (port) {
-          const id = `${machineName}/${srtName}:${port}`
+          const id = `${machineName}/${srtNameForId}:${port}`
           if (!list.some(item => item.id === id)) {
             list.push({
               machineName,
-              name: srtName,
+              name: srtNameDisplay,
               port,
               id,
               hostname,

@@ -2707,26 +2707,13 @@ async def check_inactive_machines():
                     if last_updated < timeout_threshold:
                         _data_cache[name]["statusapp"] = 0
                         
-                        # Set all active SRT streams to OFF and send Discord notifications
+                        # Set all active SRT streams to OFF
+                        # (check_alerts_loop will detect the change and send grouped notification)
                         srt_list = _data_cache[name].get("SRT", [])
                         if isinstance(srt_list, list):
                             for srt_item in srt_list:
                                 if isinstance(srt_item, dict) and srt_item.get("status") == "ON":
                                     srt_item["status"] = "OFF"
-                                    try:
-                                        await asyncio.to_thread(
-                                            send_discord_notification,
-                                            name,
-                                            _data_cache[name].get("ipwan", ""),
-                                            srt_item.get("nameSRT", ""),
-                                            str(srt_item.get("port", "")),
-                                            "OFF",
-                                            srt_item.get("quality", ""),
-                                            srt_item.get("type", ""),
-                                            srt_item.get("hostname", "")
-                                        )
-                                    except Exception as ne:
-                                        print(f"⚠ Failed to send Discord notify for offline SRT {name}: {ne}")
 
                         _zero_out_metrics_if_offline(_data_cache[name])
                         updated_count += 1
@@ -3048,6 +3035,7 @@ async def startup_event():
                 current_statuses = {}
                 srt_streams = wh.get("srt_streams", ["all"])
                 for machine_name, doc in _data_cache.items():
+                    ipwan = doc.get("ipwan", "")
                     srt_list = doc.get("SRT", [])
                     if not isinstance(srt_list, list):
                         continue
@@ -3060,7 +3048,7 @@ async def startup_event():
                         stream_id = f"{machine_name}/{srt_name}:{port}"
                         if "all" not in srt_streams and stream_id not in srt_streams:
                             continue
-                        current_statuses[stream_id] = status
+                        current_statuses[stream_id] = {"status": status, "ipwan": ipwan}
                 _last_sent_srt_statuses[wh_id] = current_statuses
                 db["srt_last_statuses"].update_one({"_id": wh_id}, {"$set": {"statuses": current_statuses}}, upsert=True)
                 
@@ -3224,6 +3212,49 @@ def send_webhook_grouped_srt_status(webhook):
         return True
     except Exception as e:
         print(f"Error sending grouped SRT status list to {w_url[:30]}: {e}")
+        return False
+
+def send_webhook_changed_srt_items(webhook, changed_items: list):
+    """Gửi CHỈ những SRT stream bị thay đổi (status ON↔OFF hoặc IPWAN thay đổi)"""
+    import requests
+    w_type = webhook.get("type", "Discord")
+    w_url = webhook.get("url", "").strip()
+    if not w_url or not changed_items:
+        return False
+    
+    lines = []
+    for item in changed_items:
+        label = item.get("srt_name") or item.get("machine_name", "")
+        status = item.get("status", "OFF")
+        ipwan = item.get("ipwan", "")
+        port = item.get("port", "")
+        change_type = item.get("change_type", "")
+        
+        if w_type == "Discord":
+            line = f"[SRT][{label}] SRT {status} | IPWAN: {ipwan} | PORT: {port}"
+            if change_type == "ipwan":
+                old_ipwan = item.get("old_ipwan", "")
+                line = f"[SRT][{label}] IPWAN thay đổi: {old_ipwan} → {ipwan} | SRT {status} | PORT: {port}"
+        else:
+            line = f"**[SRT][{label}]** SRT {status} | IPWAN: {ipwan} | PORT: {port}"
+            if change_type == "ipwan":
+                old_ipwan = item.get("old_ipwan", "")
+                line = f"**[SRT][{label}]** IPWAN thay đổi: {old_ipwan} → {ipwan} | SRT {status} | PORT: {port}"
+        lines.append(line)
+    
+    message_content = "\n".join(lines)
+    
+    try:
+        if w_type == "Discord":
+            resp = requests.post(w_url, json={"content": message_content}, timeout=5)
+            print(f"✓ SRT change notification sent ({len(changed_items)} items) to Discord {w_url[:30]}... status: {resp.status_code}")
+        elif w_type == "Seatalk":
+            payload = {"tag": "markdown", "markdown": {"content": message_content}}
+            resp = requests.post(w_url, json=payload, timeout=5)
+            print(f"✓ SRT change notification sent ({len(changed_items)} items) to Seatalk {w_url[:30]}... status: {resp.status_code}")
+        return True
+    except Exception as e:
+        print(f"Error sending SRT change notification to {w_url[:30]}: {e}")
         return False
 
 def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_status: str, current_value):
@@ -3494,7 +3525,7 @@ async def check_alerts_loop():
                                 del _alert_cooldowns[cooldown_key]
                                 asyncio.create_task(_mongo_delete_cooldown(cooldown_key))
                                 
-            # Check SRT Auto-Send for webhooks (grouped message)
+            # Check SRT Auto-Send for webhooks (per-item change detection)
             for webhook in webhooks:
                 wh_id = str(webhook.get("_id") or webhook.get("id"))
                 w_status = webhook.get("statusnotification", 1 if webhook.get("enabled", True) else 0)
@@ -3505,9 +3536,10 @@ async def check_alerts_loop():
                     continue
                 srt_streams = webhook.get("srt_streams", ["all"])
                 
-                # Gather current status of all monitored streams for this webhook
+                # Gather current status + ipwan of all monitored streams
                 current_statuses = {}
                 for machine_name, doc in _data_cache.items():
+                    ipwan = doc.get("ipwan", "")
                     srt_list = doc.get("SRT", [])
                     if not isinstance(srt_list, list):
                         continue
@@ -3521,15 +3553,50 @@ async def check_alerts_loop():
                         
                         if "all" not in srt_streams and stream_id not in srt_streams:
                             continue
-                        current_statuses[stream_id] = status
+                        current_statuses[stream_id] = {"status": status, "ipwan": ipwan}
                 
-                # Compare with last sent
+                # Compare per-item: find ONLY changed streams
                 last_statuses = _last_sent_srt_statuses.get(wh_id)
-                print(f"DEBUG SRT COMPARE: wh_id={wh_id}, last={last_statuses}, curr={current_statuses}, eq={last_statuses == current_statuses}")
-                if last_statuses != current_statuses:
-                    # Send grouped message
-                    send_webhook_grouped_srt_status(webhook)
+                if last_statuses is not None and last_statuses != current_statuses:
+                    changed_items = []
+                    for stream_id, curr_info in current_statuses.items():
+                        # Handle old format (string) gracefully
+                        prev_info = last_statuses.get(stream_id)
+                        if prev_info is None:
+                            prev_info = {"status": "UNKNOWN", "ipwan": ""}
+                        elif isinstance(prev_info, str):
+                            prev_info = {"status": prev_info, "ipwan": ""}
+                        
+                        status_changed = prev_info.get("status") != curr_info["status"]
+                        ipwan_changed = prev_info.get("ipwan", "") != curr_info["ipwan"] and prev_info.get("ipwan", "") != ""
+                        
+                        if status_changed or ipwan_changed:
+                            # Parse stream_id: "machineName/srtName:port"
+                            parts = stream_id.split("/", 1)
+                            machine = parts[0] if parts else ""
+                            name_port = parts[1] if len(parts) > 1 else ""
+                            name_port_parts = name_port.rsplit(":", 1)
+                            srt_n = name_port_parts[0] if name_port_parts else ""
+                            p = name_port_parts[1] if len(name_port_parts) > 1 else ""
+                            
+                            changed_items.append({
+                                "machine_name": machine,
+                                "srt_name": srt_n if srt_n else machine,
+                                "port": p,
+                                "status": curr_info["status"],
+                                "ipwan": curr_info["ipwan"],
+                                "old_ipwan": prev_info.get("ipwan", ""),
+                                "change_type": "ipwan" if ipwan_changed and not status_changed else "status"
+                            })
+                    
+                    if changed_items:
+                        send_webhook_changed_srt_items(webhook, changed_items)
+                    
                     # Update cache
+                    _last_sent_srt_statuses[wh_id] = current_statuses
+                    asyncio.create_task(_mongo_save_srt_statuses(wh_id, current_statuses))
+                elif last_statuses is None:
+                    # First run after startup: just cache, don't send
                     _last_sent_srt_statuses[wh_id] = current_statuses
                     asyncio.create_task(_mongo_save_srt_statuses(wh_id, current_statuses))
                             
@@ -3621,14 +3688,6 @@ async def save_webhook(payload: dict):
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
-@app.delete("/api/notifications/webhooks/{webhook_id}")
-async def delete_webhook(webhook_id: str):
-    try:
-        webhooks_collection.delete_one({"_id": ObjectId(webhook_id)})
-        return {"status": "success", "message": "Webhook configuration deleted successfully"}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
-
 @app.post("/api/notifications/webhooks/enable-all")
 async def enable_all_webhooks():
     try:
@@ -3639,6 +3698,89 @@ async def enable_all_webhooks():
         except Exception as e:
             print(f"Error clearing srt_last_statuses in DB: {e}")
         return {"status": "success", "message": f"Đã bật {result.modified_count} kênh Webhook thành công!"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.post("/api/notifications/webhooks/toggle-status")
+async def toggle_webhook_status(payload: dict):
+    """Toggle statusnotification for a single webhook. When turning ON and srt_auto_send=True,
+    sends the full grouped SRT list exactly once."""
+    try:
+        webhook_id = payload.get("webhook_id") or payload.get("id")
+        if not webhook_id:
+            return JSONResponse(status_code=400, content={"status": "error", "message": "webhook_id is required"})
+        
+        # Fetch current webhook
+        wh_doc = webhooks_collection.find_one({"_id": ObjectId(webhook_id)})
+        if not wh_doc:
+            return JSONResponse(status_code=404, content={"status": "error", "message": "Webhook not found"})
+        
+        current_status = wh_doc.get("statusnotification", 1 if wh_doc.get("enabled", True) else 0)
+        new_status = 0 if current_status == 1 else 1
+        
+        # Update in DB
+        webhooks_collection.update_one(
+            {"_id": ObjectId(webhook_id)},
+            {"$set": {"statusnotification": new_status, "enabled": new_status == 1}}
+        )
+        
+        srt_sent = False
+        if new_status == 1:
+            # Turning ON: reset SRT status cache so check_alerts_loop doesn't re-send
+            if webhook_id in _last_sent_srt_statuses:
+                del _last_sent_srt_statuses[webhook_id]
+                asyncio.create_task(_mongo_delete_srt_statuses(webhook_id))
+            
+            # If srt_auto_send is enabled, send grouped SRT list exactly once now
+            if wh_doc.get("srt_auto_send"):
+                # Refresh the doc with new status for send function
+                wh_doc["statusnotification"] = 1
+                wh_doc["enabled"] = True
+                srt_sent = send_webhook_grouped_srt_status(wh_doc)
+                
+                # Cache current statuses so check_alerts_loop won't re-send the same state
+                if srt_sent:
+                    srt_streams = wh_doc.get("srt_streams", ["all"])
+                    current_statuses = {}
+                    for machine_name, doc in _data_cache.items():
+                        ipwan = doc.get("ipwan", "")
+                        srt_list = doc.get("SRT", [])
+                        if not isinstance(srt_list, list):
+                            continue
+                        for srt_item in srt_list:
+                            if not isinstance(srt_item, dict):
+                                continue
+                            srt_name = srt_item.get("nameSRT", srt_item.get("name", ""))
+                            port = str(srt_item.get("port", ""))
+                            status = srt_item.get("status", "OFF")
+                            stream_id = f"{machine_name}/{srt_name}:{port}"
+                            if "all" not in srt_streams and stream_id not in srt_streams:
+                                continue
+                            current_statuses[stream_id] = {"status": status, "ipwan": ipwan}
+                    _last_sent_srt_statuses[webhook_id] = current_statuses
+                    asyncio.create_task(_mongo_save_srt_statuses(webhook_id, current_statuses))
+        else:
+            # Turning OFF: clean up SRT status cache
+            if webhook_id in _last_sent_srt_statuses:
+                del _last_sent_srt_statuses[webhook_id]
+                asyncio.create_task(_mongo_delete_srt_statuses(webhook_id))
+        
+        action_label = "bật" if new_status == 1 else "tắt"
+        srt_label = " (đã gửi báo cáo SRT)" if srt_sent else ""
+        return {
+            "status": "success",
+            "message": f"Đã {action_label} kênh Webhook thành công!{srt_label}",
+            "statusnotification": new_status,
+            "srt_sent": srt_sent
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+@app.delete("/api/notifications/webhooks/{webhook_id}")
+async def delete_webhook(webhook_id: str):
+    try:
+        webhooks_collection.delete_one({"_id": ObjectId(webhook_id)})
+        return {"status": "success", "message": "Webhook configuration deleted successfully"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
