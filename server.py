@@ -565,6 +565,9 @@ async def receive_data(data: dict):
 
         # ── 1. Cập nhật cache ngay lập tức (<1ms, không block) ──
         prev = _data_cache.get(machine_name, {})
+        prev_srt_list = prev.get('SRT', []) if prev else []
+        prev_stream_list = prev.get('stream', []) if prev else []
+        prev_stream_keys_list = prev.get('stream_keys', []) if prev else []
         document = {
             "name":        machine_name,
             "name_edit":   prev.get("name_edit", ""),
