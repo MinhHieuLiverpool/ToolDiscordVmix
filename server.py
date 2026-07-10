@@ -3380,6 +3380,39 @@ def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_
     
     now_str = datetime.now(VIETNAM_TZ).strftime("%d/%m/%Y %H:%M:%S")
 
+    # Online-state change (edge-triggered): current_value is {"online_from", "online_to"}.
+    if param == "isOnline" and isinstance(current_value, dict):
+        to_online = bool(current_value.get("online_to"))
+        if to_online:
+            head = "🔌 **THIẾT BỊ KẾT NỐI LẠI (OFF → ON)**"
+            change_lbl = "Ngoại tuyến → Trực tuyến"
+        else:
+            head = "📴 **THIẾT BỊ MẤT KẾT NỐI (ON → OFF)**"
+            change_lbl = "Trực tuyến → Ngoại tuyến"
+        if w_type == "Discord":
+            content = (
+                f"{head}\n"
+                f"• **Thiết bị:** `{device_name}`\n"
+                f"• **Trạng thái:** {change_lbl}\n"
+                f"• **Thời gian:** `{now_str}`"
+            )
+        else:
+            content = (
+                f"{head}\n\n"
+                f"• **Thiết bị:** **{device_name}**\n\n"
+                f"• **Trạng thái:** {change_lbl}\n\n"
+                f"• **Thời gian:** *{now_str}*"
+            )
+        try:
+            if w_type == "Discord":
+                resp = requests.post(w_url, json={"content": content}, timeout=5)
+            else:
+                resp = requests.post(w_url, json={"tag": "markdown", "markdown": {"content": content}}, timeout=5)
+            print(f"✓ Online-state change notification sent to {w_url[:30]}... status: {resp.status_code}")
+        except Exception as e:
+            print(f"Error sending online-state alert: {e}")
+        return
+
     # Network category change (edge-triggered): current_value is {"net_from", "net_to"}.
     if param == "networkChange" and isinstance(current_value, dict):
         from_cat = current_value.get("net_from", "")
@@ -3488,7 +3521,7 @@ def send_webhook_enabled_notice(webhook: dict):
         return False
 
     labels = {
-        "isOnline": "Thiết bị Offline",
+        "isOnline": "Đổi trạng thái kết nối",
         "statusapp": "Trạng thái ứng dụng",
         "temperature": "Nhiệt độ cao",
         "cpuLoad": "Tải CPU cao",
@@ -3527,6 +3560,10 @@ def send_webhook_enabled_notice(webhook: dict):
                     cond_lines.append(f"{lbl} ({fl} → {tl})")
                 else:
                     cond_lines.append(f"{lbl} ({tv})")
+        elif p == "isOnline":
+            direction = _normalize_online_direction(val)
+            dir_lbl = {"to_off": "ON → OFF", "to_on": "OFF → ON", "any": "ON ↔ OFF (cả hai chiều)"}.get(direction, "ON → OFF")
+            cond_lines.append(f"{lbl} ({dir_lbl})")
         else:
             cond_lines.append(f"{lbl} ({op} {val}{unit})")
 
@@ -3612,6 +3649,20 @@ def get_network_category(network_type):
 
 # Tracks last seen network category per (webhook_id, device_id) for edge-triggered alerts.
 _last_network_categories = {}
+
+# Tracks last seen online state (bool) per (webhook_id, device_id) for edge-triggered isOnline alerts.
+_last_online_states = {}
+
+def _normalize_online_direction(target_val):
+    """Map a rule value to the online transition direction to alert on.
+    Returns 'to_off' (ON->OFF), 'to_on' (OFF->ON), or 'any'."""
+    t = str(target_val or "").strip().lower()
+    if t in ("any", "both", "change", "all"):
+        return "any"
+    if t in ("on", "true", "1", "online", "to_on"):
+        return "to_on"
+    # default (includes 'off', 'false', 'offline', 'to_off', empty)
+    return "to_off"
 
 
 async def check_alerts_loop():
@@ -3774,6 +3825,20 @@ async def check_alerts_loop():
                                     }
                                     break
                             is_triggered = matching
+                        elif param == "isOnline":
+                            # Edge-triggered: fire only when the online state actually flips.
+                            # target_val selects the direction: ON->OFF, OFF->ON, or both.
+                            on_key = f"{w_id}:{dev_id}"
+                            prev_on = _last_online_states.get(on_key)
+                            cur_on = bool(current_value)
+                            _last_online_states[on_key] = cur_on
+                            is_triggered = False
+                            if prev_on is not None and prev_on != cur_on:
+                                direction = _normalize_online_direction(target_val)
+                                transition = "to_on" if cur_on else "to_off"
+                                if direction == "any" or direction == transition:
+                                    is_triggered = True
+                                    current_value = {"online_from": prev_on, "online_to": cur_on}
                         elif param == "networkChange":
                             # Edge-triggered: fire only when the network category actually
                             # changes between polls. target_val selects which transition(s):

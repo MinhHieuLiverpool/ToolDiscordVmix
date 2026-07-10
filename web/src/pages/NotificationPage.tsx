@@ -38,7 +38,7 @@ interface DeviceOption {
 
 // Available standard parameters to choose/tick
 const DEFAULT_PARAMETERS = [
-  { parameter: 'isOnline', label: 'Thiết bị ngoại tuyến (Offline)', operator: '=', defaultValue: 'False' },
+  { parameter: 'isOnline', label: 'Đổi trạng thái kết nối (ON/OFF)', operator: '=', defaultValue: 'off' },
   { parameter: 'temperature', label: 'Nhiệt độ CPU/Pin quá cao (°C)', operator: '>', defaultValue: '45' },
   { parameter: 'cpuLoad', label: 'Tải CPU quá cao (%)', operator: '>', defaultValue: '85' },
   { parameter: 'memory', label: 'Sử dụng RAM quá cao (%)', operator: '>', defaultValue: '90' },
@@ -54,6 +54,20 @@ const DEFAULT_PARAMETERS = [
 ]
 
 // State-transition parameters use a single dropdown instead of operator + value.
+const ONLINE_TRANSITIONS = [
+  { value: 'off', label: 'ON → OFF (mất kết nối)' },
+  { value: 'on', label: 'OFF → ON (kết nối lại)' },
+  { value: 'any', label: 'Cả hai chiều (ON ↔ OFF)' },
+]
+
+// Map legacy stored isOnline values to the new transition tokens.
+function normalizeOnlineValue(v: string): string {
+  const t = String(v || '').trim().toLowerCase()
+  if (t === 'on' || t === 'true' || t === 'online' || t === 'to_on') return 'on'
+  if (t === 'any' || t === 'both' || t === 'change') return 'any'
+  return 'off'
+}
+
 const NETWORK_TRANSITIONS = [
   { value: 'any', label: 'Bất kỳ thay đổi nào' },
   { value: 'lan>wifi', label: 'LAN → WiFi' },
@@ -941,6 +955,19 @@ export default function NotificationPage() {
                                     className="w-full px-2 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-bold text-[11px] disabled:opacity-50"
                                   >
                                     {NETWORK_TRANSITIONS.map(t => (
+                                      <option key={t.value} value={t.value}>{t.label}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                              ) : p.parameter === 'isOnline' ? (
+                                <td className="py-2.5 px-3" colSpan={2}>
+                                  <select
+                                    value={normalizeOnlineValue(state.value)}
+                                    disabled={!state.enabled}
+                                    onChange={(e) => handleRuleStateChange(p.parameter, 'value', e.target.value)}
+                                    className="w-full px-2 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-bold text-[11px] disabled:opacity-50"
+                                  >
+                                    {ONLINE_TRANSITIONS.map(t => (
                                       <option key={t.value} value={t.value}>{t.label}</option>
                                     ))}
                                   </select>
