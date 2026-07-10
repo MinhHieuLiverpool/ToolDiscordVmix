@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import axios from 'axios'
 import { showToast } from '../components/ui/Toast'
 import { useDashboardContext } from '../hooks/useDashboardContext'
-import { getUserRole, isAuthenticated } from '../services/auth'
+import { getUserRole, isAuthenticated, hasActionPermission } from '../services/auth'
+import { getMobileIdentifiers, machinesIncludeDevice } from '../utils/mobileDevice'
 
 // Types based on the backend data structure
 export interface MobileLogItem {
@@ -133,6 +134,7 @@ function PingRowCompact({ label, value }: { label: string; value: string }) {
 }
 
 function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem; index: number; onNameUpdated?: () => void }) {
+  const canEditName = hasActionPermission('Mobile Monitor', 'edit')
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(item.name_device || '')
 
@@ -226,15 +228,17 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                           )}
                           <h3 className="text-[13.5px] font-black text-slate-800 dark:text-slate-100 flex items-center gap-1 flex-wrap" title={item.deviceName || 'Ẩn danh'}>
                               <span className="break-all">{item.deviceName || 'Ẩn danh'}</span>
-                              <button
-                                  onClick={() => setIsEditing(true)}
-                                  className="text-slate-400 hover:text-indigo-500 transition-colors ml-0.5 shrink-0"
-                                  title="Đặt/Sửa tên thiết bị"
-                              >
-                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                  </svg>
-                              </button>
+                              {canEditName && (
+                                  <button
+                                      onClick={() => setIsEditing(true)}
+                                      className="text-slate-400 hover:text-indigo-500 transition-colors ml-0.5 shrink-0"
+                                      title="Đặt/Sửa tên thiết bị"
+                                  >
+                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                      </svg>
+                                  </button>
+                              )}
                           </h3>
                           <div className="flex items-center gap-0.5 mt-0.5">
                               <span
@@ -552,18 +556,14 @@ export default function MobileMonitorPage() {
       gameAssignments.forEach((a: any) => {
         a.machines.forEach((m: string) => allowedMachinesSet.add(m))
       })
-      result = result.filter((item) => {
-        const name = item.deviceName || item.name_device || ''
-        return allowedMachinesSet.has(name)
-      })
+      result = result.filter((item) =>
+        getMobileIdentifiers(item).some((id) => allowedMachinesSet.has(id))
+      )
     }
 
     // 1. Filter by allowedMachines (from shared uuid config)
     if (allowedMachines && allowedMachines.length > 0) {
-      result = result.filter((item) => 
-        allowedMachines.includes(item.deviceName) || 
-        allowedMachines.includes(item.name_device || '')
-      )
+      result = result.filter((item) => machinesIncludeDevice(allowedMachines, item))
     }
 
     // 2. Filter by game channel system and visibility status
@@ -573,11 +573,10 @@ export default function MobileMonitorPage() {
         result = []
       } else {
         result = result.filter((item) => {
-          const name = item.deviceName || item.name_device || ''
-          if (!assignment.machines.includes(name)) return false
+          if (!machinesIncludeDevice(assignment.machines, item)) return false
 
           const channelIsOn = assignment.visible_status !== 'OFF'
-          const machineIsNotHidden = !(assignment.hidden_machines || []).includes(name)
+          const machineIsNotHidden = !machinesIncludeDevice(assignment.hidden_machines, item)
           const isVisible = channelIsOn && machineIsNotHidden
 
           if (visibilityFilter === 'visible') return isVisible
@@ -587,14 +586,13 @@ export default function MobileMonitorPage() {
       }
     } else if (gameAssignments && gameAssignments.length > 0) {
       result = result.filter((item) => {
-        const name = item.deviceName || item.name_device || ''
-        const memberChannels = gameAssignments.filter(a => a.machines.includes(name))
-        
+        const memberChannels = gameAssignments.filter(a => machinesIncludeDevice(a.machines, item))
+
         let isVisible = true
         if (memberChannels.length > 0) {
           isVisible = memberChannels.some(a => {
             const channelIsOn = a.visible_status !== 'OFF'
-            const machineIsNotHiddenInChannel = !(a.hidden_machines || []).includes(name)
+            const machineIsNotHiddenInChannel = !machinesIncludeDevice(a.hidden_machines, item)
             return channelIsOn && machineIsNotHiddenInChannel
           })
         }

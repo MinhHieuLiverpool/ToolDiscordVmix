@@ -128,6 +128,23 @@ export function getUserAllowedChannels(): string[] {
   return []
 }
 
+export function isAdmin(): boolean {
+  return getUserRole().trim().toLowerCase() === 'admin'
+}
+
+// True if the user can see/enter a module. Admin always passes.
+export function hasModuleAccess(moduleKey: string): boolean {
+  if (isAdmin()) return true
+  return getUserPermissions().includes(moduleKey)
+}
+
+// True if the user can perform an action ('add' | 'edit' | 'delete' | 'lock')
+// inside a module. Admin always passes.
+export function hasActionPermission(moduleKey: string, action: 'add' | 'edit' | 'delete' | 'lock' | 'toggle'): boolean {
+  if (isAdmin()) return true
+  return getUserPermissions().includes(`${moduleKey}:${action}`)
+}
+
 export function logout(): void {
   setAuthenticated(false)
   setUsername('')

@@ -3,27 +3,136 @@ import { fetchRoles, createRole, updateRole, deleteRole } from '../services/api'
 import type { BackendRoleItem } from '../services/api'
 import { showToast } from '../components/ui/Toast'
 import Dialog from '../components/ui/Dialog'
+import { MODULE_PERMISSIONS, ACTION_LABELS, actionPermissionKey } from '../config/permissions'
+import type { PermissionAction } from '../config/permissions'
+import { hasActionPermission } from '../services/auth'
 
-const AVAILABLE_PERMISSIONS = [
-    'Tổng quan',
-    'SRT',
-    'Thông số Stream',
-    'URL & Key',
-    'Thống kê',
-    'Vmix Monitor',
-    'Mobile Monitor',
-    'ViewSync',
-    'Speedtest',
-    'Debug Log',
-    'Record & MultiCorder',
-    'Tài khoản',
-    'Phân quyền'
-]
+const MODULE_KEY = 'Phân quyền'
+
+// Toggle module access. Turning access OFF also strips all of its action keys.
+function toggleAccess(perms: string[], moduleKey: string): string[] {
+    const mod = MODULE_PERMISSIONS.find(m => m.key === moduleKey)
+    if (perms.includes(moduleKey)) {
+        const actionKeys = mod ? mod.actions.map(a => actionPermissionKey(moduleKey, a)) : []
+        return perms.filter(p => p !== moduleKey && !actionKeys.includes(p))
+    }
+    return [...perms, moduleKey]
+}
+
+// Toggle an action. Turning an action ON also ensures module access is granted.
+function toggleAction(perms: string[], moduleKey: string, action: PermissionAction): string[] {
+    const key = actionPermissionKey(moduleKey, action)
+    if (perms.includes(key)) {
+        return perms.filter(p => p !== key)
+    }
+    const withAccess = perms.includes(moduleKey) ? [...perms] : [...perms, moduleKey]
+    return [...withAccess, key]
+}
+
+function PermissionMatrix({
+    permissions,
+    onToggleAccess,
+    onToggleAction,
+}: {
+    permissions: string[]
+    onToggleAccess: (moduleKey: string) => void
+    onToggleAction: (moduleKey: string, action: PermissionAction) => void
+}) {
+    return (
+        <div
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.4rem',
+                padding: '0.75rem',
+                background: '#f8fafc',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                maxHeight: '340px',
+                overflowY: 'auto',
+            }}
+        >
+            {MODULE_PERMISSIONS.map(m => {
+                const hasAccess = permissions.includes(m.key)
+                return (
+                    <div
+                        key={m.key}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: '0.75rem',
+                            padding: '0.4rem 0.6rem',
+                            background: '#ffffff',
+                            borderRadius: '6px',
+                            border: '1px solid #e2e8f0',
+                        }}
+                    >
+                        <label
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.4rem',
+                                minWidth: '180px',
+                                cursor: 'pointer',
+                                fontSize: '0.82rem',
+                                fontWeight: 600,
+                                color: '#334155',
+                                userSelect: 'none',
+                            }}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={hasAccess}
+                                onChange={() => onToggleAccess(m.key)}
+                                style={{ accentColor: '#4f46e5' }}
+                            />
+                            {m.label}
+                        </label>
+                        {m.actions.length > 0 && (
+                            <div style={{ display: 'flex', gap: '0.85rem', flexWrap: 'wrap' }}>
+                                {m.actions.map(a => {
+                                    const key = actionPermissionKey(m.key, a)
+                                    return (
+                                        <label
+                                            key={a}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '0.3rem',
+                                                cursor: 'pointer',
+                                                fontSize: '0.78rem',
+                                                color: hasAccess ? '#475569' : '#94a3b8',
+                                                userSelect: 'none',
+                                            }}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={permissions.includes(key)}
+                                                onChange={() => onToggleAction(m.key, a)}
+                                                style={{ accentColor: '#4f46e5' }}
+                                            />
+                                            {ACTION_LABELS[a]}
+                                        </label>
+                                    )
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )
+            })}
+        </div>
+    )
+}
 
 export default function RolePage() {
     const [roles, setRoles] = useState<BackendRoleItem[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
+
+    const canAdd = hasActionPermission(MODULE_KEY, 'add')
+    const canEdit = hasActionPermission(MODULE_KEY, 'edit')
+    const canDelete = hasActionPermission(MODULE_KEY, 'delete')
 
     // Modals
     const [showCreateModal, setShowCreateModal] = useState(false)
@@ -149,18 +258,6 @@ export default function RolePage() {
         }
     }
 
-    const handleToggleNewPermission = (perm: string) => {
-        setNewPermissions(prev =>
-            prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]
-        )
-    }
-
-    const handleToggleEditPermission = (perm: string) => {
-        setEditPermissions(prev =>
-            prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]
-        )
-    }
-
     return (
         <>
             <div className="page-header" style={{ marginBottom: '1.5rem' }}>
@@ -174,13 +271,15 @@ export default function RolePage() {
                         <h3 className="account-card-title">Vai trò</h3>
                         <p className="account-card-subtitle">Nhóm các quyền truy cập menu được phân bổ cho tài khoản.</p>
                     </div>
-                    <button
-                        className="account-action-btn"
-                        type="button"
-                        onClick={() => setShowCreateModal(true)}
-                    >
-                        Thêm vai trò
-                    </button>
+                    {canAdd && (
+                        <button
+                            className="account-action-btn"
+                            type="button"
+                            onClick={() => setShowCreateModal(true)}
+                        >
+                            Thêm vai trò
+                        </button>
+                    )}
                 </div>
 
                 {loading ? (
@@ -254,50 +353,57 @@ export default function RolePage() {
                                             </td>
                                             <td>
                                                 <div style={{ display: 'flex', gap: '0.35rem' }}>
-                                                    <button
-                                                        type="button"
-                                                        className="account-password-btn"
-                                                        disabled={isAdminRole}
-                                                        style={isAdminRole ? {
-                                                            color: '#cbd5e1',
-                                                            borderColor: '#e2e8f0',
-                                                            background: '#f1f5f9',
-                                                            cursor: 'not-allowed',
-                                                            opacity: 0.7
-                                                        } : {
-                                                            color: '#4f46e5',
-                                                            borderColor: 'rgba(99, 102, 241, 0.4)',
-                                                            background: 'rgba(99, 102, 241, 0.05)'
-                                                        }}
-                                                        onClick={() => {
-                                                            setSelectedRole(role)
-                                                            setEditName(role.name)
-                                                            setEditDescription(role.description || '')
-                                                            setEditPermissions(role.permissions || [])
-                                                            setShowEditModal(true)
-                                                        }}
-                                                    >
-                                                        Sửa
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        className="account-password-btn"
-                                                        disabled={isAdminRole}
-                                                        style={isAdminRole ? {
-                                                            color: '#cbd5e1',
-                                                            borderColor: '#e2e8f0',
-                                                            background: '#f1f5f9',
-                                                            cursor: 'not-allowed',
-                                                            opacity: 0.7
-                                                        } : {
-                                                            color: '#ef4444',
-                                                            borderColor: 'rgba(239, 68, 68, 0.4)',
-                                                            background: 'rgba(239, 68, 68, 0.05)'
-                                                        }}
-                                                        onClick={() => handleDeleteRole(role.role_key)}
-                                                    >
-                                                        Xóa
-                                                    </button>
+                                                    {canEdit && (
+                                                        <button
+                                                            type="button"
+                                                            className="account-password-btn"
+                                                            disabled={isAdminRole}
+                                                            style={isAdminRole ? {
+                                                                color: '#cbd5e1',
+                                                                borderColor: '#e2e8f0',
+                                                                background: '#f1f5f9',
+                                                                cursor: 'not-allowed',
+                                                                opacity: 0.7
+                                                            } : {
+                                                                color: '#4f46e5',
+                                                                borderColor: 'rgba(99, 102, 241, 0.4)',
+                                                                background: 'rgba(99, 102, 241, 0.05)'
+                                                            }}
+                                                            onClick={() => {
+                                                                setSelectedRole(role)
+                                                                setEditName(role.name)
+                                                                setEditDescription(role.description || '')
+                                                                setEditPermissions(role.permissions || [])
+                                                                setShowEditModal(true)
+                                                            }}
+                                                        >
+                                                            Sửa
+                                                        </button>
+                                                    )}
+                                                    {canDelete && (
+                                                        <button
+                                                            type="button"
+                                                            className="account-password-btn"
+                                                            disabled={isAdminRole}
+                                                            style={isAdminRole ? {
+                                                                color: '#cbd5e1',
+                                                                borderColor: '#e2e8f0',
+                                                                background: '#f1f5f9',
+                                                                cursor: 'not-allowed',
+                                                                opacity: 0.7
+                                                            } : {
+                                                                color: '#ef4444',
+                                                                borderColor: 'rgba(239, 68, 68, 0.4)',
+                                                                background: 'rgba(239, 68, 68, 0.05)'
+                                                            }}
+                                                            onClick={() => handleDeleteRole(role.role_key)}
+                                                        >
+                                                            Xóa
+                                                        </button>
+                                                    )}
+                                                    {!canEdit && !canDelete && (
+                                                        <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic' }}>—</span>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -362,42 +468,13 @@ export default function RolePage() {
                     </div>
                     <div>
                         <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>
-                            Quyền truy cập menu
+                            Quyền truy cập & hành động
                         </label>
-                        <div
-                            style={{
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(2, 1fr)',
-                                gap: '0.5rem',
-                                padding: '0.75rem',
-                                background: '#f8fafc',
-                                borderRadius: '8px',
-                                border: '1px solid #e2e8f0'
-                            }}
-                        >
-                            {AVAILABLE_PERMISSIONS.map(perm => (
-                                <label
-                                    key={perm}
-                                    style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '0.4rem',
-                                        cursor: 'pointer',
-                                        fontSize: '0.8rem',
-                                        color: '#334155',
-                                        userSelect: 'none'
-                                    }}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={newPermissions.includes(perm)}
-                                        onChange={() => handleToggleNewPermission(perm)}
-                                        style={{ accentColor: '#4f46e5' }}
-                                    />
-                                    {perm}
-                                </label>
-                            ))}
-                        </div>
+                        <PermissionMatrix
+                            permissions={newPermissions}
+                            onToggleAccess={(k) => setNewPermissions(prev => toggleAccess(prev, k))}
+                            onToggleAction={(k, a) => setNewPermissions(prev => toggleAction(prev, k, a))}
+                        />
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
                         <button
@@ -473,42 +550,13 @@ export default function RolePage() {
                         </div>
                         <div>
                             <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>
-                                Quyền truy cập menu
+                                Quyền truy cập & hành động
                             </label>
-                            <div
-                                style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(2, 1fr)',
-                                    gap: '0.5rem',
-                                    padding: '0.75rem',
-                                    background: '#f8fafc',
-                                    borderRadius: '8px',
-                                    border: '1px solid #e2e8f0'
-                                }}
-                            >
-                                {AVAILABLE_PERMISSIONS.map(perm => (
-                                    <label
-                                        key={perm}
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '0.4rem',
-                                            cursor: 'pointer',
-                                            fontSize: '0.8rem',
-                                            color: '#334155',
-                                            userSelect: 'none'
-                                        }}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={editPermissions.includes(perm)}
-                                            onChange={() => handleToggleEditPermission(perm)}
-                                            style={{ accentColor: '#4f46e5' }}
-                                        />
-                                        {perm}
-                                    </label>
-                                ))}
-                            </div>
+                            <PermissionMatrix
+                                permissions={editPermissions}
+                                onToggleAccess={(k) => setEditPermissions(prev => toggleAccess(prev, k))}
+                                onToggleAction={(k, a) => setEditPermissions(prev => toggleAction(prev, k, a))}
+                            />
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
                             <button

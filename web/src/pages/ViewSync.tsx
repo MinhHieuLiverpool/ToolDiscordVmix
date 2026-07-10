@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { hasActionPermission } from '../services/auth'
 
 type VideoItem = {
     id: string
@@ -65,6 +66,8 @@ function buildMultiUrl(videos: VideoItem[], layout: string) {
 }
 
 export default function ViewSyncPage() {
+    const canAdd = hasActionPermission('ViewSync', 'add')
+    const canDelete = hasActionPermission('ViewSync', 'delete')
     const [videos, setVideos] = useState<VideoItem[]>([])
     const [newVideoUrl, setNewVideoUrl] = useState('')
     const [shareUrl, setShareUrl] = useState('')
@@ -182,7 +185,9 @@ export default function ViewSyncPage() {
                             if (event.key === 'Enter') addVideo()
                         }}
                     />
-                    <button className="viewsync-primary-btn" type="button" onClick={addVideo}>Add Video</button>
+                    {canAdd && (
+                        <button className="viewsync-primary-btn" type="button" onClick={addVideo}>Add Video</button>
+                    )}
                 </div>
                 <div className="viewsync-input-meta">
                     <span>{videos.length} video(s)</span>
@@ -230,9 +235,11 @@ export default function ViewSyncPage() {
                                 </div>
                                 <div className="viewsync-video-footer">
                                     <span>Start: {formatTime(item.startTime)}</span>
-                                    <button className="viewsync-remove-btn" type="button" onClick={() => removeVideo(item.id)}>
-                                        Remove
-                                    </button>
+                                    {canDelete && (
+                                        <button className="viewsync-remove-btn" type="button" onClick={() => removeVideo(item.id)}>
+                                            Remove
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         ))}

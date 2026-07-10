@@ -3,6 +3,9 @@ import { fetchAccounts, createAccount, updateAccount, deleteAccount, fetchRoles,
 import type { BackendRoleItem } from '../services/api'
 import { showToast } from '../components/ui/Toast'
 import Dialog from '../components/ui/Dialog'
+import { hasActionPermission } from '../services/auth'
+
+const MODULE_KEY = 'Tài khoản'
 
 interface AccountItem {
     username: string
@@ -21,6 +24,11 @@ export default function AccountPage() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
     const [revealed, setRevealed] = useState<Record<string, boolean>>({})
+
+    const canAdd = hasActionPermission(MODULE_KEY, 'add')
+    const canEdit = hasActionPermission(MODULE_KEY, 'edit')
+    const canDelete = hasActionPermission(MODULE_KEY, 'delete')
+    const canLock = hasActionPermission(MODULE_KEY, 'lock')
 
     // Modals visibility
     const [showCreateModal, setShowCreateModal] = useState(false)
@@ -269,13 +277,15 @@ export default function AccountPage() {
                         <h3 className="account-card-title">Tài khoản</h3>
                         <p className="account-card-subtitle">Danh sách người dùng đang truy cập hệ thống.</p>
                     </div>
-                    <button
-                        className="account-action-btn"
-                        type="button"
-                        onClick={() => setShowCreateModal(true)}
-                    >
-                        Thêm tài khoản
-                    </button>
+                    {canAdd && (
+                        <button
+                            className="account-action-btn"
+                            type="button"
+                            onClick={() => setShowCreateModal(true)}
+                        >
+                            Thêm tài khoản
+                        </button>
+                    )}
                 </div>
 
                 {loading ? (
@@ -421,68 +431,77 @@ export default function AccountPage() {
                                             </td>
                                             <td>
                                                 <div style={{ display: 'flex', gap: '0.35rem' }}>
-                                                    <button
-                                                        type="button"
-                                                        className="account-password-btn"
-                                                        style={{
-                                                            color: '#4f46e5',
-                                                            borderColor: 'rgba(99, 102, 241, 0.4)',
-                                                            background: 'rgba(99, 102, 241, 0.05)'
-                                                        }}
-                                                        onClick={() => {
-                                                            setSelectedAccount(account)
-                                                            setEditEmail(account.email || '')
-                                                            setEditPhone(account.phone || '')
-                                                            setEditPassword('')
-                                                            setEditRole(account.role || '')
-                                                            setEditAllowedChannels(account.allowed_channels || [])
-                                                            setShowEditModal(true)
-                                                        }}
-                                                    >
-                                                        Sửa
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        className="account-password-btn"
-                                                        disabled={isMasterAdmin}
-                                                        style={isMasterAdmin ? {
-                                                            color: '#cbd5e1',
-                                                            borderColor: '#e2e8f0',
-                                                            background: '#f1f5f9',
-                                                            cursor: 'not-allowed',
-                                                            opacity: 0.7
-                                                        } : (account.is_locked ? {
-                                                            color: '#10b981',
-                                                            borderColor: 'rgba(16, 185, 129, 0.4)',
-                                                            background: 'rgba(16, 185, 129, 0.05)'
-                                                        } : {
-                                                            color: '#f59e0b',
-                                                            borderColor: 'rgba(245, 158, 11, 0.4)',
-                                                            background: 'rgba(245, 158, 11, 0.05)'
-                                                        })}
-                                                        onClick={() => handleToggleLock(account)}
-                                                    >
-                                                        {account.is_locked ? 'Mở khóa' : 'Khóa'}
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        className="account-password-btn"
-                                                        disabled={isMasterAdmin}
-                                                        style={isMasterAdmin ? {
-                                                            color: '#cbd5e1',
-                                                            borderColor: '#e2e8f0',
-                                                            background: '#f1f5f9',
-                                                            cursor: 'not-allowed',
-                                                            opacity: 0.7
-                                                        } : {
-                                                            color: '#ef4444',
-                                                            borderColor: 'rgba(239, 68, 68, 0.4)',
-                                                            background: 'rgba(239, 68, 68, 0.05)'
-                                                        }}
-                                                        onClick={() => handleDeleteAccount(account.username)}
-                                                    >
-                                                        Xóa
-                                                    </button>
+                                                    {canEdit && (
+                                                        <button
+                                                            type="button"
+                                                            className="account-password-btn"
+                                                            style={{
+                                                                color: '#4f46e5',
+                                                                borderColor: 'rgba(99, 102, 241, 0.4)',
+                                                                background: 'rgba(99, 102, 241, 0.05)'
+                                                            }}
+                                                            onClick={() => {
+                                                                setSelectedAccount(account)
+                                                                setEditEmail(account.email || '')
+                                                                setEditPhone(account.phone || '')
+                                                                setEditPassword('')
+                                                                setEditRole(account.role || '')
+                                                                setEditAllowedChannels(account.allowed_channels || [])
+                                                                setShowEditModal(true)
+                                                            }}
+                                                        >
+                                                            Sửa
+                                                        </button>
+                                                    )}
+                                                    {canLock && (
+                                                        <button
+                                                            type="button"
+                                                            className="account-password-btn"
+                                                            disabled={isMasterAdmin}
+                                                            style={isMasterAdmin ? {
+                                                                color: '#cbd5e1',
+                                                                borderColor: '#e2e8f0',
+                                                                background: '#f1f5f9',
+                                                                cursor: 'not-allowed',
+                                                                opacity: 0.7
+                                                            } : (account.is_locked ? {
+                                                                color: '#10b981',
+                                                                borderColor: 'rgba(16, 185, 129, 0.4)',
+                                                                background: 'rgba(16, 185, 129, 0.05)'
+                                                            } : {
+                                                                color: '#f59e0b',
+                                                                borderColor: 'rgba(245, 158, 11, 0.4)',
+                                                                background: 'rgba(245, 158, 11, 0.05)'
+                                                            })}
+                                                            onClick={() => handleToggleLock(account)}
+                                                        >
+                                                            {account.is_locked ? 'Mở khóa' : 'Khóa'}
+                                                        </button>
+                                                    )}
+                                                    {canDelete && (
+                                                        <button
+                                                            type="button"
+                                                            className="account-password-btn"
+                                                            disabled={isMasterAdmin}
+                                                            style={isMasterAdmin ? {
+                                                                color: '#cbd5e1',
+                                                                borderColor: '#e2e8f0',
+                                                                background: '#f1f5f9',
+                                                                cursor: 'not-allowed',
+                                                                opacity: 0.7
+                                                            } : {
+                                                                color: '#ef4444',
+                                                                borderColor: 'rgba(239, 68, 68, 0.4)',
+                                                                background: 'rgba(239, 68, 68, 0.05)'
+                                                            }}
+                                                            onClick={() => handleDeleteAccount(account.username)}
+                                                        >
+                                                            Xóa
+                                                        </button>
+                                                    )}
+                                                    {!canEdit && !canLock && !canDelete && (
+                                                        <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic' }}>—</span>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>

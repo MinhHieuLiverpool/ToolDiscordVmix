@@ -56,6 +56,40 @@ _timeseries_available = False
 # Timezone configuration - Vietnam
 VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 
+# Module-level permission config (must stay in sync with the web sidebar labels and
+# web/src/config/permissions.ts). Each entry: (module_label, [supported actions]).
+# Permission keys are stored as "<label>" for access and "<label>:<action>" for actions.
+MODULE_PERMISSIONS = [
+    ("Tổng quan", ["edit"]),
+    ("SRT", []),
+    ("Thông số Stream", []),
+    ("URL & Key", []),
+    ("Thống kê", []),
+    ("Vmix Monitor", []),
+    ("Record & MultiCorder", []),
+    ("Mobile Monitor", ["edit"]),
+    ("ViewSync", ["add", "delete"]),
+    ("Speedtest", []),
+    ("Debug Log", ["add", "delete"]),
+    ("CreateWebURL", ["add", "edit", "delete"]),
+    ("Quản lý Kênh", ["add", "edit", "delete"]),
+    ("Notification", ["add", "edit", "delete", "toggle"]),
+    ("Tài khoản", ["add", "edit", "delete", "lock"]),
+    ("Phân quyền", ["add", "edit", "delete"]),
+    ("FFmpeg", []),
+]
+
+def _build_all_permissions():
+    keys = []
+    for mod, actions in MODULE_PERMISSIONS:
+        keys.append(mod)
+        for a in actions:
+            keys.append(f"{mod}:{a}")
+    return keys
+
+# Admin gets every access + action permission.
+ADMIN_PERMISSIONS = _build_all_permissions()
+
 # MongoDB connection
 try:
     mongo_kwargs = {
@@ -1832,7 +1866,7 @@ async def login_account(payload: dict):
         permissions = []
         if role_name:
             if role_name == "admin":
-                permissions = ["Tổng quan", "SRT", "Thông số Stream", "URL & Key", "FFmpeg", "Thống kê", "Vmix Monitor", "Record & MultiCorder", "ViewSync", "Speedtest", "Debug Log", "Tài khoản", "Phân quyền"]
+                permissions = list(ADMIN_PERMISSIONS)
             else:
                 role_doc = roles_collection.find_one({"role_key": role_name.lower()})
                 if role_doc:
@@ -1866,7 +1900,7 @@ async def get_user_profile(username: str):
         permissions = []
         if role_name:
             if role_name == "admin":
-                permissions = ["Tổng quan", "SRT", "Thông số Stream", "URL & Key", "FFmpeg", "Thống kê", "Vmix Monitor", "ViewSync", "Speedtest", "Debug Log", "Tài khoản", "Phân quyền"]
+                permissions = list(ADMIN_PERMISSIONS)
             else:
                 role_doc = roles_collection.find_one({"role_key": role_name.lower()})
                 if role_doc:
@@ -2384,20 +2418,55 @@ async def load_game_selected():
     """Load danh sách Game_Selected từ database"""
     try:
         loop = asyncio.get_event_loop()
-        documents = await loop.run_in_executor(
-            None,
-            lambda: list(game_selected_collection.find())
-        )
-        
-        entries = []
-        for doc in documents:
-            doc.pop('_id', None)
-            if 'visible_status' not in doc:
-                doc['visible_status'] = 'ON'
-            if 'hidden_machines' not in doc:
-                doc['hidden_machines'] = []
-            entries.append(doc)
-            
+
+        def _load_and_resolve():
+            docs = list(game_selected_collection.find())
+
+            # Build deviceId -> current friendly name (name_device) map from mobile logs,
+            # so channels that store device ids respond with the up-to-date name.
+            mobile_name_map = {}
+            try:
+                for m in db["mobile_logs"].find({}, {"deviceId": 1, "deviceName": 1, "name_device": 1}):
+                    dev_id = m.get("deviceId") or m.get("_id")
+                    if not dev_id:
+                        continue
+                    friendly = (m.get("name_device") or "").strip() \
+                        or (m.get("deviceName") or "").strip() \
+                        or str(dev_id)
+                    mobile_name_map[str(dev_id)] = friendly
+            except Exception as ex:
+                print(f"✗ Error building mobile name map: {ex}")
+
+            # Build PC machine name -> friendly label (name_edit, fallback to name)
+            pc_name_map = {}
+            try:
+                for mname, mdoc in _data_cache.items():
+                    ne = (mdoc.get("name_edit") or "").strip()
+                    pc_name_map[str(mname)] = ne or str(mname)
+            except Exception as ex:
+                print(f"✗ Error building PC name map: {ex}")
+
+            out = []
+            for doc in docs:
+                doc.pop('_id', None)
+                if 'visible_status' not in doc:
+                    doc['visible_status'] = 'ON'
+                if 'hidden_machines' not in doc:
+                    doc['hidden_machines'] = []
+                # Resolve labels live: mobile device ids -> name_device, PC names -> name_edit
+                labels = {}
+                for mk in doc.get('machines', []):
+                    key = str(mk)
+                    if key in mobile_name_map:
+                        labels[key] = mobile_name_map[key]
+                    elif key in pc_name_map:
+                        labels[key] = pc_name_map[key]
+                doc['machine_labels'] = labels
+                out.append(doc)
+            return out
+
+        entries = await loop.run_in_executor(None, _load_and_resolve)
+
         print(f"✓ Loaded {len(entries)} game assignments from Game_Selected")
         return JSONResponse(content=entries)
     except Exception as e:
@@ -2943,7 +3012,7 @@ async def startup_event():
                 "role_key": "admin",
                 "name": "Admin",
                 "description": "Quản trị viên toàn quyền hệ thống",
-                "permissions": ["Tổng quan", "SRT", "Thông số Stream", "URL & Key", "FFmpeg", "Thống kê", "Vmix Monitor", "ViewSync", "Speedtest", "Debug Log", "Tài khoản", "Phân quyền", "Notification"],
+                "permissions": list(ADMIN_PERMISSIONS),
                 "created_at": datetime.now(VIETNAM_TZ).isoformat()
             })
             print("✓ Seeded default admin role successfully!")
@@ -3375,6 +3444,111 @@ def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_
         except Exception as e:
             print(f"Error sending Seatalk rule alert: {e}")
 
+def send_webhook_enabled_notice(webhook: dict):
+    """Announce into the webhook that alert mode has just been enabled,
+    listing the active conditions and the applied scope (all / devices / channels)."""
+    import requests
+    from datetime import datetime
+
+    w_type = webhook.get("type", "Discord")
+    w_url = (webhook.get("url") or "").strip()
+    if not w_url:
+        return False
+
+    labels = {
+        "isOnline": "Thiết bị Offline",
+        "statusapp": "Trạng thái ứng dụng",
+        "temperature": "Nhiệt độ cao",
+        "cpuLoad": "Tải CPU cao",
+        "memory": "RAM cao",
+        "gpu": "GPU cao",
+        "fps": "FPS thấp",
+        "packetLoss": "Packet Loss cao",
+        "batteryLevel": "Mức pin",
+        "status": "Luồng SRT OFF",
+        "vmix_recording": "Dừng ghi hình vMix",
+        "vmix_streaming": "Dừng phát sóng vMix",
+        "vmix_external": "Tắt External Output vMix",
+        "vmix_multicorder": "Tắt MultiCorder vMix",
+    }
+    units = {"temperature": "°C", "cpuLoad": "%", "memory": "%", "gpu": "%", "packetLoss": "%", "fps": " FPS", "batteryLevel": "%"}
+
+    cond_lines = []
+    for r in (webhook.get("rules") or []):
+        if not r.get("enabled"):
+            continue
+        p = r.get("parameter", "")
+        lbl = labels.get(p, p)
+        op = r.get("operator", "")
+        val = r.get("value", "")
+        unit = units.get(p, "")
+        cond_lines.append(f"{lbl} ({op} {val}{unit})")
+
+    devices = webhook.get("devices", []) or []
+    if "all" in devices:
+        scope_desc = "Tất cả thiết bị"
+    else:
+        chans = [d[len("channel:"):] for d in devices if isinstance(d, str) and d.startswith("channel:")]
+        if chans:
+            scope_desc = "Kênh: " + ", ".join(chans)
+        elif devices:
+            scope_desc = f"{len(devices)} thiết bị được chọn"
+        else:
+            scope_desc = "(Chưa chọn thiết bị)"
+
+    now_str = datetime.now(VIETNAM_TZ).strftime("%d/%m/%Y %H:%M:%S")
+    name = webhook.get("name", "Webhook")
+
+    # Use double newlines between lines so SeaTalk (which collapses single "\n") also breaks lines.
+    lines = [
+        "✅ **ĐÃ BẬT chế độ Cảnh báo thiết bị**",
+        f"• **Kênh thông báo:** {name}",
+        f"• **Phạm vi áp dụng:** {scope_desc}",
+        "• **Các điều kiện cảnh báo đang bật:**",
+    ]
+    if cond_lines:
+        lines.extend(f"　　• {c}" for c in cond_lines)
+    else:
+        lines.append("　　• (Chưa bật điều kiện nào)")
+    lines.append(f"• **Thời gian:** {now_str}")
+
+    body = "\n\n".join(lines)
+
+    try:
+        if w_type == "Discord":
+            resp = requests.post(w_url, json={"content": body}, timeout=5)
+        else:
+            resp = requests.post(w_url, json={"tag": "markdown", "markdown": {"content": body}}, timeout=5)
+        print(f"✓ Sent 'alert enabled' notice to {w_url[:30]}... status: {resp.status_code}")
+        return True
+    except Exception as e:
+        print(f"Error sending 'alert enabled' notice: {e}")
+        return False
+
+
+# Which device type(s) each alert parameter applies to.
+# Shared params check both; PC-only check desktop; mobile-only check mobile.
+# Params not listed here default to being checked on all device types.
+PARAM_DEVICE_SCOPE = {
+    "isOnline": {"desktop", "mobile"},
+    "statusapp": {"desktop", "mobile"},
+    "temperature": {"desktop", "mobile"},
+    "cpuLoad": {"desktop", "mobile"},
+    "memory": {"desktop", "mobile"},
+    # Mobile-only
+    "fps": {"mobile"},
+    "packetLoss": {"mobile"},
+    "batteryLevel": {"mobile"},
+    # PC / desktop-only
+    "gpu": {"desktop"},
+    "status": {"desktop"},
+    "vmix_recording": {"desktop"},
+    "vmix_streaming": {"desktop"},
+    "vmix_external": {"desktop"},
+    "vmix_multicorder": {"desktop"},
+}
+
+
 async def check_alerts_loop():
     import requests
     while True:
@@ -3407,7 +3581,7 @@ async def check_alerts_loop():
                     target_devices = []
                 rules = webhook.get("rules", [])
                 
-                # Expand "all" or specific devices
+                # Expand "all", channel tokens (channel:<game>), or specific device ids
                 devices_to_check = []
                 if "all" in target_devices:
                     for dev_id, doc in desktop_devices.items():
@@ -3415,7 +3589,28 @@ async def check_alerts_loop():
                     for dev_id, doc in mobile_devices.items():
                         devices_to_check.append((dev_id, doc, "mobile"))
                 else:
-                    for d_id in target_devices:
+                    # Resolve channel tokens into their member machine ids (dynamic, follows channel)
+                    resolved_ids = []
+                    channel_games = []
+                    for d in target_devices:
+                        if isinstance(d, str) and d.startswith("channel:"):
+                            channel_games.append(d[len("channel:"):])
+                        else:
+                            resolved_ids.append(d)
+                    if channel_games:
+                        try:
+                            gsel_docs = list(game_selected_collection.find({"game": {"$in": channel_games}}))
+                            for g in gsel_docs:
+                                for m in g.get("machines", []):
+                                    resolved_ids.append(m)
+                        except Exception as ex:
+                            print(f"Error resolving channel devices for webhook {w_id}: {ex}")
+
+                    seen = set()
+                    for d_id in resolved_ids:
+                        if d_id in seen:
+                            continue
+                        seen.add(d_id)
                         if d_id in desktop_devices:
                             devices_to_check.append((d_id, desktop_devices[d_id], "desktop"))
                         elif d_id in mobile_devices:
@@ -3430,7 +3625,13 @@ async def check_alerts_loop():
                     target_val = rule.get("value")
                     rule_id = rule.get("parameter", "") # use parameter as part of state ID
                     
+                    # Restrict this parameter to the device type(s) it applies to,
+                    # so a mixed channel (PC + mobile) doesn't fire false alerts.
+                    param_scope = PARAM_DEVICE_SCOPE.get(param)
+
                     for dev_id, doc, dev_type in devices_to_check:
+                        if param_scope is not None and dev_type not in param_scope:
+                            continue
                         current_value = None
                         device_name = dev_id
                         
@@ -3729,6 +3930,14 @@ async def toggle_webhook_status(payload: dict):
         
         srt_sent = False
         if new_status == 1:
+            # Turning ON: announce into the webhook that alert mode is enabled
+            wh_doc["statusnotification"] = 1
+            wh_doc["enabled"] = True
+            try:
+                send_webhook_enabled_notice(wh_doc)
+            except Exception as _e:
+                print(f"Error sending enabled notice: {_e}")
+
             # Turning ON: reset SRT status cache so check_alerts_loop doesn't re-send
             if webhook_id in _last_sent_srt_statuses:
                 del _last_sent_srt_statuses[webhook_id]

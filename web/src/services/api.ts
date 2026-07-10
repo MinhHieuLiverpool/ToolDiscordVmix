@@ -421,6 +421,7 @@ export interface GameSelectedResponse {
   machines: string[]
   visible_status?: 'ON' | 'OFF'
   hidden_machines?: string[]
+  machine_labels?: Record<string, string>
 }
 
 export async function fetchGameSelected(): Promise<GameSelectedResponse[]> {
@@ -511,4 +512,4 @@ export function getDownloadDebugLogsUrl(timeStart?: string, timeEnd?: string): s
   const queryString = params.toString()
   return `${BACKEND_BASE_URL}/download_debug_logs${queryString ? '?' + queryString : ''}`
 }
-
+

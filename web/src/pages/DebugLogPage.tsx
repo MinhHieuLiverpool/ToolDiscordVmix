@@ -4,10 +4,13 @@ import { useDashboardContext } from '../hooks/useDashboardContext'
 import { showToast } from '../components/ui/Toast'
 import { getDownloadDebugLogsUrl } from '../services/api'
 import Dialog from '../components/ui/Dialog'
+import { hasActionPermission } from '../services/auth'
 
 export default function DebugLogPage() {
     const navigate = useNavigate()
     const { debugLogs, clearDebugLogs, gameAssignments } = useDashboardContext()
+    const canImport = hasActionPermission('Debug Log', 'add')
+    const canClear = hasActionPermission('Debug Log', 'delete')
     const [searchTerm, setSearchTerm] = useState('')
     const [filterGame, setFilterGame] = useState('__all__')
 
@@ -116,14 +119,16 @@ export default function DebugLogPage() {
                             </option>
                         ))}
                     </select>
-                    <button
-                        className="viewsync-primary-btn"
-                        type="button"
-                        onClick={() => navigate('/debug-logs/import')}
-                        style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
-                    >
-                        Import File Debug
-                    </button>
+                    {canImport && (
+                        <button
+                            className="viewsync-primary-btn"
+                            type="button"
+                            onClick={() => navigate('/debug-logs/import')}
+                            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+                        >
+                            Import File Debug
+                        </button>
+                    )}
                     <button
                         className="viewsync-outline-btn"
                         type="button"
@@ -141,15 +146,17 @@ export default function DebugLogPage() {
                     >
                         Copy Logs
                     </button>
-                    <button
-                        className="viewsync-outline-btn"
-                        type="button"
-                        onClick={clearDebugLogs}
-                        disabled={logs.length === 0}
-                        style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444' }}
-                    >
-                        Xóa Logs
-                    </button>
+                    {canClear && (
+                        <button
+                            className="viewsync-outline-btn"
+                            type="button"
+                            onClick={clearDebugLogs}
+                            disabled={logs.length === 0}
+                            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444' }}
+                        >
+                            Xóa Logs
+                        </button>
+                    )}
                 </div>
             </div>
 

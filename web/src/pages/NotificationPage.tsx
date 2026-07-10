@@ -4,6 +4,9 @@ import { showToast } from '../components/ui/Toast'
 import { BACKEND_BASE_URL } from '../config/constants'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { normalizeSrtList } from '../services/api'
+import { hasActionPermission } from '../services/auth'
+
+const MODULE_KEY = 'Notification'
 
 interface RuleCondition {
   parameter: string
@@ -54,6 +57,11 @@ export default function NotificationPage() {
   const [devices, setDevices] = useState<DeviceOption[]>([])
   const [loading, setLoading] = useState(true)
 
+  const canAdd = hasActionPermission(MODULE_KEY, 'add')
+  const canEdit = hasActionPermission(MODULE_KEY, 'edit')
+  const canDelete = hasActionPermission(MODULE_KEY, 'delete')
+  const canToggle = hasActionPermission(MODULE_KEY, 'toggle')
+
   // Webhook Modal / Form states
   const [modalOpen, setModalOpen] = useState(false)
   const [editingWebhook, setEditingWebhook] = useState<WebhookItem | null>(null)
@@ -63,6 +71,9 @@ export default function NotificationPage() {
   const [whUrl, setWhUrl] = useState('')
   const [whEnabled, setWhEnabled] = useState(true)
   const [whDevices, setWhDevices] = useState<string[]>(['all'])
+  // Device targeting mode: all devices / individually picked / by channel
+  const [deviceMode, setDeviceMode] = useState<'all' | 'devices' | 'channels'>('all')
+  const [whChannels, setWhChannels] = useState<string[]>([])
   
   // Rule checkboxes/values state in Form
   const [ruleStates, setRuleStates] = useState<Record<string, { enabled: boolean; operator: string; value: string; alert_cooldown: number }>>({})
@@ -74,7 +85,7 @@ export default function NotificationPage() {
   // SRT trigger states
   const [sendingSrt, setSendingSrt] = useState(false)
 
-  const { rows } = useDashboardContext()
+  const { rows, gameAssignments } = useDashboardContext()
 
   useEffect(() => {
     fetchData()
@@ -116,7 +127,20 @@ export default function NotificationPage() {
       setWhType(wh.type)
       setWhUrl(wh.url)
       setWhEnabled(wh.statusnotification !== 0)
-      setWhDevices(wh.devices || [])
+      const devs = wh.devices && wh.devices.length ? wh.devices : ['all']
+      if (devs.includes('all')) {
+        setDeviceMode('all')
+        setWhDevices(['all'])
+        setWhChannels([])
+      } else if (devs.some(d => typeof d === 'string' && d.startsWith('channel:'))) {
+        setDeviceMode('channels')
+        setWhChannels(devs.filter(d => d.startsWith('channel:')).map(d => d.slice('channel:'.length)))
+        setWhDevices([])
+      } else {
+        setDeviceMode('devices')
+        setWhDevices(devs)
+        setWhChannels([])
+      }
       setWhSrtAutoSend(!!wh.srt_auto_send)
       setWhSrtStreams(wh.srt_streams || ['all'])
       
@@ -139,6 +163,8 @@ export default function NotificationPage() {
       setWhUrl('')
       setWhEnabled(true)
       setWhDevices(['all'])
+      setDeviceMode('all')
+      setWhChannels([])
       setWhSrtAutoSend(false)
       setWhSrtStreams(['all'])
     }
@@ -152,6 +178,24 @@ export default function NotificationPage() {
     if (!whName.trim() || !whUrl.trim()) {
       showToast('Vui lòng nhập Tên kênh và Đường dẫn Webhook!', 'error')
       return
+    }
+
+    let devicesPayload: string[]
+    if (deviceMode === 'all') {
+      devicesPayload = ['all']
+    } else if (deviceMode === 'channels') {
+      if (whChannels.length === 0) {
+        showToast('Vui lòng chọn ít nhất một kênh!', 'error')
+        return
+      }
+      devicesPayload = whChannels.map(g => `channel:${g}`)
+    } else {
+      const picked = whDevices.filter(d => d !== 'all')
+      if (picked.length === 0) {
+        showToast('Vui lòng chọn ít nhất một thiết bị!', 'error')
+        return
+      }
+      devicesPayload = picked
     }
 
     const assembledRules: RuleCondition[] = DEFAULT_PARAMETERS.map(p => {
@@ -173,7 +217,7 @@ export default function NotificationPage() {
         url: whUrl,
         enabled: whEnabled,
         statusnotification: whEnabled ? 1 : 0,
-        devices: whDevices,
+        devices: devicesPayload,
         rules: assembledRules,
         alert_cooldown: 60,
         srt_auto_send: whSrtAutoSend,
@@ -249,6 +293,10 @@ export default function NotificationPage() {
       updated.push(devId)
     }
     setWhDevices(updated)
+  }
+
+  const handleChannelToggle = (game: string) => {
+    setWhChannels(prev => (prev.includes(game) ? prev.filter(g => g !== game) : [...prev, game]))
   }
 
   const handleRuleCheckToggle = (parameter: string) => {
@@ -368,25 +416,29 @@ export default function NotificationPage() {
               </>
             )}
           </button>
-          <button
-            onClick={handleEnableAllWebhooks}
-            className="px-4 py-2.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/35 border border-emerald-100 dark:border-emerald-900/30 rounded-[10px] transition-all flex items-center gap-1.5"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            Bật tất cả kênh
-          </button>
-          <button
-            onClick={() => handleOpenModal()}
-            className="px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-[10px] shadow-sm transition-all flex items-center gap-1.5"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            Tạo kênh thông báo mới
-          </button>
+          {canToggle && (
+            <button
+              onClick={handleEnableAllWebhooks}
+              className="px-4 py-2.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/35 border border-emerald-100 dark:border-emerald-900/30 rounded-[10px] transition-all flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Bật tất cả kênh
+            </button>
+          )}
+          {canAdd && (
+            <button
+              onClick={() => handleOpenModal()}
+              className="px-4 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-[10px] shadow-sm transition-all flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Tạo kênh thông báo mới
+            </button>
+          )}
         </div>
       </div>
 
@@ -453,6 +505,14 @@ export default function NotificationPage() {
                               </span>
                             ) : wh.devices?.length ? (
                               wh.devices.map(dId => {
+                                if (typeof dId === 'string' && dId.startsWith('channel:')) {
+                                  const gameName = dId.slice('channel:'.length)
+                                  return (
+                                    <span key={dId} className="text-[9.5px] px-1.5 py-0.5 bg-purple-50 dark:bg-purple-950/25 text-purple-600 dark:text-purple-400 rounded font-bold border border-purple-100 dark:border-purple-900/30">
+                                      📺 {gameName}
+                                    </span>
+                                  )
+                                }
                                 const dev = devices.find(d => d.id === dId)
                                 return (
                                   <span key={dId} className="text-[9.5px] px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded border border-slate-200/50 dark:border-slate-700/50">
@@ -489,13 +549,14 @@ export default function NotificationPage() {
 
                         <td className="py-3.5 px-5 text-center">
                           <button
-                            onClick={() => handleToggleWebhookEnabled(wh)}
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-[6px] text-[11px] font-bold transition-all ${
+                            onClick={() => canToggle && handleToggleWebhookEnabled(wh)}
+                            disabled={!canToggle}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-[6px] text-[11px] font-bold transition-all ${!canToggle ? 'cursor-not-allowed opacity-70' : ''} ${
                               wh.statusnotification !== 0
                                 ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/30'
                                 : 'bg-slate-100 text-slate-400 border border-slate-200 dark:bg-slate-800/40 dark:border-slate-800'
                             }`}
-                            title={wh.statusnotification !== 0 ? 'Tạm tắt kênh' : 'Bật kênh'}
+                            title={!canToggle ? 'Bạn không có quyền bật/tắt kênh' : (wh.statusnotification !== 0 ? 'Tạm tắt kênh' : 'Bật kênh')}
                           >
                             <span className={`w-1.5 h-1.5 rounded-full ${wh.statusnotification !== 0 ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                             {wh.statusnotification !== 0 ? 'Bật' : 'Tắt'}
@@ -504,24 +565,31 @@ export default function NotificationPage() {
 
                         <td className="py-3.5 px-5 text-right">
                           <div className="flex gap-2 justify-end">
-                            <button
-                              onClick={() => handleOpenModal(wh)}
-                              className="text-slate-400 hover:text-sky-500 transition-colors p-1"
-                              title="Sửa cấu hình & Rule"
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                              </svg>
-                            </button>
-                            <button
-                              onClick={() => handleDeleteWebhook(wh.id)}
-                              className="text-slate-400 hover:text-rose-500 transition-colors p-1"
-                              title="Xóa kênh"
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
+                            {canEdit && (
+                              <button
+                                onClick={() => handleOpenModal(wh)}
+                                className="text-slate-400 hover:text-sky-500 transition-colors p-1"
+                                title="Sửa cấu hình & Rule"
+                              >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button
+                                onClick={() => handleDeleteWebhook(wh.id)}
+                                className="text-slate-400 hover:text-rose-500 transition-colors p-1"
+                                title="Xóa kênh"
+                              >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            )}
+                            {!canEdit && !canDelete && (
+                              <span className="text-[11px] text-slate-400 italic">—</span>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -612,36 +680,98 @@ export default function NotificationPage() {
 
                 {/* Apply Devices Section */}
                 <div>
-                  <label className="block font-bold text-slate-500 uppercase mb-1.5">Chọn thiết bị áp dụng cho Webhook này</label>
-                  <div className="border border-slate-200 dark:border-slate-800 rounded-[10px] p-3 max-h-36 overflow-y-auto space-y-2">
-                    <label className="flex items-center gap-2 font-bold text-indigo-600 dark:text-indigo-400 cursor-pointer">
+                  <label className="block font-bold text-slate-500 uppercase mb-1.5">Phạm vi áp dụng cho Webhook này</label>
+
+                  {/* Mode selector: 1 of 3 */}
+                  <div className="flex flex-wrap gap-4 mb-3">
+                    <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-700 dark:text-slate-300">
                       <input
-                        type="checkbox"
-                        checked={whDevices.includes('all')}
-                        onChange={() => handleDeviceSelect('all')}
-                        className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                        type="radio"
+                        name="device_mode"
+                        checked={deviceMode === 'all'}
+                        onChange={() => setDeviceMode('all')}
+                        className="text-indigo-600 focus:ring-indigo-500"
                       />
-                      Tất cả thiết bị (Desktop & Mobile)
+                      Tất cả thiết bị
                     </label>
-                    <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-2"></div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
-                      {devices.map(dev => (
-                        <label key={dev.id} className="flex items-center gap-2 font-semibold text-slate-600 dark:text-slate-300 cursor-pointer py-0.5">
-                          <input
-                            type="checkbox"
-                            checked={whDevices.includes(dev.id)}
-                            onChange={() => handleDeviceSelect(dev.id)}
-                            disabled={whDevices.includes('all')}
-                            className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 disabled:opacity-50"
-                          />
-                          <span className="flex items-center gap-1.5 truncate">
-                            <span className={`w-1.5 h-1.5 rounded-full ${dev.type === 'desktop' ? 'bg-sky-500' : 'bg-rose-500'}`} />
-                            {dev.name} ({dev.type})
-                          </span>
-                        </label>
-                      ))}
-                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-700 dark:text-slate-300">
+                      <input
+                        type="radio"
+                        name="device_mode"
+                        checked={deviceMode === 'devices'}
+                        onChange={() => setDeviceMode('devices')}
+                        className="text-indigo-600 focus:ring-indigo-500"
+                      />
+                      Chọn từng thiết bị
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-700 dark:text-slate-300">
+                      <input
+                        type="radio"
+                        name="device_mode"
+                        checked={deviceMode === 'channels'}
+                        onChange={() => setDeviceMode('channels')}
+                        className="text-indigo-600 focus:ring-indigo-500"
+                      />
+                      Theo kênh
+                    </label>
                   </div>
+
+                  {deviceMode === 'all' && (
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-[10px] p-3 text-slate-500 dark:text-slate-400 bg-slate-50/50 dark:bg-slate-900/30">
+                      Áp dụng cho <span className="font-bold text-indigo-600 dark:text-indigo-400">tất cả thiết bị</span> (Desktop &amp; Mobile).
+                    </div>
+                  )}
+
+                  {deviceMode === 'devices' && (
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-[10px] p-3 max-h-40 overflow-y-auto">
+                      {devices.length === 0 ? (
+                        <p className="text-slate-400 italic py-1">Không tìm thấy thiết bị nào.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
+                          {devices.map(dev => (
+                            <label key={dev.id} className="flex items-center gap-2 font-semibold text-slate-600 dark:text-slate-300 cursor-pointer py-0.5">
+                              <input
+                                type="checkbox"
+                                checked={whDevices.includes(dev.id)}
+                                onChange={() => handleDeviceSelect(dev.id)}
+                                className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                              />
+                              <span className="flex items-center gap-1.5 truncate">
+                                <span className={`w-1.5 h-1.5 rounded-full ${dev.type === 'desktop' ? 'bg-sky-500' : 'bg-rose-500'}`} />
+                                {dev.name} ({dev.type})
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {deviceMode === 'channels' && (
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-[10px] p-3 max-h-40 overflow-y-auto">
+                      {(!gameAssignments || gameAssignments.length === 0) ? (
+                        <p className="text-slate-400 italic py-1">Chưa có kênh nào. Hãy tạo kênh ở trang Quản lý Kênh.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
+                          {gameAssignments.map(a => (
+                            <label key={a.game} className="flex items-center gap-2 font-semibold text-slate-600 dark:text-slate-300 cursor-pointer py-0.5">
+                              <input
+                                type="checkbox"
+                                checked={whChannels.includes(a.game)}
+                                onChange={() => handleChannelToggle(a.game)}
+                                className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                              />
+                              <span className="flex items-center gap-1.5 truncate">
+                                <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                                {a.game}
+                                <span className="text-[10px] text-slate-400">({(a.machines || []).length} máy)</span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
 

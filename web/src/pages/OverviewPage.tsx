@@ -4,8 +4,11 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import Dialog from '../components/ui/Dialog'
 import { saveGameSelected } from '../services/api'
 import { showToast } from '../components/ui/Toast'
+import { hasActionPermission } from '../services/auth'
 
 export default function OverviewPage() {
+    const canEditOverview = hasActionPermission('Tổng quan', 'edit')
+
     const {
         rows,
         allRows,
@@ -194,7 +197,7 @@ export default function OverviewPage() {
                     </div>
 
                     {/* Add to channel button */}
-                    {!isGameLocked && (
+                    {!isGameLocked && canEditOverview && (
                         <button
                             onClick={() => {
                                 setDialogGame(selectedGame === '__all__' ? 'Liên Quân Mobile' : selectedGame)

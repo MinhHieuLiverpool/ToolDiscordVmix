@@ -3,21 +3,45 @@ import { useDashboardContext } from '../hooks/useDashboardContext'
 import { saveGameSelected, deleteGameSelected, toggleVisibleStatus, toggleMachineVisibility } from '../services/api'
 import { showToast } from '../components/ui/Toast'
 import Dialog from '../components/ui/Dialog'
+import { getMobileDisplayName, getMobileIdentifiers, getMobileStableKey } from '../utils/mobileDevice'
+import { hasActionPermission } from '../services/auth'
 import axios from 'axios'
+
+const MODULE_KEY = 'Quản lý Kênh'
+
+interface MobileDeviceOption {
+    key: string
+    label: string
+    ids: string[]
+}
 
 export default function GameChannelsPage() {
     const { allRows, gameAssignments, loadAssignments } = useDashboardContext()
     
     const [loading, setLoading] = useState(false)
-    const [mobileDevices, setMobileDevices] = useState<string[]>([])
+    const [mobileDevices, setMobileDevices] = useState<MobileDeviceOption[]>([])
+
+    const canAdd = hasActionPermission(MODULE_KEY, 'add')
+    const canEdit = hasActionPermission(MODULE_KEY, 'edit')
+    const canDelete = hasActionPermission(MODULE_KEY, 'delete')
 
     useEffect(() => {
         axios.get('https://mobile-monitor.onrender.com/api/mobile-logs?limit=100')
             .then(res => {
                 if (res.data && res.data.status === 'success') {
                     const rawData = res.data.data || []
-                    const names = rawData.map((item: any) => item.name_device || item.deviceName || item.deviceId).filter(Boolean)
-                    setMobileDevices(Array.from(new Set(names)).sort() as string[])
+                    const byKey = new Map<string, MobileDeviceOption>()
+                    rawData.forEach((item: any) => {
+                        const key = getMobileStableKey(item)
+                        if (!key) return
+                        byKey.set(key, {
+                            key,
+                            label: getMobileDisplayName(item),
+                            ids: getMobileIdentifiers(item),
+                        })
+                    })
+                    const opts = Array.from(byKey.values()).sort((a, b) => a.label.localeCompare(b.label))
+                    setMobileDevices(opts)
                 }
             })
             .catch(err => {
@@ -40,15 +64,75 @@ export default function GameChannelsPage() {
         return Array.from(new Set(names)).sort()
     }, [allRows])
 
-    // Toggle machine selection for checklist
+    // PC options: stored key = machine name (stable), label = name_edit (fallback name)
+    const pcMachines = useMemo(() => {
+        const byName = new Map<string, { key: string; label: string }>()
+        allRows.forEach(r => {
+            const name = r.data.name
+            if (!name) return
+            const label = (r.data.name_edit || '').trim() || name
+            byName.set(name, { key: name, label })
+        })
+        return Array.from(byName.values()).sort((a, b) => a.label.localeCompare(b.label))
+    }, [allRows])
+
+    // Toggle machine selection for checklist (PC machines, matched by exact name)
     const handleToggleMachineSelection = (name: string) => {
         setSelectedMachines(prev =>
             prev.includes(name) ? prev.filter(m => m !== name) : [...prev, name]
         )
     }
 
+    // A mobile device is selected if ANY of its identifiers is stored in the channel
+    const isMobileSelected = (opt: MobileDeviceOption) =>
+        selectedMachines.some(m => opt.ids.includes(m))
+
+    // Toggle a mobile device: store a stable key on add, remove every identifier on remove
+    const handleToggleMobileSelection = (opt: MobileDeviceOption) => {
+        setSelectedMachines(prev => {
+            if (prev.some(m => opt.ids.includes(m))) {
+                return prev.filter(m => !opt.ids.includes(m))
+            }
+            return [...prev, opt.key]
+        })
+    }
+
+    // Stored keys that don't match any currently-live PC or mobile device.
+    // Split into: "offline" (has a saved label → known device just not reporting now)
+    // and "stale" (no saved label → truly orphaned / renamed legacy entry).
+    const { offlineMachines, staleMachines } = useMemo(() => {
+        const live = new Set<string>([
+            ...allMachineNames,
+            ...mobileDevices.flatMap(d => d.ids),
+        ])
+        const savedLabels = gameAssignments.find(a => a.game === editingGame)?.machine_labels || {}
+        const offline: { key: string; label: string }[] = []
+        const stale: string[] = []
+        for (const m of selectedMachines) {
+            if (live.has(m)) continue
+            if (savedLabels[m]) offline.push({ key: m, label: savedLabels[m] })
+            else stale.push(m)
+        }
+        return { offlineMachines: offline, staleMachines: stale }
+    }, [selectedMachines, allMachineNames, mobileDevices, gameAssignments, editingGame])
+
+    const handleRemoveOrphan = (name: string) => {
+        setSelectedMachines(prev => prev.filter(m => m !== name))
+    }
+
+    // Resolve a stored key to a friendly label for display in the channels table.
+    // Priority: live device name → saved label (works while offline) → raw key.
+    const resolveMachineLabel = (machine: string, labels?: Record<string, string>) => {
+        const dev = mobileDevices.find(d => d.ids.includes(machine))
+        if (dev) return dev.label
+        const pc = pcMachines.find(p => p.key === machine)
+        if (pc) return pc.label
+        if (labels && labels[machine]) return labels[machine]
+        return machine
+    }
+
     const handleSelectAll = () => {
-        setSelectedMachines([...allMachineNames, ...mobileDevices])
+        setSelectedMachines([...allMachineNames, ...mobileDevices.map(d => d.key)])
     }
 
     const handleDeselectAll = () => {
@@ -213,17 +297,19 @@ export default function GameChannelsPage() {
                         <h3 className="account-card-title account-card-title-compact">Kênh Game</h3>
                         <p className="account-card-subtitle account-card-subtitle-compact">Danh sách các kênh game đang hoạt động trong hệ thống.</p>
                     </div>
-                    <button
-                        className="account-action-btn"
-                        type="button"
-                        onClick={() => {
-                            setGameName('')
-                            setSelectedMachines([])
-                            setShowCreateModal(true)
-                        }}
-                    >
-                        Thêm kênh mới
-                    </button>
+                    {canAdd && (
+                        <button
+                            className="account-action-btn"
+                            type="button"
+                            onClick={() => {
+                                setGameName('')
+                                setSelectedMachines([])
+                                setShowCreateModal(true)
+                            }}
+                        >
+                            Thêm kênh mới
+                        </button>
+                    )}
                 </div>
 
                 {gameAssignments.length === 0 ? (
@@ -282,6 +368,7 @@ export default function GameChannelsPage() {
                                                 {assignment.machines && assignment.machines.length > 0 ? (
                                                     assignment.machines.map((machine) => {
                                                         const isHidden = (assignment.hidden_machines || []).includes(machine)
+                                                        const machineLabel = resolveMachineLabel(machine, assignment.machine_labels)
                                                         return (
                                                             <span
                                                                 key={machine}
@@ -301,9 +388,9 @@ export default function GameChannelsPage() {
                                                                         : { background: 'rgba(99, 102, 241, 0.08)', color: '#4f46e5', border: '1px solid rgba(99, 102, 241, 0.15)' }
                                                                     )
                                                                 }}
-                                                                title={isHidden ? `Click để hiện máy "${machine}"` : `Click để ẩn máy "${machine}"`}
+                                                                title={isHidden ? `Click để hiện máy "${machineLabel}"` : `Click để ẩn máy "${machineLabel}"`}
                                                             >
-                                                                {machine}
+                                                                {machineLabel}
                                                             </span>
                                                         )
                                                     })
@@ -316,30 +403,37 @@ export default function GameChannelsPage() {
                                         </td>
                                         <td>
                                             <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                <button
-                                                    type="button"
-                                                    className="account-password-btn"
-                                                    style={{
-                                                        color: '#4f46e5',
-                                                        borderColor: 'rgba(99, 102, 241, 0.4)',
-                                                        background: 'rgba(99, 102, 241, 0.05)'
-                                                    }}
-                                                    onClick={() => handleOpenEdit(assignment.game, assignment.machines)}
-                                                >
-                                                    Sửa
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="account-password-btn"
-                                                    style={{
-                                                        color: '#ef4444',
-                                                        borderColor: 'rgba(239, 68, 68, 0.4)',
-                                                        background: 'rgba(239, 68, 68, 0.05)'
-                                                    }}
-                                                    onClick={() => handleDeleteChannel(assignment.game)}
-                                                >
-                                                    Xóa
-                                                </button>
+                                                {canEdit && (
+                                                    <button
+                                                        type="button"
+                                                        className="account-password-btn"
+                                                        style={{
+                                                            color: '#4f46e5',
+                                                            borderColor: 'rgba(99, 102, 241, 0.4)',
+                                                            background: 'rgba(99, 102, 241, 0.05)'
+                                                        }}
+                                                        onClick={() => handleOpenEdit(assignment.game, assignment.machines)}
+                                                    >
+                                                        Sửa
+                                                    </button>
+                                                )}
+                                                {canDelete && (
+                                                    <button
+                                                        type="button"
+                                                        className="account-password-btn"
+                                                        style={{
+                                                            color: '#ef4444',
+                                                            borderColor: 'rgba(239, 68, 68, 0.4)',
+                                                            background: 'rgba(239, 68, 68, 0.05)'
+                                                        }}
+                                                        onClick={() => handleDeleteChannel(assignment.game)}
+                                                    >
+                                                        Xóa
+                                                    </button>
+                                                )}
+                                                {!canEdit && !canDelete && (
+                                                    <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic' }}>—</span>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>
@@ -437,9 +531,9 @@ export default function GameChannelsPage() {
                                             overflowY: 'auto'
                                         }}
                                     >
-                                        {allMachineNames.map(name => (
+                                        {pcMachines.map(({ key, label }) => (
                                             <label
-                                                key={name}
+                                                key={key}
                                                 style={{
                                                     display: 'flex',
                                                     alignItems: 'center',
@@ -450,17 +544,17 @@ export default function GameChannelsPage() {
                                                     userSelect: 'none',
                                                     padding: '0.2rem 0.4rem',
                                                     borderRadius: '6px',
-                                                    background: selectedMachines.includes(name) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                                    background: selectedMachines.includes(key) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
                                                 }}
                                             >
                                                 <input
                                                     type="checkbox"
-                                                    checked={selectedMachines.includes(name)}
-                                                    onChange={() => handleToggleMachineSelection(name)}
+                                                    checked={selectedMachines.includes(key)}
+                                                    onChange={() => handleToggleMachineSelection(key)}
                                                     style={{ accentColor: '#4f46e5', width: '14px', height: '14px', cursor: 'pointer' }}
                                                 />
-                                                <span style={{ fontWeight: selectedMachines.includes(name) ? 700 : 500 }}>
-                                                    {name}
+                                                <span style={{ fontWeight: selectedMachines.includes(key) ? 700 : 500 }}>
+                                                    {label}
                                                 </span>
                                             </label>
                                         ))}
@@ -490,9 +584,11 @@ export default function GameChannelsPage() {
                                             overflowY: 'auto'
                                         }}
                                     >
-                                        {mobileDevices.map(name => (
+                                        {mobileDevices.map(opt => {
+                                            const checked = isMobileSelected(opt)
+                                            return (
                                             <label
-                                                key={name}
+                                                key={opt.key}
                                                 style={{
                                                     display: 'flex',
                                                     alignItems: 'center',
@@ -503,20 +599,21 @@ export default function GameChannelsPage() {
                                                     userSelect: 'none',
                                                     padding: '0.2rem 0.4rem',
                                                     borderRadius: '6px',
-                                                    background: selectedMachines.includes(name) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                                    background: checked ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
                                                 }}
                                             >
                                                 <input
                                                     type="checkbox"
-                                                    checked={selectedMachines.includes(name)}
-                                                    onChange={() => handleToggleMachineSelection(name)}
+                                                    checked={checked}
+                                                    onChange={() => handleToggleMobileSelection(opt)}
                                                     style={{ accentColor: '#10b981', width: '14px', height: '14px', cursor: 'pointer' }}
                                                 />
-                                                <span style={{ fontWeight: selectedMachines.includes(name) ? 700 : 500 }}>
-                                                    {name}
+                                                <span style={{ fontWeight: checked ? 700 : 500 }}>
+                                                    {opt.label}
                                                 </span>
                                             </label>
-                                        ))}
+                                            )
+                                        })}
                                     </div>
                                 )}
                             </div>
@@ -632,9 +729,9 @@ export default function GameChannelsPage() {
                                             overflowY: 'auto'
                                         }}
                                     >
-                                        {allMachineNames.map(name => (
+                                        {pcMachines.map(({ key, label }) => (
                                             <label
-                                                key={name}
+                                                key={key}
                                                 style={{
                                                     display: 'flex',
                                                     alignItems: 'center',
@@ -645,17 +742,17 @@ export default function GameChannelsPage() {
                                                     userSelect: 'none',
                                                     padding: '0.2rem 0.4rem',
                                                     borderRadius: '6px',
-                                                    background: selectedMachines.includes(name) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                                    background: selectedMachines.includes(key) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
                                                 }}
                                             >
                                                 <input
                                                     type="checkbox"
-                                                    checked={selectedMachines.includes(name)}
-                                                    onChange={() => handleToggleMachineSelection(name)}
+                                                    checked={selectedMachines.includes(key)}
+                                                    onChange={() => handleToggleMachineSelection(key)}
                                                     style={{ accentColor: '#4f46e5', width: '14px', height: '14px', cursor: 'pointer' }}
                                                 />
-                                                <span style={{ fontWeight: selectedMachines.includes(name) ? 700 : 500 }}>
-                                                    {name}
+                                                <span style={{ fontWeight: selectedMachines.includes(key) ? 700 : 500 }}>
+                                                    {label}
                                                 </span>
                                             </label>
                                         ))}
@@ -685,9 +782,11 @@ export default function GameChannelsPage() {
                                             overflowY: 'auto'
                                         }}
                                     >
-                                        {mobileDevices.map(name => (
+                                        {mobileDevices.map(opt => {
+                                            const checked = isMobileSelected(opt)
+                                            return (
                                             <label
-                                                key={name}
+                                                key={opt.key}
                                                 style={{
                                                     display: 'flex',
                                                     alignItems: 'center',
@@ -698,25 +797,107 @@ export default function GameChannelsPage() {
                                                     userSelect: 'none',
                                                     padding: '0.2rem 0.4rem',
                                                     borderRadius: '6px',
-                                                    background: selectedMachines.includes(name) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                                    background: checked ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
                                                 }}
                                             >
                                                 <input
                                                     type="checkbox"
-                                                    checked={selectedMachines.includes(name)}
-                                                    onChange={() => handleToggleMachineSelection(name)}
+                                                    checked={checked}
+                                                    onChange={() => handleToggleMobileSelection(opt)}
                                                     style={{ accentColor: '#10b981', width: '14px', height: '14px', cursor: 'pointer' }}
                                                 />
-                                                <span style={{ fontWeight: selectedMachines.includes(name) ? 700 : 500 }}>
-                                                    {name}
+                                                <span style={{ fontWeight: checked ? 700 : 500 }}>
+                                                    {opt.label}
                                                 </span>
                                             </label>
-                                        ))}
+                                            )
+                                        })}
                                     </div>
                                 )}
                             </div>
                         </div>
                     </div>
+
+                    {offlineMachines.length > 0 && (
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '0.25rem' }}>
+                                Thiết bị đang offline ({offlineMachines.length})
+                            </label>
+                            <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '0 0 0.5rem' }}>
+                                Đang được gán vào kênh nhưng hiện không online. Vẫn giữ trong kênh; nhấn ✕ nếu muốn gỡ.
+                            </p>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                                {offlineMachines.map(({ key, label }) => (
+                                    <span
+                                        key={key}
+                                        style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.35rem',
+                                            fontSize: '0.72rem',
+                                            fontWeight: 600,
+                                            padding: '0.2rem 0.55rem',
+                                            borderRadius: '6px',
+                                            background: '#f1f5f9',
+                                            color: '#475569',
+                                            border: '1px solid #cbd5e1'
+                                        }}
+                                        title={`${label} (${key})`}
+                                    >
+                                        {label}
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRemoveOrphan(key)}
+                                            style={{ border: 'none', background: 'transparent', color: '#64748b', cursor: 'pointer', fontWeight: 800, lineHeight: 1, padding: 0 }}
+                                            title="Gỡ khỏi kênh"
+                                        >
+                                            ✕
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {staleMachines.length > 0 && (
+                        <div>
+                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#dc2626', marginBottom: '0.25rem' }}>
+                                Mục cũ / đã đổi tên ({staleMachines.length})
+                            </label>
+                            <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '0 0 0.5rem' }}>
+                                Các mục này không còn khớp thiết bị nào. Nhấn ✕ để gỡ và tick lại thiết bị hiện tại ở trên.
+                            </p>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                                {staleMachines.map(name => (
+                                    <span
+                                        key={name}
+                                        style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '0.35rem',
+                                            fontSize: '0.72rem',
+                                            fontWeight: 600,
+                                            padding: '0.2rem 0.55rem',
+                                            borderRadius: '6px',
+                                            background: 'rgba(239, 68, 68, 0.08)',
+                                            color: '#dc2626',
+                                            border: '1px solid rgba(239, 68, 68, 0.25)'
+                                        }}
+                                    >
+                                        {name}
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRemoveOrphan(name)}
+                                            style={{ border: 'none', background: 'transparent', color: '#dc2626', cursor: 'pointer', fontWeight: 800, lineHeight: 1, padding: 0 }}
+                                            title="Gỡ mục này"
+                                        >
+                                            ✕
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
                         <button

@@ -9,6 +9,9 @@ import {
 } from '../services/api'
 import { showToast } from '../components/ui/Toast'
 import Dialog from '../components/ui/Dialog'
+import { hasActionPermission } from '../services/auth'
+
+const MODULE_KEY = 'CreateWebURL'
 
 const AVAILABLE_FEATURES = [
     { id: 'Tổng quan', label: 'Tổng quan' },
@@ -25,6 +28,10 @@ const AVAILABLE_FEATURES = [
 
 export default function CreateWebUrlPage() {
     const { allRows, gameAssignments } = useDashboardContext()
+
+    const canAdd = hasActionPermission(MODULE_KEY, 'add')
+    const canEdit = hasActionPermission(MODULE_KEY, 'edit')
+    const canDelete = hasActionPermission(MODULE_KEY, 'delete')
 
     const games = useMemo(() => {
         const list = [
@@ -215,15 +222,17 @@ export default function CreateWebUrlPage() {
                     <h2 className="page-title text-lg font-black text-slate-800 dark:text-slate-100">Cấu hình URL Web Chia Sẻ (CreateWebURL)</h2>
                     <p className="page-description text-slate-500 text-xs">Tạo hoặc sửa đổi các liên kết xem trực tiếp không cần tài khoản đăng nhập và ẩn Sidebar bên trái.</p>
                 </div>
-                <button
-                    onClick={handleOpenCreateDialog}
-                    className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-1.5 transition-colors shrink-0 shadow-md shadow-purple-500/10"
-                >
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                    Tạo URL Mới
-                </button>
+                {canAdd && (
+                    <button
+                        onClick={handleOpenCreateDialog}
+                        className="bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl flex items-center gap-1.5 transition-colors shrink-0 shadow-md shadow-purple-500/10"
+                    >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                        </svg>
+                        Tạo URL Mới
+                    </button>
+                )}
             </div>
 
             {/* List of existing links */}
@@ -302,20 +311,24 @@ export default function CreateWebUrlPage() {
                                                         >
                                                             Copy
                                                         </button>
-                                                        <button
-                                                            onClick={() => handleOpenEditDialog(link)}
-                                                            className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold rounded-lg transition-colors"
-                                                            title="Sửa cấu hình"
-                                                        >
-                                                            Sửa
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleDeleteLink(link.uuid)}
-                                                            className="px-2 py-1 bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-bold rounded-lg transition-colors"
-                                                            title="Thu hồi liên kết"
-                                                        >
-                                                            Thu hồi
-                                                        </button>
+                                                        {canEdit && (
+                                                            <button
+                                                                onClick={() => handleOpenEditDialog(link)}
+                                                                className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold rounded-lg transition-colors"
+                                                                title="Sửa cấu hình"
+                                                            >
+                                                                Sửa
+                                                            </button>
+                                                        )}
+                                                        {canDelete && (
+                                                            <button
+                                                                onClick={() => handleDeleteLink(link.uuid)}
+                                                                className="px-2 py-1 bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-bold rounded-lg transition-colors"
+                                                                title="Thu hồi liên kết"
+                                                            >
+                                                                Thu hồi
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </td>
                                             </tr>
