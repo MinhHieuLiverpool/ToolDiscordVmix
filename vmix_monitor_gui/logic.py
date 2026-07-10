@@ -334,6 +334,7 @@ class VmixMonitorLogicMixin:
                                             "ip": current_ip,
                                             "ipwan": ipwan,
                                             "ping": "—",
+                                            "ping_isp": "—",
                                             "timeout": "0",
                                             "cpu": "—",
                                             "memory": "—",
@@ -502,6 +503,7 @@ class VmixMonitorLogicMixin:
                 entry_ip = entry_data.get("ip", ip)
                 ipwan = entry_data.get("ipwan", "unknown")
                 ping = entry_data.get("ping", None)
+                ping_isp = entry_data.get("ping_isp", None)
                 memory = entry_data.get("memory", None)
                 cpu = entry_data.get("cpu", None)
                 gpu = entry_data.get("gpu", None)
@@ -535,6 +537,7 @@ class VmixMonitorLogicMixin:
                                 "ip": entry_ip,
                                 "ipwan": ipwan,
                                 "ping": f"{ping:.0f}" if ping is not None else "—",
+                                "ping_isp": f"{ping_isp:.0f}" if ping_isp is not None else "—",
                                 "cpu": f"{cpu:.1f}" if cpu is not None else "—",
                                 "memory": f"{memory:.1f}" if memory is not None else "—",
                                 "gpu": f"{gpu:.1f}" if gpu is not None else "—",
@@ -831,6 +834,69 @@ class VmixMonitorLogicMixin:
                 else:
                     self.ping_timeout_count = 0
             time.sleep(3)
+
+    @staticmethod
+    def _is_private_ip(ip: str) -> bool:
+        """True nếu IP thuộc dải nội bộ/không phải ISP (private, loopback, link-local, CGNAT)."""
+        try:
+            import ipaddress
+            addr = ipaddress.ip_address(ip)
+            return addr.is_private or addr.is_loopback or addr.is_link_local
+        except Exception:
+            return True
+
+    def _resolve_isp_hop(self, target: str = "8.8.8.8"):
+        """Dùng tracert tìm hop ISP = IP public đầu tiên sau router nội bộ."""
+        try:
+            result = subprocess.run(
+                ["tracert", "-d", "-h", "6", "-w", "1000", target],
+                capture_output=True,
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=30,
+            )
+            for line in result.stdout.splitlines():
+                s = line.strip()
+                # Chỉ xét dòng hop thật (bắt đầu bằng số thứ tự hop), bỏ tiêu đề
+                if not s or not s[0].isdigit():
+                    continue
+                ips = re.findall(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", line)
+                if not ips:
+                    continue
+                ip = ips[-1]  # IP của hop nằm cuối dòng
+                if ip == target:
+                    continue
+                if not self._is_private_ip(ip):
+                    return ip
+        except Exception:
+            pass
+        return ""
+
+    def _ping_isp_bg_loop(self):
+        """Đo ping từ máy đến ISP (hop public đầu tiên) mỗi 30s, lưu DB + hiển thị UI."""
+        # Chờ mạng sẵn sàng trước khi tracert
+        time.sleep(3)
+        while True:
+            now = time.time()
+            # Resolve/refresh hop ISP mỗi 10 phút hoặc khi chưa có
+            if not self._isp_hop_ip or (now - self._isp_hop_ts) > 600:
+                hop = self._resolve_isp_hop()
+                if hop:
+                    self._isp_hop_ip = hop
+                    self._isp_hop_ts = now
+                    self.log(f"🌐 ISP hop: {hop}")
+
+            hop_ip = self._isp_hop_ip
+            val = self.measure_ping(host=hop_ip) if hop_ip else None
+            with self._ping_lock:
+                self._ping_isp_ms = val
+            disp = f"{val:.0f}" if val is not None else "—"
+            self.log(f"🌐 Ping ISP ({hop_ip or '—'}): {disp} ms")
+            try:
+                self.root.after(0, lambda d=disp: self._set_ping_isp_label(d))
+            except Exception:
+                pass
+            time.sleep(30)
 
     def is_network_offline(self) -> bool:
         with self._ping_lock:
@@ -2871,6 +2937,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
             return
 
         wan_ip = self.get_wan_ip()
+        self._current_wan_ip = wan_ip or ""
         self.root.after(0, lambda: self.wan_ip_var.set(wan_ip or "—"))
         prev_status = {}
         last_wan_check = datetime.now(VIETNAM_TZ)
@@ -2901,6 +2968,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                 if new_wan != wan_ip:
                     self.log(f"🌐 WAN IP thay đổi: {wan_ip} → {new_wan}")
                     wan_ip = new_wan
+                    self._current_wan_ip = new_wan or ""
                     self.root.after(0, lambda w=new_wan: self.wan_ip_var.set(w or "—"))
                     for entry in self.port_list:
                         entry["ipwan"] = new_wan
@@ -2909,6 +2977,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
 
             with self._ping_lock:
                 ping_ms = self._ping_ms
+                ping_isp_ms = self._ping_isp_ms
             cpu_pct = self.measure_cpu()
             mem_pct = self.measure_memory()
             gpu_pct = self.measure_gpu()
@@ -2920,6 +2989,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
 
             vmix_stats = self.get_vmix_stats()
             ping_str = f"{ping_ms:.0f}" if ping_ms is not None else "—"
+            ping_isp_str = f"{ping_isp_ms:.0f}" if ping_isp_ms is not None else "—"
             timeout_str = str(self.ping_timeout_count)
             cpu_str = f"{cpu_pct:.1f}" if cpu_pct is not None else "—"
             mem_str = f"{mem_pct:.1f}" if mem_pct is not None else "—"
@@ -2947,6 +3017,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                 srt_str = srt_by_port.get(port, srt_fallback)
 
                 entry["ping"] = ping_str
+                entry["ping_isp"] = ping_isp_str
                 entry["timeout"] = timeout_str
                 entry["cpu"] = cpu_str
                 entry["memory"] = mem_str
@@ -3014,6 +3085,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
                     "ipwan": wan_ip,
                     "statusapp": 1,
                     "ping": ping_ms,
+                    "ping_isp": ping_isp_ms,
                     "ping_timeouts": self.ping_timeout_count,
                     "temperature": cpu_pct,
                     "memory": mem_pct,
@@ -3056,6 +3128,7 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process |
 
             metrics_entry = {
                 "ping": ping_str,
+                "ping_isp": ping_isp_str,
                 "timeout": timeout_str,
                 "cpu": cpu_str,
                 "memory": mem_str,

@@ -27,6 +27,14 @@ const ICONS: Record<ToastType, string> = {
     danger: '✕',
 }
 
+const TOAST_CLASSES: Record<ToastType, string> = {
+    success: 'toast-success',
+    error: 'toast-error',
+    warning: 'toast-warning',
+    info: 'toast-info',
+    danger: 'toast-danger',
+}
+
 function ToastCard({ item, onRemove }: { item: ToastItem; onRemove: (id: number) => void }) {
     const [exiting, setExiting] = useState(false)
     const timerRef = useRef<number | null>(null)
@@ -44,7 +52,7 @@ function ToastCard({ item, onRemove }: { item: ToastItem; onRemove: (id: number)
     }, [item.duration, startExit])
 
     return (
-        <div className={`toast-card toast-${item.type} ${exiting ? 'toast-exit' : 'toast-enter'}`}>
+        <div className={`toast-card ${TOAST_CLASSES[item.type]} ${exiting ? 'toast-exit' : 'toast-enter'}`}>
             <span className="toast-icon">{ICONS[item.type]}</span>
             <span className="toast-msg">{item.message}</span>
             <button className="toast-close" type="button" onClick={startExit} aria-label="Close">

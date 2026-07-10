@@ -173,6 +173,7 @@ class VmixMonitorUIMixin:
         self._machine_labels = {}
         metrics_data = [
             ("Ping", "ping", "⏱️", "warning"),
+            ("Ping ISP", "ping_isp", "🌐", "warning"),
             ("Timeout", "timeout", "⚠️", "danger"),
             ("CPU Load", "cpu", "🖥️", "info"),
             ("RAM Usage", "memory", "💾", "info"),
@@ -370,12 +371,21 @@ class VmixMonitorUIMixin:
         self.log_text = scrolledtext.ScrolledText(log_card, height=6, bg="#121212", fg="#00ffcc", font=("Consolas", 10), state=tk.DISABLED, wrap=tk.WORD, border=0)
         self.log_text.pack(fill=BOTH, expand=YES)
 
+    def _set_ping_isp_label(self, text: str):
+        """Cập nhật riêng card Ping ISP (đo nền mỗi 30s, độc lập monitor_loop)."""
+        if not hasattr(self, "_machine_labels"):
+            return
+        lbl = self._machine_labels.get("ping_isp")
+        if lbl:
+            lbl.config(text=str(text))
+
     def _update_machine_cards(self, entry: dict):
         """Update the machine status info cards from a port_list entry."""
         if not hasattr(self, "_machine_labels"):
             return
         mapping = {
             "ping": entry.get("ping", "—"),
+            "ping_isp": entry.get("ping_isp", "—"),
             "timeout": entry.get("timeout", "0"),
             "cpu": entry.get("cpu", "—"),
             "memory": entry.get("memory", "—"),

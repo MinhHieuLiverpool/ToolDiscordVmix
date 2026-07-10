@@ -472,8 +472,9 @@
     color: #dc2626;
     font-weight: 600;
   }
+}
 
-  /* ═══════════════════ TOAST SYSTEM ═══════════════════ */
+/* ═══════════════════ TOAST SYSTEM ═══════════════════ */
 
   @keyframes toastSlideIn {
     from {
@@ -636,6 +637,7 @@
     color: #ffffff !important;
   }
 
+@layer components {
   /* ═══════════════════ HEADER ═══════════════════ */
   .dashboard-header {
     background: #fff;

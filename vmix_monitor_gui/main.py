@@ -51,6 +51,11 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
         self.http_session = _req.Session()
         self._ping_ms = None
         self._ping_lock = threading.Lock()
+        # Ping tới ISP (hop public đầu tiên sau router) đo mỗi 30s, lưu vào DB
+        self._ping_isp_ms = None
+        self._current_wan_ip = ""
+        self._isp_hop_ip = ""      # IP hop ISP đã tìm được (cache)
+        self._isp_hop_ts = 0.0     # thời điểm resolve gần nhất
         try:
             import psutil as _ps
 
@@ -99,12 +104,14 @@ class VmixMonitorGUI(VmixMonitorUIMixin, VmixMonitorLogicMixin):
         self.check_log_queue()
         threading.Thread(target=self._resolve_local_ip_and_load_async, daemon=True).start()
         threading.Thread(target=self._ping_bg_loop, daemon=True).start()
+        threading.Thread(target=self._ping_isp_bg_loop, daemon=True).start()
         # Auto-start SRT external output scanning
         self.auto_scan_srt()
 
     def _resolve_local_ip_and_load_async(self):
         local_ip = self.get_local_ip()
         wan_ip = self.get_wan_ip()
+        self._current_wan_ip = wan_ip or ""
 
         def _apply_ip_then_load():
             self.ip_var.set(local_ip)

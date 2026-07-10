@@ -537,6 +537,7 @@ def _zero_out_metrics_if_offline(doc: dict):
     """Clean all metrics to 0 or OFF when the app is offline (statusapp != 1)"""
     if doc.get("statusapp", 0) != 1:
         doc["ping"] = 0
+        doc["ping_isp"] = 0
         doc["ping_timeouts"] = 0
         doc["temperature"] = 0
         doc["cpu"] = 0
@@ -609,6 +610,7 @@ async def receive_data(data: dict):
             "ipwan":       data.get('ipwan', ''),
             "statusapp":   data.get('statusapp', 0),
             "ping":        data.get('ping'),
+            "ping_isp":    data.get('ping_isp'),
             "ping_timeouts": data.get('ping_timeouts', 0),
             "temperature": data.get('temperature', data.get('cpu')),
             "memory":      data.get('memory', data.get('ram')),
