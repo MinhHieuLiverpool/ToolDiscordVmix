@@ -206,8 +206,8 @@ export default function MachineStatusCard({
                     <span className="info-value mono">{item.data.ipwan || '-'}</span>
                 </div>
                 <div className="info-row">
-                    <span className="info-label">REC | LIVE | MULTI</span>
-                    <span className="info-value">{onOff(recOn)} | {onOff(liveOn)} | {onOff(multiRecOn)}</span>
+                    <span className="info-label">REC | LIVE | MULTI | EXT</span>
+                    <span className="info-value">{onOff(recOn)} | {onOff(liveOn)} | {onOff(multiRecOn)} | {onOff(extOn)}</span>
                 </div>
             </div>
 
@@ -243,8 +243,8 @@ export default function MachineStatusCard({
                     <div className="metric-value metric-cpu">{item.data.ping_timeouts ?? 0}</div>
                 </div>
                 <div className="metric-box">
-                    <div className="metric-label">EXT</div>
-                    <div className={`metric-value ${extOn ? 'metric-ping' : 'metric-cpu'}`}>{onOff(extOn)}</div>
+                    <div className="metric-label">Ping ISP</div>
+                    <div className="metric-value metric-ping">{item.data.ping_isp ?? '-'}</div>
                 </div>
             </div>
 

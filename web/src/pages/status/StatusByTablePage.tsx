@@ -88,6 +88,7 @@ export default function StatusByTablePage({
                   <th>port</th>
                   <th>APP</th>
                   <th>ping</th>
+                  <th>Ping ISP</th>
                   <th>ping_timeouts</th>
                   <th>CPU</th>
                   <th>RAM</th>
@@ -132,6 +133,7 @@ export default function StatusByTablePage({
                         </span>
                       </td>
                       <td>{String(item.data.ping ?? '-')}</td>
+                      <td>{String(item.data.ping_isp ?? '-')}</td>
                       <td>{String(item.data.ping_timeouts ?? 0)}</td>
                       <td>{formatNumber(item.data.temperature ?? item.data.cpu)}%</td>
                       <td>{formatNumber(item.data.memory ?? item.data.ram)}%</td>

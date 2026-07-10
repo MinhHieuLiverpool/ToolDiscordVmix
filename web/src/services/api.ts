@@ -85,6 +85,7 @@ export interface BackendLogItem {
     port?: number | string
     statusapp: number
     ping: number | string | null
+    ping_isp?: number | string | null
     ping_timeouts: number
     cpu?: number | string | null
     temperature?: number | string | null
