@@ -45,11 +45,23 @@ const DEFAULT_PARAMETERS = [
   { parameter: 'gpu', label: 'Sử dụng GPU quá cao (Desktop %)', operator: '>', defaultValue: '90' },
   { parameter: 'fps', label: 'Khung hình FPS quá thấp (Mobile)', operator: '<', defaultValue: '40' },
   { parameter: 'packetLoss', label: 'Mất gói Packet Loss quá cao (Mobile %)', operator: '>', defaultValue: '5' },
+  { parameter: 'networkChange', label: 'Đổi loại mạng (Mobile: LAN/WiFi/4G)', operator: '=', defaultValue: 'any' },
   { parameter: 'status', label: 'Trạng thái luồng SRT bị ngắt (OFF)', operator: '=', defaultValue: 'OFF' },
   { parameter: 'vmix_recording', label: 'Dừng Ghi hình vMix (Record OFF)', operator: '=', defaultValue: 'False' },
   { parameter: 'vmix_streaming', label: 'Dừng Phát sóng vMix (Stream OFF)', operator: '=', defaultValue: 'False' },
   { parameter: 'vmix_external', label: 'Tắt External Output vMix', operator: '=', defaultValue: 'False' },
   { parameter: 'vmix_multicorder', label: 'Tắt MultiCorder vMix', operator: '=', defaultValue: 'False' },
+]
+
+// State-transition parameters use a single dropdown instead of operator + value.
+const NETWORK_TRANSITIONS = [
+  { value: 'any', label: 'Bất kỳ thay đổi nào' },
+  { value: 'lan>wifi', label: 'LAN → WiFi' },
+  { value: 'lan>mobile', label: 'LAN → Mạng di động' },
+  { value: 'wifi>lan', label: 'WiFi → LAN' },
+  { value: 'wifi>mobile', label: 'WiFi → Mạng di động' },
+  { value: 'mobile>lan', label: 'Mạng di động → LAN' },
+  { value: 'mobile>wifi', label: 'Mạng di động → WiFi' },
 ]
 
 export default function NotificationPage() {
@@ -920,31 +932,48 @@ export default function NotificationPage() {
                                   Key: {p.parameter}
                                 </span>
                               </td>
-                              <td className="py-2.5 px-3">
-                                <select
-                                  value={state.operator}
-                                  disabled={!state.enabled}
-                                  onChange={(e) => handleRuleStateChange(p.parameter, 'operator', e.target.value)}
-                                  className="w-full px-1.5 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-bold text-[11px] disabled:opacity-50"
-                                >
-                                  <option value="=">=</option>
-                                  <option value="!=">!=</option>
-                                  <option value=">">&gt;</option>
-                                  <option value="<">&lt;</option>
-                                  <option value=">=">&gt;=</option>
-                                  <option value="<=">&lt;=</option>
-                                </select>
-                              </td>
-                              <td className="py-2.5 px-3">
-                                <input
-                                  type="text"
-                                  required={state.enabled}
-                                  disabled={!state.enabled}
-                                  value={state.value}
-                                  onChange={(e) => handleRuleStateChange(p.parameter, 'value', e.target.value)}
-                                  className="w-full px-2 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-[11px] font-mono font-bold disabled:opacity-50"
-                                />
-                              </td>
+                              {p.parameter === 'networkChange' ? (
+                                <td className="py-2.5 px-3" colSpan={2}>
+                                  <select
+                                    value={state.value}
+                                    disabled={!state.enabled}
+                                    onChange={(e) => handleRuleStateChange(p.parameter, 'value', e.target.value)}
+                                    className="w-full px-2 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-bold text-[11px] disabled:opacity-50"
+                                  >
+                                    {NETWORK_TRANSITIONS.map(t => (
+                                      <option key={t.value} value={t.value}>{t.label}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                              ) : (
+                                <>
+                                  <td className="py-2.5 px-3">
+                                    <select
+                                      value={state.operator}
+                                      disabled={!state.enabled}
+                                      onChange={(e) => handleRuleStateChange(p.parameter, 'operator', e.target.value)}
+                                      className="w-full px-1.5 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-bold text-[11px] disabled:opacity-50"
+                                    >
+                                      <option value="=">=</option>
+                                      <option value="!=">!=</option>
+                                      <option value=">">&gt;</option>
+                                      <option value="<">&lt;</option>
+                                      <option value=">=">&gt;=</option>
+                                      <option value="<=">&lt;=</option>
+                                    </select>
+                                  </td>
+                                  <td className="py-2.5 px-3">
+                                    <input
+                                      type="text"
+                                      required={state.enabled}
+                                      disabled={!state.enabled}
+                                      value={state.value}
+                                      onChange={(e) => handleRuleStateChange(p.parameter, 'value', e.target.value)}
+                                      className="w-full px-2 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-[11px] font-mono font-bold disabled:opacity-50"
+                                    />
+                                  </td>
+                                </>
+                              )}
                               <td className="py-2.5 px-3">
                                 <input
                                   type="number"

@@ -524,6 +524,9 @@
     pointer-events: auto;
     min-width: 280px;
     background: #fff;
+    /* Prevent Windows High Contrast / Forced Colors mode from overriding toast colors */
+    forced-color-adjust: none;
+    -ms-high-contrast-adjust: none;
   }
 
   .toast-enter {

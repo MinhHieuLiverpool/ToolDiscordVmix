@@ -3176,10 +3176,12 @@ async def _mongo_delete_srt_statuses(wh_id: str):
 
 def check_condition(current_val, operator, target_val):
     try:
-        # Convert target value to standard boolean if it matches true/false string
-        if str(target_val).lower() == 'true':
+        # Convert target value to standard boolean if it matches a boolean-like string.
+        # Note: we deliberately do NOT map '0'/'1' here so numeric thresholds keep working.
+        _tv = str(target_val).strip().lower()
+        if _tv in ('true', 'on', 'online'):
             target_val_typed = True
-        elif str(target_val).lower() == 'false':
+        elif _tv in ('false', 'off', 'offline'):
             target_val_typed = False
         else:
             target_val_typed = target_val
@@ -3378,6 +3380,36 @@ def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_
     
     now_str = datetime.now(VIETNAM_TZ).strftime("%d/%m/%Y %H:%M:%S")
 
+    # Network category change (edge-triggered): current_value is {"net_from", "net_to"}.
+    if param == "networkChange" and isinstance(current_value, dict):
+        from_cat = current_value.get("net_from", "")
+        to_cat = current_value.get("net_to", "")
+        from_lbl = NET_CATEGORY_LABELS.get(from_cat, from_cat)
+        to_lbl = NET_CATEGORY_LABELS.get(to_cat, to_cat)
+        if w_type == "Discord":
+            content = (
+                f"🔄 **THIẾT BỊ ĐỔI LOẠI MẠNG**\n"
+                f"• **Thiết bị:** `{device_name}`\n"
+                f"• **Thay đổi:** {from_lbl} → {to_lbl}\n"
+                f"• **Thời gian:** `{now_str}`"
+            )
+        else:
+            content = (
+                f"🔄 **THIẾT BỊ ĐỔI LOẠI MẠNG**\n\n"
+                f"• **Thiết bị:** **{device_name}**\n\n"
+                f"• **Thay đổi:** {from_lbl} → {to_lbl}\n\n"
+                f"• **Thời gian:** *{now_str}*"
+            )
+        try:
+            if w_type == "Discord":
+                resp = requests.post(w_url, json={"content": content}, timeout=5)
+            else:
+                resp = requests.post(w_url, json={"tag": "markdown", "markdown": {"content": content}}, timeout=5)
+            print(f"✓ Network change notification sent to {w_url[:30]}... status: {resp.status_code}")
+        except Exception as e:
+            print(f"Error sending network change alert: {e}")
+        return
+
     # If it is a status trigger for SRT, format exactly as requested:
     # [SRT][PC-POV-01] SRT OFF | IPWAN: 101.53.36.132 | PORT: 5001
     if param == "status" and isinstance(current_value, dict):
@@ -3466,6 +3498,7 @@ def send_webhook_enabled_notice(webhook: dict):
         "packetLoss": "Packet Loss cao",
         "batteryLevel": "Mức pin",
         "status": "Luồng SRT OFF",
+        "networkChange": "Đổi loại mạng",
         "vmix_recording": "Dừng ghi hình vMix",
         "vmix_streaming": "Dừng phát sóng vMix",
         "vmix_external": "Tắt External Output vMix",
@@ -3482,7 +3515,20 @@ def send_webhook_enabled_notice(webhook: dict):
         op = r.get("operator", "")
         val = r.get("value", "")
         unit = units.get(p, "")
-        cond_lines.append(f"{lbl} ({op} {val}{unit})")
+        if p == "networkChange":
+            tv = str(val or "any").strip().lower()
+            if tv in ("", "any"):
+                cond_lines.append(f"{lbl} (bất kỳ thay đổi nào)")
+            else:
+                parts = tv.split(">")
+                if len(parts) == 2:
+                    fl = NET_CATEGORY_LABELS.get(parts[0], parts[0])
+                    tl = NET_CATEGORY_LABELS.get(parts[1], parts[1])
+                    cond_lines.append(f"{lbl} ({fl} → {tl})")
+                else:
+                    cond_lines.append(f"{lbl} ({tv})")
+        else:
+            cond_lines.append(f"{lbl} ({op} {val}{unit})")
 
     devices = webhook.get("devices", []) or []
     if "all" in devices:
@@ -3539,6 +3585,7 @@ PARAM_DEVICE_SCOPE = {
     "fps": {"mobile"},
     "packetLoss": {"mobile"},
     "batteryLevel": {"mobile"},
+    "networkChange": {"mobile"},
     # PC / desktop-only
     "gpu": {"desktop"},
     "status": {"desktop"},
@@ -3547,6 +3594,24 @@ PARAM_DEVICE_SCOPE = {
     "vmix_external": {"desktop"},
     "vmix_multicorder": {"desktop"},
 }
+
+# Network category classification (mirror of web getNetworkCategory).
+NET_CATEGORY_LABELS = {"lan": "LAN", "wifi": "Wifi", "mobile": "Mạng di động", "other": "Khác"}
+
+def get_network_category(network_type):
+    net = str(network_type or "").lower()
+    if not net:
+        return "other"
+    if "lan" in net or "ethernet" in net:
+        return "lan"
+    if "wifi" in net or "wi-fi" in net:
+        return "wifi"
+    if any(k in net for k in ("mobile", "cellular", "4g", "5g", "3g", "lte")):
+        return "mobile"
+    return "other"
+
+# Tracks last seen network category per (webhook_id, device_id) for edge-triggered alerts.
+_last_network_categories = {}
 
 
 async def check_alerts_loop():
@@ -3656,17 +3721,26 @@ async def check_alerts_loop():
                             device_name = name_dev
                             
                             if param == "isOnline":
-                                ts_str = doc.get("timestamp", "")
-                                if ts_str:
-                                    try:
-                                        clean_ts = ts_str.replace("Z", "+00:00")
-                                        ts = datetime.fromisoformat(clean_ts)
-                                        now_utc = datetime.now(pytz.utc)
-                                        current_value = (now_utc - ts).total_seconds() < 25
-                                    except Exception:
-                                        current_value = False
-                                else:
+                                # Prefer statusapp (1 = ON, 0 = OFF) like desktop and the
+                                # Mobile Monitor UI; only fall back to timestamp freshness
+                                # when statusapp is missing.
+                                sa = doc.get("statusapp")
+                                if sa == 1:
+                                    current_value = True
+                                elif sa == 0:
                                     current_value = False
+                                else:
+                                    ts_str = doc.get("timestamp", "")
+                                    if ts_str:
+                                        try:
+                                            clean_ts = ts_str.replace("Z", "+00:00")
+                                            ts = datetime.fromisoformat(clean_ts)
+                                            now_utc = datetime.now(pytz.utc)
+                                            current_value = (now_utc - ts).total_seconds() < 25
+                                        except Exception:
+                                            current_value = False
+                                    else:
+                                        current_value = False
                             elif param == "batteryLevel":
                                 current_value = doc.get("batteryLevel")
                             elif param == "temperature":
@@ -3679,6 +3753,8 @@ async def check_alerts_loop():
                                 current_value = doc.get("cpuLoad")
                             elif param == "memory":
                                 current_value = doc.get("ramUsagePercent")
+                            elif param == "networkChange":
+                                current_value = get_network_category(doc.get("networkType"))
                             elif param in doc:
                                 current_value = doc.get(param)
                                 
@@ -3698,6 +3774,22 @@ async def check_alerts_loop():
                                     }
                                     break
                             is_triggered = matching
+                        elif param == "networkChange":
+                            # Edge-triggered: fire only when the network category actually
+                            # changes between polls. target_val selects which transition(s):
+                            #   "any" -> any change; "lan>wifi" etc -> that specific transition.
+                            net_key = f"{w_id}:{dev_id}"
+                            prev_cat = _last_network_categories.get(net_key)
+                            cur_cat = current_value
+                            _last_network_categories[net_key] = cur_cat
+                            is_triggered = False
+                            if (prev_cat is not None and prev_cat != cur_cat
+                                    and prev_cat != "other" and cur_cat != "other"):
+                                target = str(target_val or "any").strip().lower()
+                                transition = f"{prev_cat}>{cur_cat}"
+                                if target in ("", "any") or target == transition:
+                                    is_triggered = True
+                                    current_value = {"net_from": prev_cat, "net_to": cur_cat}
                         else:
                             is_triggered = check_condition(current_value, op, target_val)
                             
