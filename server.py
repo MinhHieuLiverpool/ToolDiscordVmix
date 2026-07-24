@@ -44,7 +44,10 @@ if not COLLECTION_NAME:
 if not DISCORD_WEBHOOK:
     DISCORD_WEBHOOK = getattr(_config, 'DISCORD_WEBHOOK', '') if _config else ''
 
-
+# ── Dev mode: disable all outbound notifications ──────────────────────────
+# Set environment variable DISABLE_NOTIFICATIONS=1 to suppress Discord/SeaTalk sends.
+def _notifications_enabled() -> bool:
+    return os.getenv('DISABLE_NOTIFICATIONS', '').strip().lower() not in ('1', 'true', 'yes', 'on')
 
 # Port configuration
 PORT = int(os.getenv('PORT', 8001))
@@ -152,6 +155,8 @@ try:
     if USE_TIMESERIES_STATS and _timeseries_available:
         print(f"✓ Time series statistics enabled: {STATISTICS_TS_COLLECTION}")
     print("✓ Connected to MongoDB successfully!")
+    if not _notifications_enabled():
+        print("⚠ Notifications DISABLED (DISABLE_NOTIFICATIONS=1)")
 except Exception as e:
     print(f"✗ MongoDB connection error: {e}")
     sys.exit(1)
@@ -251,6 +256,8 @@ def _normalize_payload_list(raw_value):
 def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port: str, status: str,
                                quality: str = "", srt_type: str = "", hostname: str = ""):
     """Gửi notification lên Discord & SeaTalk — per-webhook SRT config"""
+    if not _notifications_enabled():
+        return
     import json
     import os
     import requests
@@ -3233,6 +3240,8 @@ def check_condition(current_val, operator, target_val):
 
 def send_webhook_grouped_srt_status(webhook):
     """Gom toàn bộ danh sách SRT thành 1 tin nhắn duy nhất để gửi, tránh spam rate limit"""
+    if not _notifications_enabled():
+        return False
     import requests
     w_type = webhook.get("type", "Discord")
     w_url = webhook.get("url", "").strip()
@@ -3292,6 +3301,8 @@ def send_webhook_grouped_srt_status(webhook):
 
 def send_webhook_changed_srt_items(webhook, changed_items: list):
     """Gửi CHỈ những SRT stream bị thay đổi (status ON↔OFF hoặc IPWAN thay đổi)"""
+    if not _notifications_enabled():
+        return False
     import requests
     w_type = webhook.get("type", "Discord")
     w_url = webhook.get("url", "").strip()
@@ -3334,6 +3345,8 @@ def send_webhook_changed_srt_items(webhook, changed_items: list):
         return False
 
 def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_status: str, current_value):
+    if not _notifications_enabled():
+        return
     import requests
     from datetime import datetime
     
@@ -4239,9 +4252,21 @@ def run_server():
 
     use_colors = _supports_ansi_colors()
 
-    print(f"🚀 Starting WebSocket server on http://localhost:{PORT}")
-    print(f"📡 WebSocket endpoint: ws://localhost:{PORT}/ws")
-    print(f"🔌 REST API endpoint: http://localhost:{PORT}/")
+    import socket
+    def _get_lan_ip():
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
+
+    lan_ip = _get_lan_ip()
+    print(f"🚀 Starting Server on http://{lan_ip}:{PORT} (Local: http://localhost:{PORT})")
+    print(f"📡 WebSocket endpoint: ws://{lan_ip}:{PORT}/ws")
+    print(f"🔌 REST API endpoint: http://{lan_ip}:{PORT}/")
     if not use_colors:
         print("ℹ ANSI colors are not supported on this console. Running logs without colors.")
     uvicorn.run(app, host="0.0.0.0", port=PORT, use_colors=use_colors)

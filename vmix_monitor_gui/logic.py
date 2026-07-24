@@ -14,12 +14,12 @@ from tkinter import messagebox
 import urllib.parse
 
 try:
-    from .shared import SERVER_URL, VIETNAM_TZ
+    from .shared import SERVER_URL, VIETNAM_TZ, set_setting
 except ImportError:
     try:
-        from vmix_monitor_gui.shared import SERVER_URL, VIETNAM_TZ
+        from vmix_monitor_gui.shared import SERVER_URL, VIETNAM_TZ, set_setting
     except ImportError:
-        from shared import SERVER_URL, VIETNAM_TZ
+        from shared import SERVER_URL, VIETNAM_TZ, set_setting
 
 
 class VmixMonitorLogicMixin:
@@ -42,7 +42,9 @@ class VmixMonitorLogicMixin:
         url = self.get_server_url()
         if hasattr(self, "server_url_var"):
             self.server_url_var.set(url)
-        self.log(f"🌐 Server URL: {url}")
+        # Persist to local JSON cache
+        set_setting("server_url", url)
+        self.log(f"🌐 Server URL: {url} (saved)")
 
     @staticmethod
     def _to_float_or_none(value) -> float | None:

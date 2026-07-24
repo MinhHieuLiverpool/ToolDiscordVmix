@@ -112,7 +112,7 @@ def build_executable(
 
     kill_running_exe(f"{exe_name}.exe")
     subprocess.run(cmd, check=True)
-    print(f"\n✅ {exe_name}.exe đã được tạo thành công trong thư mục 'dist'!")
+    print(f"\n[OK] {exe_name}.exe đã được tạo thành công trong thư mục 'dist'!")
 
 def build_vmix_monitor_exe():
     """Build file EXE cho Vmix Monitor GUI"""
@@ -184,6 +184,56 @@ def build_server_exe():
         hidden_imports=["pymongo", "requests", "pytz"],
     )
 
+def build_server_console_gui_exe():
+    """Build file EXE cho Server Console GUI (GUI chạy server với log viewer)"""
+    print("\n" + "="*50)
+    print("Building Server Console GUI...")
+    print("="*50 + "\n")
+    
+    ensure_importable("customtkinter")
+
+    build_executable(
+        exe_name="ServerConsoleGUI",
+        entry="server_console_gui",
+        windowed=True,
+        icon="assets/cloud-server.ico",
+        add_data=[
+            "config.py;.",
+            "server.py;.",
+            "assets/cloud-server.ico;assets",
+            "assets/cloud-server.png;assets",
+            "server_console_gui/cloud-server.png;server_console_gui",
+            "server_console_gui/cloud-server.ico;server_console_gui",
+            "server_console_gui/cloud-server-svgrepo-com.svg;server_console_gui",
+        ],
+        hidden_imports=[
+            "tkinter",
+            "customtkinter",
+            "pymongo",
+            "requests",
+            "pytz",
+            "uvicorn",
+            "uvicorn.logging",
+            "uvicorn.loops",
+            "uvicorn.loops.auto",
+            "uvicorn.protocols",
+            "uvicorn.protocols.http",
+            "uvicorn.protocols.http.auto",
+            "uvicorn.protocols.websockets",
+            "uvicorn.protocols.websockets.auto",
+            "uvicorn.lifespan",
+            "uvicorn.lifespan.on",
+            "uvicorn.lifespan.off",
+            "fastapi",
+            "starlette",
+            "websockets",
+            "redis",
+            "bson",
+        ],
+        collect_submodules=["server_console_gui", "customtkinter", "uvicorn", "fastapi", "starlette"],
+        collect_all=["customtkinter"],
+    )
+
 def main():
     """Main function"""
     print("="*60)
@@ -199,9 +249,10 @@ def main():
     print("2. ServerLogViewer (GUI xem log)")
     print("3. ServerConsole (Console server)")
     print("4. Build tất cả")
+    print("5. ServerConsoleGUI (GUI chạy server + log viewer)")
     print("0. Thoát")
     
-    choice = input("\nNhập lựa chọn (0-4): ").strip()
+    choice = input("\nNhập lựa chọn (0-5): ").strip()
     
     try:
         if choice == "1":
@@ -214,6 +265,9 @@ def main():
             build_vmix_monitor_exe()
             build_server_gui_exe()
             build_server_exe()
+            build_server_console_gui_exe()
+        elif choice == "5":
+            build_server_console_gui_exe()
         elif choice == "0":
             print("Thoát chương trình.")
             return
