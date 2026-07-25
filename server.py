@@ -1796,6 +1796,118 @@ async def update_name_edit(payload: dict):
         print(f"✗ Update name_edit error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
+@app.post("/delete_machine")
+async def delete_machine(payload: dict):
+    """Xóa toàn bộ thiết bị khỏi database và loại trừ khỏi các collection liên quan"""
+    try:
+        name = payload.get('name', '').strip()
+        if not name:
+            return JSONResponse(content={"success": False, "error": "Missing 'name' field"}, status_code=400)
+
+        loop = asyncio.get_event_loop()
+        deleted_counts = {}
+
+        # 1. Xóa khỏi collection chính (logs)
+        result = await loop.run_in_executor(
+            None,
+            lambda: collection.delete_many({"name": name})
+        )
+        deleted_counts["logs"] = result.deleted_count
+
+        # 2. Xóa khỏi statistics collection
+        try:
+            # statistics_id format: "ip:name" or just "name"
+            # Try to find matching statistics documents
+            stat_filter = {"id": {"$regex": f":{name}$"}}
+            stat_filter_name = {"id": name}
+            r1 = await loop.run_in_executor(
+                None,
+                lambda: statistics_collection.delete_many({"$or": [stat_filter, stat_filter_name]})
+            )
+            deleted_counts["statistics"] = r1.deleted_count
+        except Exception as ex:
+            print(f"  ⚠ Error deleting statistics for {name}: {ex}")
+            deleted_counts["statistics"] = 0
+
+        # 3. Xóa khỏi statistics_ts (time series)
+        try:
+            r2 = await loop.run_in_executor(
+                None,
+                lambda: statistics_ts_collection.delete_many({"meta.id": {"$regex": f":{name}$"}})
+            )
+            deleted_counts["statistics_ts"] = r2.deleted_count
+        except Exception as ex:
+            print(f"  ⚠ Error deleting statistics_ts for {name}: {ex}")
+            deleted_counts["statistics_ts"] = 0
+
+        # 4. Xóa khỏi statistic_hours
+        try:
+            r3 = await loop.run_in_executor(
+                None,
+                lambda: statistics_hours_collection.delete_many({"id": {"$regex": f":{name}$"}})
+            )
+            deleted_counts["statistic_hours"] = r3.deleted_count
+        except Exception as ex:
+            print(f"  ⚠ Error deleting statistic_hours for {name}: {ex}")
+            deleted_counts["statistic_hours"] = 0
+
+        # 5. Xóa khỏi debug_logs
+        try:
+            r4 = await loop.run_in_executor(
+                None,
+                lambda: debug_logs_collection.delete_many({"name": name})
+            )
+            deleted_counts["debug_logs"] = r4.deleted_count
+        except Exception as ex:
+            print(f"  ⚠ Error deleting debug_logs for {name}: {ex}")
+            deleted_counts["debug_logs"] = 0
+
+        # 6. Loại trừ khỏi tất cả Game_Selected (xóa tên máy khỏi mảng machines)
+        try:
+            r5 = await loop.run_in_executor(
+                None,
+                lambda: game_selected_collection.update_many(
+                    {"machines": name},
+                    {"$pull": {"machines": name, "hidden_machines": name}}
+                )
+            )
+            deleted_counts["game_channels_updated"] = r5.modified_count
+        except Exception as ex:
+            print(f"  ⚠ Error removing {name} from Game_Selected: {ex}")
+            deleted_counts["game_channels_updated"] = 0
+
+        # 7. Xóa khỏi in-memory caches
+        if name in _data_cache:
+            del _data_cache[name]
+
+        # Clear realtime stats cache entries matching this machine
+        keys_to_remove = [k for k in _realtime_stats_cache if k.endswith(f":{name}") or k == name]
+        for k in keys_to_remove:
+            _realtime_stats_cache.pop(k, None)
+            _realtime_stats_updated.pop(k, None)
+
+        # Clear tiered rollup buffers
+        for k in list(_stats_1m_buffer.keys()):
+            if k.endswith(f":{name}") or k == name:
+                _stats_1m_buffer.pop(k, None)
+        for k in list(_stats_5m_buffer.keys()):
+            if k.endswith(f":{name}") or k == name:
+                _stats_5m_buffer.pop(k, None)
+
+        print(f"✓ Deleted machine '{name}' - Counts: {deleted_counts}")
+
+        # Broadcast update to all WebSocket clients
+        await broadcast_updates()
+
+        return JSONResponse(content={
+            "success": True,
+            "deleted": deleted_counts,
+            "message": f"Đã xóa thiết bị '{name}' và toàn bộ dữ liệu liên quan"
+        })
+    except Exception as e:
+        print(f"✗ Delete machine error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
 @app.post("/update_ip")
 async def update_ip(payload: dict):
     """Update IP in MongoDB when machine IP changes"""

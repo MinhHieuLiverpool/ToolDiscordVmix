@@ -7,19 +7,23 @@ import {
     normalizeRecordList,
     normalizeMultiRecordList,
     updateNameEdit,
+    deleteMachine,
     type BackendLogItem,
 } from '../services/api'
 import Dialog from './ui/Dialog'
 import { renderSrtCard, renderStreamCard, renderRecordCard, renderMultiRecordCard } from './DialogHelpers'
 import { hasActionPermission } from '../services/auth'
+import { showToast } from './ui/Toast'
 
 
 export default function MachineStatusCard({
     item,
     index,
+    isEditMode = false,
 }: {
     item: BackendLogItem
     index: number
+    isEditMode?: boolean
 }) {
     const canEditName = hasActionPermission('Tổng quan', 'edit')
     const isOn = (value: unknown): boolean => ['ONLINE', 'ON', '1', 'TRUE', 'RUNNING', 'LIVE', 'ACTIVE'].includes(String(value || '').toUpperCase())
@@ -66,6 +70,8 @@ export default function MachineStatusCard({
     const [isEditing, setIsEditing] = useState(false)
     const [editedName, setEditedName] = useState(item.data.name_edit || '')
     const [isSaving, setIsSaving] = useState(false)
+    const [isDeleting, setIsDeleting] = useState(false)
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
 
     const handleStartEdit = () => {
@@ -99,11 +105,72 @@ export default function MachineStatusCard({
         }
     }
 
+    const handleDeleteMachine = async () => {
+        setIsDeleting(true)
+        try {
+            const res = await deleteMachine(item.data.name)
+            if (res.success) {
+                showToast(res.message || `Đã xóa thiết bị ${item.data.name}`, 'success')
+            } else {
+                showToast((res as any).error || 'Lỗi khi xóa thiết bị', 'error')
+            }
+        } catch (err: any) {
+            console.error('Delete machine error:', err)
+            showToast('Lỗi kết nối đến server: ' + (err.message || err), 'error')
+        } finally {
+            setIsDeleting(false)
+            setShowDeleteConfirm(false)
+        }
+    }
+
     return (
         <div
             className={`glass-card card-animate machine-card ${srtOnline ? 'card-online' : 'card-offline'} ${hasHighUsage ? 'card-overload' : ''}`}
-            style={{ animationDelay: `${index * 40}ms` }}
+            style={{
+                animationDelay: `${index * 40}ms`,
+                position: 'relative',
+                ...(isEditMode ? { animation: `card-shake 0.4s ease-in-out infinite alternate` } : {}),
+            }}
         >
+            {/* Delete button - visible in edit mode */}
+            {isEditMode && (
+                <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="machine-card-delete-btn"
+                    title={`Xóa thiết bị ${item.data.name}`}
+                    style={{
+                        position: 'absolute',
+                        top: '-8px',
+                        right: '-8px',
+                        zIndex: 20,
+                        width: '28px',
+                        height: '28px',
+                        borderRadius: '50%',
+                        background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                        border: '2px solid rgba(255,255,255,0.3)',
+                        color: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 8px rgba(239, 68, 68, 0.5)',
+                        transition: 'all 0.2s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'scale(1.15)'
+                        e.currentTarget.style.boxShadow = '0 4px 14px rgba(239, 68, 68, 0.7)'
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'scale(1)'
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(239, 68, 68, 0.5)'
+                    }}
+                >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            )}
             {/* Header */}
             <div className="card-header flex justify-between items-center w-full gap-2">
                 {isEditing ? (
@@ -388,6 +455,62 @@ export default function MachineStatusCard({
                         ) : (
                             <div className="dialog-empty-state">Không có dữ liệu MultiCorder.</div>
                         )}
+                    </div>
+                </div>
+            </Dialog>
+
+            {/* Delete confirmation dialog */}
+            <Dialog
+                open={showDeleteConfirm}
+                onClose={() => setShowDeleteConfirm(false)}
+                title="Xác nhận xóa thiết bị"
+            >
+                <div className="flex flex-col gap-4 text-slate-800 dark:text-slate-100">
+                    <div className="text-sm">
+                        <p className="mb-2">
+                            Bạn có chắc chắn muốn xóa thiết bị <strong className="text-red-500">{item.data.name_edit || item.data.name}</strong>?
+                        </p>
+                        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-xs text-red-400">
+                            <p className="font-bold mb-1">⚠ Hành động này sẽ:</p>
+                            <ul className="list-disc list-inside space-y-0.5">
+                                <li>Xóa toàn bộ logs của thiết bị</li>
+                                <li>Xóa thống kê CPU/RAM/GPU</li>
+                                <li>Xóa debug logs liên quan</li>
+                                <li>Loại trừ khỏi tất cả kênh game</li>
+                            </ul>
+                            <p className="mt-2 font-bold">Không thể hoàn tác!</p>
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <button
+                            onClick={() => setShowDeleteConfirm(false)}
+                            disabled={isDeleting}
+                            className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+                        >
+                            Hủy
+                        </button>
+                        <button
+                            onClick={handleDeleteMachine}
+                            disabled={isDeleting}
+                            className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                            {isDeleting ? (
+                                <>
+                                    <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                    </svg>
+                                    Đang xóa...
+                                </>
+                            ) : (
+                                <>
+                                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                    Xóa thiết bị
+                                </>
+                            )}
+                        </button>
                     </div>
                 </div>
             </Dialog>

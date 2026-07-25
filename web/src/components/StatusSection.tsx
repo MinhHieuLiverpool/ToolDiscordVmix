@@ -11,10 +11,12 @@ export default function StatusSection({
     rows,
     loading,
     error,
+    isEditMode = false,
 }: {
     rows: BackendLogItem[]
     loading: boolean
     error: string
+    isEditMode?: boolean
 }) {
     const [viewMode, setViewMode] = useState<StatusViewMode>('machine')
 
@@ -59,7 +61,7 @@ export default function StatusSection({
             </div>
 
             {viewMode === 'machine' ? (
-                <StatusByMachinePage rows={rows} loading={loading} error={error} />
+                <StatusByMachinePage rows={rows} loading={loading} error={error} isEditMode={isEditMode} />
             ) : (
                 <StatusByTablePage rows={rows} loading={loading} error={error} />
             )}

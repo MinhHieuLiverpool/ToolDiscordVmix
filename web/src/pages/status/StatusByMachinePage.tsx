@@ -5,10 +5,12 @@ export default function StatusByMachinePage({
   rows,
   loading,
   error,
+  isEditMode = false,
 }: {
   rows: BackendLogItem[]
   loading: boolean
   error: string
+  isEditMode?: boolean
 }) {
   if (loading) {
     return (
@@ -37,6 +39,7 @@ export default function StatusByMachinePage({
             key={machineId}
             item={item}
             index={index}
+            isEditMode={isEditMode}
           />
         )
       })}

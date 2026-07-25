@@ -133,6 +133,11 @@
     animation: cardFadeIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
+  @keyframes card-shake {
+    0% { transform: rotate(-0.3deg); }
+    100% { transform: rotate(0.3deg); }
+  }
+
   .shimmer-loading {
     background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
     background-size: 200% 100%;

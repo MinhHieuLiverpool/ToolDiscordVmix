@@ -514,3 +514,8 @@ export function getDownloadDebugLogsUrl(timeStart?: string, timeEnd?: string): s
   return `${BACKEND_BASE_URL}/download_debug_logs${queryString ? '?' + queryString : ''}`
 }
 
+export async function deleteMachine(name: string): Promise<{ success: boolean; deleted?: Record<string, number>; message?: string }> {
+  const response = await apiClient.post<{ success: boolean; deleted?: Record<string, number>; message?: string }>('/delete_machine', { name })
+  return response.data
+}
+

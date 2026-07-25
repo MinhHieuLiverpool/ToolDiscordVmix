@@ -2,7 +2,7 @@ import { useDashboardContext } from '../hooks/useDashboardContext'
 import StatusSection from '../components/StatusSection'
 import { useState, useMemo, useRef, useEffect } from 'react'
 import Dialog from '../components/ui/Dialog'
-import { saveGameSelected } from '../services/api'
+import { saveGameSelected, deleteMachine } from '../services/api'
 import { showToast } from '../components/ui/Toast'
 import { hasActionPermission } from '../services/auth'
 
@@ -25,6 +25,7 @@ export default function OverviewPage() {
 
     const [dropdownOpen, setDropdownOpen] = useState(false)
     const [visibilityDropdownOpen, setVisibilityDropdownOpen] = useState(false)
+    const [isEditMode, setIsEditMode] = useState(false)
 
     const dropdownRef = useRef<HTMLDivElement>(null)
     const visibilityDropdownRef = useRef<HTMLDivElement>(null)
@@ -212,10 +213,39 @@ export default function OverviewPage() {
                             Phân Kênh Game
                         </button>
                     )}
+
+                    {/* Edit mode toggle */}
+                    {canEditOverview && (
+                        <button
+                            onClick={() => setIsEditMode(!isEditMode)}
+                            className={`text-xs font-bold px-3 py-2 rounded-lg flex items-center gap-1.5 transition-all shrink-0 ${
+                                isEditMode
+                                    ? 'bg-red-500/90 hover:bg-red-500 text-white ring-2 ring-red-400/40'
+                                    : 'bg-slate-700/60 hover:bg-slate-600/80 text-slate-300 hover:text-white'
+                            }`}
+                            title={isEditMode ? 'Thoát chỉnh sửa' : 'Chỉnh sửa'}
+                        >
+                            {isEditMode ? (
+                                <>
+                                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                    Thoát
+                                </>
+                            ) : (
+                                <>
+                                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                    </svg>
+                                    Chỉnh sửa
+                                </>
+                            )}
+                        </button>
+                    )}
                 </div>
             </div>
 
-            <StatusSection rows={rows} loading={loading} error={error} />
+            <StatusSection rows={rows} loading={loading} error={error} isEditMode={isEditMode} />
 
             {/* Config Game assignments dialog */}
             <Dialog
