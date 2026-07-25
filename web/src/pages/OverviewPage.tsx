@@ -2,7 +2,7 @@ import { useDashboardContext } from '../hooks/useDashboardContext'
 import StatusSection from '../components/StatusSection'
 import { useState, useMemo, useRef, useEffect } from 'react'
 import Dialog from '../components/ui/Dialog'
-import { saveGameSelected, deleteMachine } from '../services/api'
+import { saveGameSelected } from '../services/api'
 import { showToast } from '../components/ui/Toast'
 import { hasActionPermission } from '../services/auth'
 
