@@ -189,12 +189,27 @@ class ServerConsoleUIMixin:
             hover_color=COLORS["btn_stop_hover"],
             text_color="#ffffff",
             corner_radius=8,
-            width=160,
+            width=140,
             height=36,
             command=self._on_stop_click,
             state="disabled",
         )
         self.stop_btn.pack(side="left", padx=(0, 8))
+
+        # Open Server button
+        self.open_server_btn = ctk.CTkButton(
+            inner,
+            text="🌐  Mở Server",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            fg_color=COLORS["accent_blue"],
+            hover_color=COLORS["border_focus"],
+            text_color="#ffffff",
+            corner_radius=8,
+            width=140,
+            height=36,
+            command=self._on_open_server_click,
+        )
+        self.open_server_btn.pack(side="left", padx=(0, 8))
 
         # Separator
         sep_v = ctk.CTkFrame(inner, fg_color=COLORS["border"], width=1)
@@ -430,6 +445,18 @@ class ServerConsoleUIMixin:
                 self.root.after(1500, lambda: self.copy_btn.configure(text="📋 Copy Link", fg_color=COLORS["btn_clear_bg"]))
             except Exception as e:
                 print(f"Copy error: {e}")
+
+    def _on_open_server_click(self):
+        """Open current server URL in default browser."""
+        import webbrowser
+        url = self.server_url_label.cget("text") if hasattr(self, "server_url_label") else ""
+        if not url or url == "—":
+            try:
+                from .logic import get_local_ip
+            except ImportError:
+                from logic import get_local_ip
+            url = f"http://{get_local_ip()}:8001"
+        webbrowser.open(url)
 
     def _on_start_click(self):
         """Handle Start button click."""

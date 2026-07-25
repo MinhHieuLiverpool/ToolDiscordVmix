@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +13,14 @@ from bson import ObjectId
 from pymongo import MongoClient, DESCENDING
 import os
 import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 import hashlib
 import hmac
 from typing import List
@@ -162,6 +170,31 @@ except Exception as e:
     sys.exit(1)
 
 app = FastAPI()
+
+def _get_web_dist_dir() -> str:
+    """Resolve web/dist directory both in local dev and PyInstaller frozen EXE."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        meipass = getattr(sys, "_MEIPASS")
+        for candidate in [
+            os.path.join(meipass, "web", "dist"),
+            os.path.join(meipass, "dist_web"),
+            os.path.join(meipass, "dist"),
+        ]:
+            if os.path.exists(candidate):
+                return candidate
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    for candidate in [
+        os.path.join(base_dir, "web", "dist"),
+        os.path.join(base_dir, "dist_web"),
+        os.path.join(base_dir, "dist"),
+    ]:
+        if os.path.exists(candidate):
+            return candidate
+
+    return ""
+
+WEB_DIST_DIR = _get_web_dist_dir()
 
 # CORS middleware
 app.add_middleware(
@@ -376,8 +409,18 @@ def _build_health_payload() -> dict:
     }
 
 @app.api_route("/", methods=["GET", "HEAD"])
-async def health_check():
-    """Health check endpoint for UptimeRobot - hỗ trợ cả GET và HEAD"""
+async def root_endpoint(request: Request):
+    """Serve full Web UI index.html on GET, and return health status on HEAD (UptimeRobot)."""
+    if request.method == "HEAD":
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse("I am Hieu Liverpool!")
+
+    # For GET request, serve full React Web UI index.html if available
+    web_dist = _get_web_dist_dir()
+    index_file = os.path.join(web_dist, "index.html") if web_dist else ""
+    if index_file and os.path.exists(index_file):
+        return FileResponse(index_file)
+
     from fastapi.responses import PlainTextResponse
     return PlainTextResponse("I am Hieu Liverpool!")
 
@@ -2757,16 +2800,16 @@ async def broadcast_updates():
     data = _to_json_safe(get_all_logs())  # đọc từ cache, không có I/O
     disconnected = []
     
-    for connection in active_connections:
+    for connection in list(active_connections):
         try:
             await connection.send_json(data)
-        except Exception as e:
-            print(f"✗ Failed to send to client: {e}")
+        except Exception:
             disconnected.append(connection)
     
     # Remove disconnected clients
     for connection in disconnected:
-        active_connections.remove(connection)
+        if connection in active_connections:
+            active_connections.remove(connection)
 
 async def check_inactive_machines():
     """Background task: tự động set statusapp=0 nếu máy không gửi request trong 1 phút"""
@@ -4223,6 +4266,57 @@ async def trigger_send_all_srt():
         return {"status": "success", "message": f"Đã gửi báo cáo nhóm SRT cho {sent_count} Webhook thành công!"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+
+# ── Static Web Dashboard Mounting & SPA Fallback ───────────────────────────
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+def _get_web_dist_dir() -> str:
+    """Resolve web/dist directory both in local dev and PyInstaller frozen EXE."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        meipass = getattr(sys, "_MEIPASS")
+        for candidate in [
+            os.path.join(meipass, "web", "dist"),
+            os.path.join(meipass, "dist_web"),
+            os.path.join(meipass, "dist"),
+        ]:
+            if os.path.exists(candidate):
+                return candidate
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    for candidate in [
+        os.path.join(base_dir, "web", "dist"),
+        os.path.join(base_dir, "dist_web"),
+        os.path.join(base_dir, "dist"),
+    ]:
+        if os.path.exists(candidate):
+            return candidate
+
+    return ""
+
+WEB_DIST_DIR = _get_web_dist_dir()
+
+if WEB_DIST_DIR and os.path.exists(WEB_DIST_DIR):
+    # Mount static subdirectories in web/dist (e.g. /assets, /desktop_pc)
+    try:
+        for item in os.listdir(WEB_DIST_DIR):
+            item_path = os.path.join(WEB_DIST_DIR, item)
+            if os.path.isdir(item_path):
+                app.mount(f"/{item}", StaticFiles(directory=item_path), name=f"web_static_{item}")
+    except Exception as _e:
+        print(f"⚠ Web static mount warning: {_e}")
+
+    # Catch-all SPA route for frontend (serves index.html for non-API routes)
+    @app.get("/{full_path:path}")
+    async def serve_spa_frontend(full_path: str):
+        file_in_dist = os.path.join(WEB_DIST_DIR, full_path)
+        if full_path and os.path.exists(file_in_dist) and os.path.isfile(file_in_dist):
+            return FileResponse(file_in_dist)
+        index_file = os.path.join(WEB_DIST_DIR, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+        return JSONResponse(status_code=404, content={"error": "Not Found"})
 
 
 def run_server():

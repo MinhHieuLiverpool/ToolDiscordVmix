@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('config.py', '.'), ('server.py', '.'), ('assets/cloud-server.ico', 'assets'), ('assets/cloud-server.png', 'assets'), ('server_console_gui/cloud-server.png', 'server_console_gui'), ('server_console_gui/cloud-server.ico', 'server_console_gui'), ('server_console_gui/cloud-server-svgrepo-com.svg', 'server_console_gui')]
+datas = [('config.py', '.'), ('server.py', '.'), ('assets/cloud-server.ico', 'assets'), ('assets/cloud-server.png', 'assets'), ('server_console_gui/cloud-server.png', 'server_console_gui'), ('server_console_gui/cloud-server.ico', 'server_console_gui'), ('server_console_gui/cloud-server-svgrepo-com.svg', 'server_console_gui'), ('web/dist', 'web/dist'), ('web/dist', 'dist_web'), ('web/dist', 'dist')]
 binaries = []
 hiddenimports = ['tkinter', 'customtkinter', 'pymongo', 'requests', 'pytz', 'uvicorn', 'uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto', 'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets', 'uvicorn.protocols.websockets.auto', 'uvicorn.lifespan', 'uvicorn.lifespan.on', 'uvicorn.lifespan.off', 'fastapi', 'starlette', 'websockets', 'redis', 'bson']
 hiddenimports += collect_submodules('server_console_gui')

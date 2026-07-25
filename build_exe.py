@@ -15,19 +15,27 @@ except ImportError:
 
 def kill_running_exe(exe_name: str):
     """Kill tiến trình EXE đang chạy trước khi build (tránh PermissionError)"""
-    if psutil is None:
-        return
-
-    killed = []
-    for proc in psutil.process_iter(['pid', 'name']):
+    if os.name == "nt":
         try:
-            if proc.info['name'] and proc.info['name'].lower() == exe_name.lower():
-                proc.kill()
-                killed.append(proc.info['pid'])
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            subprocess.run(["taskkill", "/F", "/IM", exe_name], capture_output=True)
+            time.sleep(0.3)
+        except Exception:
             pass
-    if killed:
-        print(f"⚠️  Đã dừng tiến trình {exe_name} (PID: {', '.join(map(str, killed))}) trước khi build.")
+
+    if psutil is not None:
+        for proc in psutil.process_iter(['pid', 'name']):
+            try:
+                if proc.info['name'] and proc.info['name'].lower() == exe_name.lower():
+                    proc.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+
+    dist_exe = os.path.join("dist", exe_name)
+    if os.path.exists(dist_exe):
+        try:
+            os.remove(dist_exe)
+        except Exception as e:
+            print(f"[WARNING] Cannot remove old {dist_exe}: {e}")
 
 def install_pyinstaller():
     """Cài đặt PyInstaller nếu chưa có"""
@@ -112,7 +120,7 @@ def build_executable(
 
     kill_running_exe(f"{exe_name}.exe")
     subprocess.run(cmd, check=True)
-    print(f"\n[OK] {exe_name}.exe đã được tạo thành công trong thư mục 'dist'!")
+    print(f"\n[OK] {exe_name}.exe created successfully in 'dist' folder!")
 
 def build_vmix_monitor_exe():
     """Build file EXE cho Vmix Monitor GUI"""
@@ -192,6 +200,20 @@ def build_server_console_gui_exe():
     
     ensure_importable("customtkinter")
 
+    # Ensure web frontend is built
+    web_dir = os.path.abspath("web")
+    web_dist = os.path.join(web_dir, "dist")
+    if not os.path.exists(web_dist) or not os.listdir(web_dist):
+        print("📦 Building Web Dashboard frontend (React TypeScript)...")
+        import shutil
+        use_pnpm = shutil.which("pnpm") is not None or shutil.which("pnpm.cmd") is not None
+        pkg_cmd = "pnpm.cmd" if (use_pnpm and os.name == "nt") else ("pnpm" if use_pnpm else ("npm.cmd" if os.name == "nt" else "npm"))
+        try:
+            subprocess.run([pkg_cmd, "run", "build"], cwd=web_dir, check=True)
+            print("✓ Web Dashboard built successfully!")
+        except Exception as e:
+            print(f"⚠ Web build warning: {e}")
+
     build_executable(
         exe_name="ServerConsoleGUI",
         entry="server_console_gui",
@@ -205,6 +227,9 @@ def build_server_console_gui_exe():
             "server_console_gui/cloud-server.png;server_console_gui",
             "server_console_gui/cloud-server.ico;server_console_gui",
             "server_console_gui/cloud-server-svgrepo-com.svg;server_console_gui",
+            "web/dist;web/dist",
+            "web/dist;dist_web",
+            "web/dist;dist",
         ],
         hidden_imports=[
             "tkinter",

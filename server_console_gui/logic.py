@@ -194,6 +194,11 @@ class ServerConsoleLogicMixin:
                 logger = logging.getLogger(logger_name)
                 logger.addHandler(handler)
 
+            lan_ip = get_local_ip()
+            timestamp = datetime.now(VIETNAM_TZ).strftime("%H:%M:%S")
+            self.log_queue.put((timestamp, "system", f"🌐 Web Dashboard tự động sẵn sàng tại: http://{lan_ip}:{PORT}"))
+            self.log_queue.put((timestamp, "system", f"💡 Mẹo: Nếu máy khác không vào được, hãy mở cổng {PORT} trong Windows Firewall."))
+
             self._uvicorn_server.run()
         except Exception as e:
             timestamp = datetime.now(VIETNAM_TZ).strftime("%H:%M:%S")
