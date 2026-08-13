@@ -210,10 +210,10 @@ def _get_web_dist_dir() -> str:
 
 WEB_DIST_DIR = _get_web_dist_dir()
 
-# CORS middleware
+# CORS middleware - allow any origin with credentials
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[],
     allow_origin_regex=r".*",
     allow_credentials=True,
     allow_methods=["*"],
