@@ -124,7 +124,10 @@ export default function StatusByTablePage({
                       </td>
                       <td className="mono">{item.timestamp || '-'}</td>
                       <td className="mono">{item.data.ip || '-'}</td>
-                      <td className="mono">{item.data.ipwan || '-'}</td>
+                      <td className="mono">
+                        {item.data.ipwan || '-'}
+                        {item.data.wan_name ? <span className="ml-1 font-bold text-amber-500">({item.data.wan_name})</span> : ''}
+                      </td>
                       <td>{toOnOff(item.data.status)}</td>
                       <td className="mono">{primaryPort}</td>
                       <td>

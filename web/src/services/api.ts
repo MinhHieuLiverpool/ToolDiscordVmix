@@ -112,6 +112,7 @@ export interface BackendLogItem {
     ffmpeg?: BackendFfmpegItem[] | BackendFfmpegItem
     srt_quality?: string
     srt_off_time?: string
+    wan_name?: string
   }
 }
 
@@ -516,6 +517,28 @@ export function getDownloadDebugLogsUrl(timeStart?: string, timeEnd?: string): s
 
 export async function deleteMachine(name: string): Promise<{ success: boolean; deleted?: Record<string, number>; message?: string }> {
   const response = await apiClient.post<{ success: boolean; deleted?: Record<string, number>; message?: string }>('/delete_machine', { name })
+  return response.data
+}
+
+export interface WanConfigItem {
+  ipwan: string
+  wan_name: string
+  isp_name?: string
+  updated_at?: string
+}
+
+export async function fetchWanConfigs(): Promise<WanConfigItem[]> {
+  const response = await apiClient.get<WanConfigItem[]>('/load_wan_configs')
+  return response.data
+}
+
+export async function saveWanConfig(ipwan: string, wanName: string, ispName?: string): Promise<{ success: boolean; message?: string }> {
+  const response = await apiClient.post<{ success: boolean; message?: string }>('/save_wan_config', { ipwan, wan_name: wanName, isp_name: ispName })
+  return response.data
+}
+
+export async function deleteWanConfig(ipwan: string): Promise<{ success: boolean; message?: string }> {
+  const response = await apiClient.post<{ success: boolean; message?: string }>('/delete_wan_config', { ipwan })
   return response.data
 }
 

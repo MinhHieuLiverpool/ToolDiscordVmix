@@ -1,5 +1,6 @@
 import MachineStatusCard from '../../components/MachineStatusCard'
 import { getMachineStatisticsId, type BackendLogItem } from '../../services/api'
+import { useDashboardContext } from '../../hooks/useDashboardContext'
 
 export default function StatusByMachinePage({
   rows,
@@ -12,6 +13,16 @@ export default function StatusByMachinePage({
   error: string
   isEditMode?: boolean
 }) {
+  let wanConfigsMap: Map<string, string> | undefined
+  let reloadWanConfigs: (() => void) | undefined
+  try {
+    const ctx = useDashboardContext()
+    wanConfigsMap = ctx?.wanConfigsMap
+    reloadWanConfigs = ctx?.reloadWanConfigs
+  } catch (e) {
+    // Shared dashboard fallback
+  }
+
   if (loading) {
     return (
       <div className="status-cards-grid">
@@ -40,6 +51,8 @@ export default function StatusByMachinePage({
             item={item}
             index={index}
             isEditMode={isEditMode}
+            wanNameMap={wanConfigsMap}
+            onWanConfigSaved={reloadWanConfigs}
           />
         )
       })}

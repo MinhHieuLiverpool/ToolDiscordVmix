@@ -7,6 +7,7 @@ import {
     fetchStatisticHours,
     normalizeSrtList,
     fetchGameSelected,
+    fetchWanConfigs,
     type GameSelectedResponse,
 } from '../services/api'
 import type {
@@ -551,6 +552,28 @@ export function useDashboardData() {
         }
     }, [activeView, machineOptions, loadInitialDailyStats])
 
+    const [wanConfigsMap, setWanConfigsMap] = useState<Map<string, string>>(new Map())
+
+    const loadWanConfigsData = useCallback(async () => {
+        try {
+            const list = await fetchWanConfigs()
+            const map = new Map<string, string>()
+            list.forEach(item => {
+                const name = item.wan_name || item.isp_name || ''
+                if (item.ipwan && name) {
+                    map.set(item.ipwan, name)
+                }
+            })
+            setWanConfigsMap(map)
+        } catch (err) {
+            console.error('Error loading WAN configs:', err)
+        }
+    }, [])
+
+    useEffect(() => {
+        loadWanConfigsData()
+    }, [loadWanConfigsData])
+
     return {
         rows,
         allRows: userRows,
@@ -574,5 +597,7 @@ export function useDashboardData() {
         loadAssignments,
         visibilityFilter,
         setVisibilityFilter,
+        wanConfigsMap,
+        reloadWanConfigs: loadWanConfigsData,
     }
 }

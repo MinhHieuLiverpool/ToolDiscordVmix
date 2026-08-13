@@ -8,6 +8,8 @@ import {
     normalizeMultiRecordList,
     updateNameEdit,
     deleteMachine,
+    saveWanConfig,
+    deleteWanConfig,
     type BackendLogItem,
 } from '../services/api'
 import Dialog from './ui/Dialog'
@@ -20,10 +22,14 @@ export default function MachineStatusCard({
     item,
     index,
     isEditMode = false,
+    wanNameMap,
+    onWanConfigSaved,
 }: {
     item: BackendLogItem
     index: number
     isEditMode?: boolean
+    wanNameMap?: Map<string, string>
+    onWanConfigSaved?: () => void
 }) {
     const canEditName = hasActionPermission('Tổng quan', 'edit')
     const isOn = (value: unknown): boolean => ['ONLINE', 'ON', '1', 'TRUE', 'RUNNING', 'LIVE', 'ACTIVE'].includes(String(value || '').toUpperCase())
@@ -72,6 +78,56 @@ export default function MachineStatusCard({
     const [isSaving, setIsSaving] = useState(false)
     const [isDeleting, setIsDeleting] = useState(false)
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+    const ipwan = String(item.data.ipwan || '').trim()
+    const wanName = item.data.wan_name || (ipwan ? wanNameMap?.get(ipwan) : '') || ''
+    const [showWanModal, setShowWanModal] = useState(false)
+    const [wanInputName, setWanInputName] = useState('')
+    const [isSavingWan, setIsSavingWan] = useState(false)
+
+    const handleOpenWanModal = () => {
+        setWanInputName(wanName)
+        setShowWanModal(true)
+    }
+
+    const handleSaveWanConfig = async () => {
+        if (!ipwan) return
+        setIsSavingWan(true)
+        try {
+            const res = await saveWanConfig(ipwan, wanInputName.trim())
+            if (res.success) {
+                showToast(res.message || 'Đã lưu cấu hình Tên nhà mạng!', 'success')
+                setShowWanModal(false)
+                onWanConfigSaved?.()
+            } else {
+                showToast((res as any).error || 'Lỗi khi lưu cấu hình', 'error')
+            }
+        } catch (err: any) {
+            console.error('Save WAN config error:', err)
+            showToast('Lỗi kết nối đến server: ' + (err.message || err), 'error')
+        } finally {
+            setIsSavingWan(false)
+        }
+    }
+
+    const handleDeleteWanConfig = async () => {
+        if (!ipwan) return
+        setIsSavingWan(true)
+        try {
+            const res = await deleteWanConfig(ipwan)
+            if (res.success) {
+                showToast(res.message || 'Đã xóa cấu hình Tên nhà mạng!', 'info')
+                setShowWanModal(false)
+                onWanConfigSaved?.()
+            } else {
+                showToast((res as any).error || 'Lỗi khi xóa cấu hình', 'error')
+            }
+        } catch (err: any) {
+            console.error('Delete WAN config error:', err)
+            showToast('Lỗi kết nối đến server: ' + (err.message || err), 'error')
+        } finally {
+            setIsSavingWan(false)
+        }
+    }
 
 
     const handleStartEdit = () => {
@@ -270,8 +326,30 @@ export default function MachineStatusCard({
                 </div>
                 <div className="info-row">
                     <span className="info-label">WAN</span>
-                    <span className="info-value mono">{item.data.ipwan || '-'}</span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="info-value mono truncate">{ipwan || '-'}</span>
+                        {ipwan && (
+                            <button
+                                type="button"
+                                onClick={handleOpenWanModal}
+                                className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/30 transition-all shrink-0 flex items-center gap-1"
+                                title="Cấu hình Tên nhà mạng cho IP WAN này"
+                            >
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                </svg>
+                                <span>{wanName ? wanName : 'Cấu hình WAN'}</span>
+                            </button>
+                        )}
+                    </div>
                 </div>
+                {wanName && (
+                    <div className="info-row">
+                        <span className="info-label">Nhà mạng</span>
+                        <span className="info-value font-bold text-amber-500 dark:text-amber-400">{wanName}</span>
+                    </div>
+                )}
                 <div className="info-row">
                     <span className="info-label">REC | LIVE | MULTI | EXT</span>
                     <span className="info-value">{onOff(recOn)} | {onOff(liveOn)} | {onOff(multiRecOn)} | {onOff(extOn)}</span>
@@ -511,6 +589,67 @@ export default function MachineStatusCard({
                                 </>
                             )}
                         </button>
+                    </div>
+                </div>
+            </Dialog>
+
+            {/* WAN Config Dialog */}
+            <Dialog
+                open={showWanModal}
+                onClose={() => setShowWanModal(false)}
+                title={`Cấu hình Tên Nhà Mạng (IP: ${ipwan})`}
+            >
+                <div className="flex flex-col gap-4 text-slate-800 dark:text-slate-100">
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                        Nhập tên nhà mạng / tên WAN cho IP WAN <strong className="text-amber-500 font-mono">{ipwan}</strong>.
+                        Tất cả thiết bị trùng IP WAN này sẽ tự động hiển thị tên nhà mạng tương ứng.
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                            Tên nhà mạng / Tên WAN:
+                        </label>
+                        <input
+                            type="text"
+                            value={wanInputName}
+                            onChange={(e) => setWanInputName(e.target.value)}
+                            disabled={isSavingWan}
+                            placeholder="Ví dụ: Viettel, VNPT, FPT, WAN-POV-01..."
+                            className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                            autoFocus
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveWanConfig()
+                            }}
+                        />
+                    </div>
+                    <div className="flex justify-between items-center pt-2">
+                        {wanName ? (
+                            <button
+                                type="button"
+                                onClick={handleDeleteWanConfig}
+                                disabled={isSavingWan}
+                                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+                            >
+                                Xóa cấu hình
+                            </button>
+                        ) : <div />}
+                        <div className="flex gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowWanModal(false)}
+                                disabled={isSavingWan}
+                                className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+                            >
+                                Hủy
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSaveWanConfig}
+                                disabled={isSavingWan || !wanInputName.trim()}
+                                className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                            >
+                                {isSavingWan ? 'Đang lưu...' : 'Lưu cấu hình'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </Dialog>

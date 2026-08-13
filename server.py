@@ -140,6 +140,7 @@ try:
     # Shared Web Configurations Collection
     shared_web_configs_collection = db['shared_web_configs']
     debug_logs_collection = db['debug_logs']
+    wan_configs_collection = db['wan_configs']
     
     accounts_collection.create_index("username_key", unique=True)
     roles_collection.create_index("role_key", unique=True)
@@ -147,6 +148,7 @@ try:
     bandwidth_collection.create_index([("ipwan", 1), ("date", 1)], unique=True)
     shared_web_configs_collection.create_index("uuid", unique=True)
     debug_logs_collection.create_index("debug_logged_at")
+    wan_configs_collection.create_index("ipwan", unique=True)
 
 
     if USE_TIMESERIES_STATS:
@@ -246,9 +248,59 @@ _redis_stats_max_points = int(os.getenv("STATS_MAX_POINTS", "300"))
 # Key: machine_name, Value: document dict
 _data_cache: dict = {}
 
+# Cache for WAN IP ISP/WAN names
+# Key: ipwan, Value: wan_name (string)
+_wan_config_cache: dict = {}
+
 # Cache for WAN IP bandwidth stats of the current day
 # Key: ipwan, Value: { "date": "DD-MM-YYYY", "sender_max": float, "receiver_max": float, "sender_min": float, "receiver_min": float }
 _ipwan_bandwidth_cache: dict = {}
+
+
+def log_notification_to_debug(device_name: str, ipwan: str, event_type: str, details: str, payload_data: dict = None):
+    """Ghi log sự kiện notification/cảnh báo vào collection debug_logs và file debugger local.
+    Vẫn tự động ghi kể cả khi không có thiết bị nào Online (tất cả OFF)."""
+    try:
+        now_vn = datetime.now(VIETNAM_TZ)
+        timestamp = now_vn.isoformat()
+        
+        doc = {
+            "name": f"[NOTI] {device_name}",
+            "ip": "-",
+            "ipwan": ipwan or "-",
+            "statusapp": 0,
+            "notification_event": event_type,
+            "details": details,
+            "payload": _to_json_safe(payload_data or {}),
+            "debug_logged_at": timestamp,
+            "timestamp": timestamp
+        }
+        
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(
+                    loop.run_in_executor(None, lambda: debug_logs_collection.insert_one(doc))
+                )
+            else:
+                debug_logs_collection.insert_one(doc)
+        except Exception:
+            debug_logs_collection.insert_one(doc)
+        
+        # Local file log
+        today_str = now_vn.strftime("%Y-%m-%d")
+        debug_dir = r"C:\VmixMonitor\debugger"
+        os.makedirs(debug_dir, exist_ok=True)
+        log_file = os.path.join(debug_dir, f"{today_str}.txt")
+        time_str = now_vn.strftime("%H:%M:%S")
+        date_str = now_vn.strftime("%d/%m/%Y")
+        format_time_date = f"[ {time_str} - {date_str} ]"
+        
+        log_line = f"{format_time_date} - [NOTIFICATION] - {device_name} - {ipwan or '-'} - {details}\n"
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(log_line)
+    except Exception as e:
+        print(f"✗ Error logging notification to debug log: {e}")
 
 
 # Realtime statistics fallback cache.
@@ -2821,6 +2873,103 @@ async def get_shared_web_config(uuid_str: str):
         print(f"✗ Get shared web config error: {e}")
         return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
 
+@app.get("/load_wan_configs")
+async def load_wan_configs():
+    """Load tất cả cấu hình Tên Nhà Mạng / WAN từ database"""
+    try:
+        loop = asyncio.get_event_loop()
+        docs = await loop.run_in_executor(
+            None,
+            lambda: list(wan_configs_collection.find({}, {"_id": 0}))
+        )
+        return JSONResponse(content=_to_json_safe(docs))
+    except Exception as e:
+        print(f"✗ Load WAN configs error: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.post("/save_wan_config")
+async def save_wan_config(payload: dict):
+    """Lưu/cập nhật tên nhà mạng (WAN name) cho một IP WAN"""
+    try:
+        ipwan = str(payload.get("ipwan", "")).strip()
+        wan_name = str(payload.get("wan_name", "")).strip()
+        isp_name = str(payload.get("isp_name", "")).strip()
+        
+        if not ipwan:
+            return JSONResponse(content={"success": False, "error": "Missing 'ipwan' field"}, status_code=400)
+            
+        now_str = datetime.now(VIETNAM_TZ).isoformat()
+        final_name = wan_name or isp_name
+        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: wan_configs_collection.update_one(
+                {"ipwan": ipwan},
+                {"$set": {
+                    "ipwan": ipwan,
+                    "wan_name": final_name,
+                    "isp_name": final_name,
+                    "updated_at": now_str
+                }},
+                upsert=True
+            )
+        )
+        
+        # Update in-memory cache
+        if final_name:
+            _wan_config_cache[ipwan] = final_name
+        elif ipwan in _wan_config_cache:
+            del _wan_config_cache[ipwan]
+        
+        # Update all machines in _data_cache with matching ipwan
+        for mname, mdoc in _data_cache.items():
+            if mdoc.get("ipwan") == ipwan:
+                if final_name:
+                    mdoc["wan_name"] = final_name
+                else:
+                    mdoc.pop("wan_name", None)
+                
+        print(f"✓ Saved WAN config for IPWAN '{ipwan}': {final_name}")
+        await broadcast_updates()
+        
+        return JSONResponse(content={
+            "success": True,
+            "ipwan": ipwan,
+            "wan_name": final_name,
+            "message": f"Đã lưu tên nhà mạng '{final_name}' cho IP WAN {ipwan}"
+        })
+    except Exception as e:
+        print(f"✗ Save WAN config error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/delete_wan_config")
+async def delete_wan_config(payload: dict):
+    """Xóa cấu hình tên nhà mạng cho một IP WAN"""
+    try:
+        ipwan = str(payload.get("ipwan", "")).strip()
+        if not ipwan:
+            return JSONResponse(content={"success": False, "error": "Missing 'ipwan' field"}, status_code=400)
+            
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: wan_configs_collection.delete_one({"ipwan": ipwan})
+        )
+        
+        if ipwan in _wan_config_cache:
+            del _wan_config_cache[ipwan]
+            
+        for mname, mdoc in _data_cache.items():
+            if mdoc.get("ipwan") == ipwan:
+                mdoc.pop("wan_name", None)
+                
+        await broadcast_updates()
+        return JSONResponse(content={"success": True, "message": f"Đã xóa cấu hình WAN cho {ipwan}"})
+    except Exception as e:
+        print(f"✗ Delete WAN config error: {e}")
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
 @app.get("/list_shared_web")
 async def list_shared_web():
     """Lấy danh sách toàn bộ liên kết chia sẻ đã tạo"""
@@ -3502,6 +3651,7 @@ def send_webhook_grouped_srt_status(webhook):
             }
             resp = requests.post(w_url, json=payload, timeout=5)
             print(f"✓ Grouped SRT status list sent to Seatalk {w_url[:30]}... status: {resp.status_code}")
+        log_notification_to_debug("ALL_DEVICES", "", "SRT_GROUPED_STATUS", message_content, webhook)
         return True
     except Exception as e:
         print(f"Error sending grouped SRT status list to {w_url[:30]}: {e}")
@@ -3547,6 +3697,14 @@ def send_webhook_changed_srt_items(webhook, changed_items: list):
             payload = {"tag": "markdown", "markdown": {"content": message_content}}
             resp = requests.post(w_url, json=payload, timeout=5)
             print(f"✓ SRT change notification sent ({len(changed_items)} items) to Seatalk {w_url[:30]}... status: {resp.status_code}")
+        for ch_item in changed_items:
+            log_notification_to_debug(
+                ch_item.get("machine_name", "Unknown"),
+                ch_item.get("ipwan", ""),
+                "SRT_STATUS_CHANGED",
+                f"SRT {ch_item.get('srt_name')} {ch_item.get('status')} | PORT: {ch_item.get('port')}",
+                ch_item
+            )
         return True
     except Exception as e:
         print(f"Error sending SRT change notification to {w_url[:30]}: {e}")
@@ -3557,18 +3715,23 @@ def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_
         return
     import requests
     from datetime import datetime
-    
 
-        
-    w_type = webhook.get("type", "Discord")
-    w_url = webhook.get("url", "").strip()
-    if not w_url:
-        return
-        
     rule_name = rule.get("name", "Cảnh báo hệ thống")
     param = rule.get("parameter", "")
     op = rule.get("operator", "")
     val = rule.get("value", "")
+
+    ipwan_val = ""
+    if isinstance(current_value, dict):
+        ipwan_val = current_value.get("ipwan", "")
+
+    log_notification_to_debug(
+        device_name=device_name,
+        ipwan=ipwan_val,
+        event_type=f"RULE_NOTIFICATION_{param}",
+        details=f"Cảnh báo {rule_name}: {param} {op} {val} (Hiện tại: {current_value})",
+        payload_data={"rule": rule, "current_value": current_value}
+    )
     
     # Translate parameter keys to friendly Vietnamese names
     param_map = {
