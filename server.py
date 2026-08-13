@@ -23,7 +23,21 @@ if hasattr(sys.stdout, "reconfigure"):
 
 import hashlib
 import hmac
+import logging
 from typing import List
+
+# ── Suppress noisy "Invalid HTTP request received" uvicorn warnings ────────
+# Non-HTTP clients (SRT, raw TCP, health probes) connecting to the HTTP port
+# trigger these harmless warnings every few seconds, spamming the console.
+class _InvalidHttpFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage() if record else ""
+        if "Invalid HTTP request received" in msg:
+            return False
+        return True
+
+for _uv_name in ("uvicorn", "uvicorn.error"):
+    logging.getLogger(_uv_name).addFilter(_InvalidHttpFilter())
 
 try:
     import redis
@@ -3122,20 +3136,53 @@ async def _daily_cleanup_task():
             await asyncio.sleep(60)
 
 async def debug_logs_monitoring_task():
-    """Ghi toàn bộ thông số thiết bị từ cache vào collection debug_logs mỗi 3 giây và tự động xóa log cũ > 7 tiếng"""
-    print("✓ Background task started: Debug Logs collection writer every 3 seconds")
+    """Ghi thông số thiết bị từ cache vào collection debug_logs mỗi 3 giây.
+    Chỉ ghi cho các kênh (Game_Selected) có ít nhất 1 thiết bị ON (statusapp=1).
+    Thiết bị không thuộc kênh nào sẽ không được ghi.
+    Tự động xóa log cũ > 7 tiếng."""
+    print("✓ Background task started: Debug Logs collection writer every 3 seconds (channel-aware)")
     while True:
         try:
             await asyncio.sleep(3)
-            current_logs = list(_data_cache.values())
-            
+
             now_vn = datetime.now(VIETNAM_TZ)
             timestamp = now_vn.isoformat()
-            
-            # 1. Ghi logs mới
-            if current_logs:
+
+            # 1. Load danh sách kênh từ Game_Selected
+            loop = asyncio.get_event_loop()
+            channels = await loop.run_in_executor(
+                None,
+                lambda: list(game_selected_collection.find({}, {"_id": 0, "game": 1, "machines": 1}))
+            )
+
+            # 2. Xác định thiết bị nào cần ghi debug log
+            #    - Duyệt qua từng kênh, kiểm tra xem kênh đó có ≥1 thiết bị ON không
+            #    - Nếu có → ghi TẤT CẢ thiết bị của kênh đó (cả ON lẫn OFF)
+            #    - Thiết bị không thuộc kênh nào → bỏ qua
+            machines_to_log = set()
+            for ch in channels:
+                ch_machines = ch.get("machines", [])
+                if not isinstance(ch_machines, list) or not ch_machines:
+                    continue
+
+                # Kiểm tra kênh này có ít nhất 1 thiết bị ON không
+                has_active = False
+                for m_name in ch_machines:
+                    cached_doc = _data_cache.get(m_name)
+                    if cached_doc and isinstance(cached_doc, dict) and cached_doc.get("statusapp") == 1:
+                        has_active = True
+                        break
+
+                if has_active:
+                    # Kênh có thiết bị ON → ghi tất cả thiết bị trong kênh
+                    for m_name in ch_machines:
+                        machines_to_log.add(m_name)
+
+            # 3. Ghi logs mới cho các thiết bị đã xác định
+            if machines_to_log:
                 docs_to_insert = []
-                for doc in current_logs:
+                for m_name in machines_to_log:
+                    doc = _data_cache.get(m_name)
                     if not isinstance(doc, dict):
                         continue
                     # Clone document to avoid modifying the in-memory cache
@@ -3145,15 +3192,13 @@ async def debug_logs_monitoring_task():
                     docs_to_insert.append(doc_copy)
 
                 if docs_to_insert:
-                    loop = asyncio.get_event_loop()
                     await loop.run_in_executor(
                         None,
                         lambda: debug_logs_collection.insert_many(docs_to_insert)
                     )
-            
-            # 2. Xóa logs cũ hơn 7 tiếng
+
+            # 4. Xóa logs cũ hơn 7 tiếng
             cutoff_time = (now_vn - timedelta(hours=7)).isoformat()
-            loop = asyncio.get_event_loop()
             await loop.run_in_executor(
                 None,
                 lambda: debug_logs_collection.delete_many({"debug_logged_at": {"$lt": cutoff_time}})
@@ -3526,7 +3571,9 @@ def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_
         "gpu": "Bộ nhớ GPU sử dụng",
         "fps": "Tốc độ khung hình (FPS)",
         "packetLoss": "Tỷ lệ mất gói (Packet Loss)",
-        "status": "Trạng thái SRT output"
+        "status": "Trạng thái SRT output",
+        "stream_health": "Trạng thái Stream (Health)",
+        "stream_dropped": "Source Drop (Stream)"
     }
     param_name = param_map.get(param, param)
 
@@ -3540,6 +3587,8 @@ def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_
         unit = " FPS"
     elif param == "batteryLevel":
         unit = "% Pin"
+    elif param == "stream_dropped":
+        unit = " frames"
 
     # Value descriptions
     curr_desc = str(current_value)
@@ -3647,6 +3696,45 @@ def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_
                 print(f"Error sending Seatalk rule alert: {e}")
         return
 
+    # Stream health / stream_dropped trigger
+    if param in ("stream_health", "stream_dropped") and isinstance(current_value, dict):
+        stream_name = current_value.get("stream_name", "")
+        label = stream_name if stream_name else device_name
+        health = current_value.get("health", "-")
+        dropped = current_value.get("dropped", "-")
+
+        if param == "stream_health":
+            detail = f"Health: {health}"
+        else:
+            detail = f"Source Dropped: {dropped} frames"
+
+        if w_type == "Discord":
+            content = (
+                f"📺 **CẢNH BÁO STREAM: {rule_name.upper()}**\n"
+                f"• **Thiết bị:** `{device_name}`\n"
+                f"• **Stream:** `{label}`\n"
+                f"• **{detail}**\n"
+                f"• **Thời gian:** `{now_str}`"
+            )
+        else:
+            content = (
+                f"📺 **CẢNH BÁO STREAM: {rule_name.upper()}**\n\n"
+                f"• **Thiết bị:** **{device_name}**\n\n"
+                f"• **Stream:** **{label}**\n\n"
+                f"• **{detail}**\n\n"
+                f"• **Thời gian:** *{now_str}*"
+            )
+
+        try:
+            if w_type == "Discord":
+                resp = requests.post(w_url, json={"content": content}, timeout=5)
+            else:
+                resp = requests.post(w_url, json={"tag": "markdown", "markdown": {"content": content}}, timeout=5)
+            print(f"✓ Stream alert ({param}) sent to {w_url[:30]}... status: {resp.status_code}")
+        except Exception as e:
+            print(f"Error sending stream alert ({param}): {e}")
+        return
+
     # Get friendly display for parameter warning title
     title = f"🚨 **CẢNH BÁO: {rule_name.upper()}**"
     reason = f"Thiết bị vi phạm điều kiện: `{param_name}` hiện tại là **{curr_desc}{unit}** (Ngưỡng thiết lập: `{op} {target_desc}{unit}`)."
@@ -3706,8 +3794,10 @@ def send_webhook_enabled_notice(webhook: dict):
         "vmix_streaming": "Dừng phát sóng vMix",
         "vmix_external": "Tắt External Output vMix",
         "vmix_multicorder": "Tắt MultiCorder vMix",
+        "stream_health": "Stream Health cảnh báo",
+        "stream_dropped": "Stream Source Drop",
     }
-    units = {"temperature": "°C", "cpuLoad": "%", "memory": "%", "gpu": "%", "packetLoss": "%", "fps": " FPS", "batteryLevel": "%"}
+    units = {"temperature": "°C", "cpuLoad": "%", "memory": "%", "gpu": "%", "packetLoss": "%", "fps": " FPS", "batteryLevel": "%", "stream_dropped": " frames"}
 
     cond_lines = []
     for r in (webhook.get("rules") or []):
@@ -3800,6 +3890,8 @@ PARAM_DEVICE_SCOPE = {
     "vmix_streaming": {"desktop"},
     "vmix_external": {"desktop"},
     "vmix_multicorder": {"desktop"},
+    "stream_health": {"desktop"},
+    "stream_dropped": {"desktop"},
 }
 
 # Network category classification (mirror of web getNetworkCategory).
@@ -3994,6 +4086,45 @@ async def check_alerts_loop():
                                         "ipwan": doc.get("ipwan", "")
                                     }
                                     break
+                            is_triggered = matching
+                        # Special check for Stream health (only for desktop)
+                        elif dev_type == "desktop" and param == "stream_health" and doc.get("stream"):
+                            stream_list = doc.get("stream", [])
+                            if not isinstance(stream_list, list):
+                                stream_list = [stream_list] if isinstance(stream_list, dict) else []
+                            matching = False
+                            for st_item in stream_list:
+                                if not isinstance(st_item, dict):
+                                    continue
+                                h_val = str(st_item.get("health", "") or "").strip().upper()
+                                if check_condition(h_val, op, target_val):
+                                    matching = True
+                                    current_value = {
+                                        "stream_name": st_item.get("stream", ""),
+                                        "health": h_val,
+                                        "dropped": st_item.get("dropped", "-"),
+                                    }
+                                    break
+                            is_triggered = matching
+                        # Special check for Stream source dropped (only for desktop)
+                        elif dev_type == "desktop" and param == "stream_dropped" and doc.get("stream"):
+                            stream_list = doc.get("stream", [])
+                            if not isinstance(stream_list, list):
+                                stream_list = [stream_list] if isinstance(stream_list, dict) else []
+                            matching = False
+                            for st_item in stream_list:
+                                if not isinstance(st_item, dict):
+                                    continue
+                                d_val = st_item.get("dropped")
+                                if d_val is not None and d_val != "" and d_val != "-":
+                                    if check_condition(d_val, op, target_val):
+                                        matching = True
+                                        current_value = {
+                                            "stream_name": st_item.get("stream", ""),
+                                            "health": str(st_item.get("health", "-") or "-").strip().upper(),
+                                            "dropped": d_val,
+                                        }
+                                        break
                             is_triggered = matching
                         elif param == "isOnline":
                             # Edge-triggered: fire only when the online state actually flips.

@@ -47,6 +47,8 @@ const DEFAULT_PARAMETERS = [
   { parameter: 'packetLoss', label: 'Mất gói Packet Loss quá cao (Mobile %)', operator: '>', defaultValue: '5' },
   { parameter: 'networkChange', label: 'Đổi loại mạng (Mobile: LAN/WiFi/4G)', operator: '=', defaultValue: 'any' },
   { parameter: 'status', label: 'Trạng thái luồng SRT bị ngắt (OFF)', operator: '=', defaultValue: 'OFF' },
+  { parameter: 'stream_health', label: 'Stream Health cảnh báo (VÀNG)', operator: '=', defaultValue: 'VÀNG' },
+  { parameter: 'stream_dropped', label: 'Stream Source Drop quá cao (frames)', operator: '>', defaultValue: '100' },
   { parameter: 'vmix_recording', label: 'Dừng Ghi hình vMix (Record OFF)', operator: '=', defaultValue: 'False' },
   { parameter: 'vmix_streaming', label: 'Dừng Phát sóng vMix (Stream OFF)', operator: '=', defaultValue: 'False' },
   { parameter: 'vmix_external', label: 'Tắt External Output vMix', operator: '=', defaultValue: 'False' },
