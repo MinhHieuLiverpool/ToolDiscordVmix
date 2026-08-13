@@ -210,11 +210,18 @@ def _get_web_dist_dir() -> str:
 
 WEB_DIST_DIR = _get_web_dist_dir()
 
-# CORS middleware - allow any origin with credentials
+# CORS middleware - allow Vercel and local origins with credentials
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[],
-    allow_origin_regex=r".*",
+    allow_origins=[
+        "https://vmixmonitor.vercel.app",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://localhost:8001",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8001",
+    ],
+    allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
