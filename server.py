@@ -3716,6 +3716,11 @@ def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_
     import requests
     from datetime import datetime
 
+    w_type = webhook.get("type", "Discord")
+    w_url = webhook.get("url", "").strip()
+    if not w_url:
+        return
+
     rule_name = rule.get("name", "Cảnh báo hệ thống")
     param = rule.get("parameter", "")
     op = rule.get("operator", "")
