@@ -95,8 +95,7 @@ const LoginPage = () => {
           <img className="login-madeby-logo" src="/garena.png" alt="Logo" />
           <div className="login-madeby-text">
             <p className="login-madeby-label">Made by</p>
-            <h2 className="login-madeby-name">NGUYEN CUNG CHANH</h2>
-            <h2 className="login-madeby-name">BUI QUANG MINH HIEU</h2>
+            <h2 className="login-madeby-name">TEAM STUDIO</h2>
           </div>
         </aside>
       </div>
