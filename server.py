@@ -212,22 +212,15 @@ def _get_web_dist_dir() -> str:
 
 WEB_DIST_DIR = _get_web_dist_dir()
 
-# CORS middleware - allow Vercel and local origins with credentials
+# CORS middleware - cho phép tất cả Origin (WAN IP, LAN IP, Vercel, Localhost...)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://vmixmonitor.vercel.app",
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://localhost:8001",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:8001",
-    ],
-    allow_origin_regex=r"https?://.*",
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # Store active WebSocket connections
 active_connections: List[WebSocket] = []
@@ -279,13 +272,22 @@ def log_notification_to_debug(device_name: str, ipwan: str, event_type: str, det
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                asyncio.create_task(
-                    loop.run_in_executor(None, lambda: debug_logs_collection.insert_one(doc))
-                )
+                # Dùng coroutine wrapper để catch exception — tránh "Future exception was never retrieved"
+                # Dùng doc.copy() để tránh PyMongo mutate dict gốc khi insert_one thêm _id in-place
+                async def _insert_debug_log(d: dict):
+                    try:
+                        await loop.run_in_executor(None, lambda: debug_logs_collection.insert_one(d))
+                    except Exception as _ie:
+                        print(f"✗ Debug log async insert error: {_ie}")
+                asyncio.create_task(_insert_debug_log(doc.copy()))
             else:
-                debug_logs_collection.insert_one(doc)
+                debug_logs_collection.insert_one(doc.copy())
         except Exception:
-            debug_logs_collection.insert_one(doc)
+            try:
+                debug_logs_collection.insert_one(doc.copy())
+            except Exception as _fe:
+                print(f"✗ Debug log fallback insert error: {_fe}")
+
         
         # Local file log
         today_str = now_vn.strftime("%Y-%m-%d")
@@ -3095,7 +3097,9 @@ async def broadcast_updates():
             active_connections.remove(connection)
 
 async def check_inactive_machines():
-    """Background task: tự động set statusapp=0 nếu máy không gửi request trong 1 phút"""
+    """Background task: tự động set statusapp=0 nếu máy không gửi request trong 1 phút.
+    Trước khi set OFF, đối chiếu trực tiếp với MongoDB để tránh ghi đè sai khi chạy nhiều BE.
+    """
     while True:
         try:
             await asyncio.sleep(30)
@@ -3112,10 +3116,30 @@ async def check_inactive_machines():
                 try:
                     last_updated = datetime.fromisoformat(last_str)
                     if last_updated < timeout_threshold:
+                        # RAM local quá hạn 1 phút. Kiểm tra MongoDB xem BE khác có nhận heartbeat mới chưa.
+                        loop = asyncio.get_event_loop()
+                        db_doc = await loop.run_in_executor(
+                            None,
+                            lambda n=name: collection.find_one({"name": n})
+                        )
+
+                        if db_doc:
+                            db_last_str = db_doc.get("last_updated", "")
+                            if db_last_str:
+                                try:
+                                    db_last_updated = datetime.fromisoformat(db_last_str)
+                                    if db_last_updated >= timeout_threshold:
+                                        # BE khác vừa nhận heartbeat và cập nhật MongoDB! Cập nhật lại cache RAM và KHÔNG OFF.
+                                        db_doc.pop("_id", None)
+                                        _data_cache[name] = db_doc
+                                        continue
+                                except Exception:
+                                    pass
+
+                        # MongoDB cũng xác nhận đã quá hạn -> Tiến hành set OFF thực sự
                         _data_cache[name]["statusapp"] = 0
                         
                         # Set all active SRT streams to OFF
-                        # (check_alerts_loop will detect the change and send grouped notification)
                         srt_list = _data_cache[name].get("SRT", [])
                         if isinstance(srt_list, list):
                             for srt_item in srt_list:
@@ -3124,7 +3148,7 @@ async def check_inactive_machines():
 
                         _zero_out_metrics_if_offline(_data_cache[name])
                         updated_count += 1
-                        print(f"⏱️  Auto-OFF: {name} - No activity for 1 minute")
+                        print(f"⏱️  Auto-OFF: {name} - No activity for 1 minute (verified with DB)")
                         asyncio.create_task(_mongo_upsert(name, _data_cache[name]))
                 except Exception as e:
                     print(f"⚠ Timestamp parse error {name}: {e}")
@@ -3134,6 +3158,7 @@ async def check_inactive_machines():
                 await broadcast_updates()
         except Exception as e:
             print(f"✗ Error in check_inactive_machines: {e}")
+
 
 
 async def ipwan_bandwidth_monitor_task():
@@ -3515,6 +3540,8 @@ rules_collection = db["notification_rules"]
 _triggered_alerts = {}  # Cache triggered state: {device_id}:{rule_id} -> boolean
 _alert_cooldowns = {}  # Cooldown cache: "{wh_id}:{param}:{dev_id}" -> last_sent_timestamp
 _last_sent_srt_statuses = {}  # Cache of last sent statuses: {webhook_id} -> {stream_id: status}
+_streaming_on_timestamps = {}  # Track when vmix_streaming turned ON per device: {dev_id} -> monotonic timestamp
+_was_streaming_before_offline = {}  # Remember devices that were streaming before going offline: {dev_id} -> True
 
 async def _mongo_upsert_cooldown(key: str, ts: float):
     try:
@@ -3882,7 +3909,8 @@ def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_
         if param == "stream_health":
             detail = f"Health: {health}"
         else:
-            detail = f"Source Dropped: {dropped} frames"
+            dropped_src = current_value.get("dropped_src_count", dropped)
+            detail = f"Streaming dropped : {dropped_src} src"
 
         if w_type == "Discord":
             content = (
@@ -4283,24 +4311,69 @@ async def check_alerts_loop():
                                     break
                             is_triggered = matching
                         # Special check for Stream source dropped (only for desktop)
-                        elif dev_type == "desktop" and param == "stream_dropped" and doc.get("stream"):
-                            stream_list = doc.get("stream", [])
-                            if not isinstance(stream_list, list):
-                                stream_list = [stream_list] if isinstance(stream_list, dict) else []
-                            matching = False
-                            for st_item in stream_list:
-                                if not isinstance(st_item, dict):
+                        # Uses heartbeat mechanism: if no data for >3s → app is OFF
+                        # 1 second offline = 5 virtual source drops (including the 3s detection delay)
+                        # If offline > 1 minute → reset source dropped to 0 & clear tracking
+                        elif dev_type == "desktop" and param == "stream_dropped":
+                            import time as _time_mod
+                            is_streaming_now = bool(doc.get("vmix_streaming", False))
+                            is_app_online = doc.get("statusapp", 0) == 1
+                            streaming_ts_key = dev_id
+
+                            if is_streaming_now and is_app_online:
+                                # App is ON and streaming → remember this device as streaming
+                                _was_streaming_before_offline[dev_id] = True
+                                if streaming_ts_key not in _streaming_on_timestamps:
+                                    _streaming_on_timestamps[streaming_ts_key] = _time_mod.monotonic()
+                                elapsed_streaming = _time_mod.monotonic() - _streaming_on_timestamps[streaming_ts_key]
+                                if elapsed_streaming < 60:
+                                    # Grace period: streaming started < 1 min ago, skip check
+                                    is_triggered = False
                                     continue
-                                d_val = st_item.get("dropped")
-                                if d_val is not None and d_val != "" and d_val != "-":
-                                    if check_condition(d_val, op, target_val):
-                                        matching = True
-                                        current_value = {
-                                            "stream_name": st_item.get("stream", ""),
-                                            "health": str(st_item.get("health", "-") or "-").strip().upper(),
-                                            "dropped": d_val,
-                                        }
-                                        break
+                                # App is ON, streaming > 1 min, heartbeat fresh → no drops
+                                is_triggered = False
+                                continue
+
+                            # App is OFF or vmix_streaming=False (zeroed by _zero_out_metrics_if_offline)
+                            # Check if this device WAS streaming before going offline
+                            if not _was_streaming_before_offline.get(dev_id):
+                                # Device was never streaming, skip
+                                _streaming_on_timestamps.pop(streaming_ts_key, None)
+                                is_triggered = False
+                                continue
+
+                            # Heartbeat-based source drop detection
+                            now_vn = datetime.now(VIETNAM_TZ)
+                            last_updated_str = doc.get("last_updated", "")
+                            offline_seconds = 0
+                            if last_updated_str:
+                                try:
+                                    last_updated_dt = datetime.fromisoformat(last_updated_str)
+                                    if last_updated_dt.tzinfo is None:
+                                        last_updated_dt = VIETNAM_TZ.localize(last_updated_dt)
+                                    last_updated_dt = last_updated_dt.astimezone(VIETNAM_TZ)
+                                    offline_seconds = (now_vn - last_updated_dt).total_seconds()
+                                except Exception:
+                                    offline_seconds = 0
+
+                            virtual_dropped = 0
+                            if offline_seconds > 60:
+                                # App OFF > 1 minute: reset source dropped to 0 & clear tracking
+                                virtual_dropped = 0
+                                _was_streaming_before_offline.pop(dev_id, None)
+                                _streaming_on_timestamps.pop(streaming_ts_key, None)
+                            elif offline_seconds > 3:
+                                # App OFF 3s~60s: 1 second = 5 source drops (including the initial 3s)
+                                virtual_dropped = int(offline_seconds * 5)
+
+                            matching = virtual_dropped > 0 and check_condition(virtual_dropped, op, target_val)
+                            if matching:
+                                current_value = {
+                                    "stream_name": "",
+                                    "health": "-",
+                                    "dropped": virtual_dropped,
+                                    "dropped_src_count": virtual_dropped,
+                                }
                             is_triggered = matching
                         elif param == "isOnline":
                             # Edge-triggered: fire only when the online state actually flips.

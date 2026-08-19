@@ -71,25 +71,43 @@ class ServerConsoleGUI(ServerConsoleUIMixin, ServerConsoleLogicMixin):
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
     def _load_port_info(self):
-        """Try to read PORT from server config and update the server URL label."""
+        """Try to read PORT from server config and update the server URL label.
+
+        WAN IP is fetched asynchronously so the GUI doesn't freeze on startup.
+        """
         try:
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             if project_root not in sys.path:
                 sys.path.insert(0, project_root)
 
             try:
-                from .logic import get_local_ip
+                from .logic import get_wan_ip
             except ImportError:
-                from logic import get_local_ip
+                from logic import get_wan_ip
 
             port = int(os.getenv("PORT", 8001))
-            lan_ip = get_local_ip()
-            server_url = f"http://{lan_ip}:{port}"
 
-            if hasattr(self, "server_url_label"):
-                self.server_url_label.configure(text=server_url)
-            if hasattr(self, "port_label"):
-                self.port_label.configure(text=f"PORT: {port}")
+            # _update_server_url_label is defined in ui.py (UIMixin);
+            # call it on the main thread once WAN IP is resolved.
+            def _resolve():
+                try:
+                    wan_ip = get_wan_ip(timeout=8.0)
+                    self.root.after(0, lambda: self._update_server_url_label(wan_ip, port))
+                except Exception as exc:
+                    print(f"Warning: _load_port_info WAN fetch error: {exc}")
+                    # Fallback to LAN IP
+                    try:
+                        from .logic import get_local_ip
+                    except ImportError:
+                        from logic import get_local_ip
+                    lan_ip = get_local_ip()
+                    try:
+                        self.root.after(0, lambda: self._update_server_url_label(lan_ip, port))
+                    except Exception:
+                        pass
+
+            import threading
+            threading.Thread(target=_resolve, daemon=True, name="port-info-wan").start()
         except Exception as e:
             print(f"Warning: _load_port_info error: {e}")
 

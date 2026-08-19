@@ -1,14 +1,22 @@
-const isLocalHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
-const DEFAULT_LOCAL_BACKEND_BASE_URL = 'http://localhost:8001'
-const DEFAULT_PROD_BACKEND_BASE_URL = 'http://localhost:8001'
+// ── Runtime-aware backend URL ─────────────────────────────────────────────────
+// Web được FastAPI serve → window.location.origin chính là địa chỉ server
+// → tự động trỏ đúng dù LAN, WAN, hay VLAN đổi. Không cần .env!
+//
+// Fallback về VITE_BACKEND_BASE_URL chỉ khi cần trỏ sang server khác.
 
-const configuredBackendBaseUrl = String(import.meta.env.VITE_BACKEND_BASE_URL || '')
-  .trim()
-  .replace(/\/+$/, '')
+const _origin = typeof window !== 'undefined' ? window.location.origin : ''
+const _envOverride = String(import.meta.env.VITE_BACKEND_BASE_URL || '').trim().replace(/\/+$/, '')
 
-export const BACKEND_BASE_URL = configuredBackendBaseUrl || (
-  isLocalHost ? DEFAULT_LOCAL_BACKEND_BASE_URL : DEFAULT_PROD_BACKEND_BASE_URL
-)
+// origin hợp lệ = bắt đầu bằng http (không phải file:// hoặc rỗng)
+const _isValidHttpOrigin = _origin.startsWith('http://') || _origin.startsWith('https://')
+
+export const BACKEND_BASE_URL = (
+  // 1. Ưu tiên env override nếu có
+  _envOverride
+  // 2. Dùng chính origin nếu là HTTP (same-server auto-detect)
+  || (_isValidHttpOrigin ? _origin : '')
+  // 3. Không bao giờ fallback về localhost — server phải được truy cập qua LAN/WAN
+) || ''
 
 export const API_ENDPOINTS = {
   logs: '/logs',
@@ -26,9 +34,8 @@ export const REQUEST_TIMEOUT_MS = Number.isFinite(configuredTimeout) && configur
   ? configuredTimeout
   : 30000
 
-const configuredBackendWsUrl = String(import.meta.env.VITE_BACKEND_WS_URL || '')
-  .trim()
-  .replace(/\/+$/, '')
+// ── WebSocket URL ─────────────────────────────────────────────────────────────
+const _wsEnvOverride = String(import.meta.env.VITE_BACKEND_WS_URL || '').trim().replace(/\/+$/, '')
 
-export const BACKEND_WS_URL = configuredBackendWsUrl
+export const BACKEND_WS_URL = _wsEnvOverride
   || `${BACKEND_BASE_URL.replace(/^http/i, 'ws')}${API_ENDPOINTS.ws}`

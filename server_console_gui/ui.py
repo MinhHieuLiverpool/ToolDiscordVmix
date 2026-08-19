@@ -13,12 +13,12 @@ from PIL import Image
 import pytz
 
 try:
-    from .logic import get_local_ip
+    from .logic import get_local_ip, get_wan_ip
 except ImportError:
     try:
-        from server_console_gui.logic import get_local_ip
+        from server_console_gui.logic import get_local_ip, get_wan_ip
     except ImportError:
-        from logic import get_local_ip
+        from logic import get_local_ip, get_wan_ip
 
 VIETNAM_TZ = pytz.timezone("Asia/Ho_Chi_Minh")
 
@@ -68,10 +68,12 @@ class ServerConsoleUIMixin:
 
         self._build_header()
         self._build_control_bar()
+        self._build_config_panel()   # ← collapsible config panel
         self._build_log_viewer()
         self._build_status_bar()
 
         self._auto_scroll = True
+        self._config_panel_visible = False  # bắt đầu collapsed
 
     # ── Header ────────────────────────────────────────────────────────────
     def _build_header(self):
@@ -128,7 +130,7 @@ class ServerConsoleUIMixin:
         )
         subtitle.pack(side="left", pady=12)
 
-        # Right side: status badge
+        # Right side: config toggle + status badge
         right = ctk.CTkFrame(inner, fg_color="transparent")
         right.pack(side="right", fill="y")
 
@@ -142,6 +144,21 @@ class ServerConsoleUIMixin:
         )
         self.status_badge.pack(side="right", pady=15, padx=5)
 
+        # Config panel toggle button
+        self.config_toggle_btn = ctk.CTkButton(
+            right,
+            text="⚙ Database",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color=COLORS["btn_clear_bg"],
+            hover_color=COLORS["border"],
+            text_color=COLORS["text_secondary"],
+            corner_radius=6,
+            width=100,
+            height=28,
+            command=self._toggle_config_panel,
+        )
+        self.config_toggle_btn.pack(side="right", pady=15, padx=(0, 8))
+
         # Separator line
         sep = ctk.CTkFrame(
             self.main_frame,
@@ -151,7 +168,301 @@ class ServerConsoleUIMixin:
         )
         sep.pack(fill="x", side="top")
 
+    # ── Config Panel (collapsible) ────────────────────────────────────────
+    def _build_config_panel(self):
+        """Build the collapsible database configuration panel."""
+        self._config_panel_visible = False
+
+        # Outer wrapper — hidden by default
+        self.config_panel_frame = ctk.CTkFrame(
+            self.main_frame,
+            fg_color=COLORS["bg_card"],
+            corner_radius=0,
+        )
+        # Don't pack yet — will show/hide via toggle
+
+        # Separator on top of panel
+        ctk.CTkFrame(self.config_panel_frame, fg_color=COLORS["accent_purple"], height=2, corner_radius=0).pack(fill="x")
+
+        # Inner content
+        content = ctk.CTkFrame(self.config_panel_frame, fg_color="transparent")
+        content.pack(fill="x", padx=20, pady=12)
+
+        # Title
+        ctk.CTkLabel(
+            content,
+            text="⚙  Cấu hình Database MongoDB",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color=COLORS["accent_purple"],
+        ).pack(anchor="w", pady=(0, 10))
+
+        # Row 1: MongoDB URI
+        row1 = ctk.CTkFrame(content, fg_color="transparent")
+        row1.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            row1,
+            text="MongoDB URI:",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color=COLORS["text_secondary"],
+            width=110,
+            anchor="w",
+        ).pack(side="left", padx=(0, 8))
+
+        self._config_uri_var = ctk.StringVar(value=self._load_config_value("MONGODB_URI"))
+        self.config_uri_entry = ctk.CTkEntry(
+            row1,
+            textvariable=self._config_uri_var,
+            font=ctk.CTkFont(family="Consolas", size=11),
+            fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+            placeholder_text="mongodb+srv://user:pass@cluster.mongodb.net/",
+            show="*",
+            height=32,
+        )
+        self.config_uri_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        # Show/hide toggle for URI
+        self._uri_hidden = True
+        self.uri_eye_btn = ctk.CTkButton(
+            row1,
+            text="👁",
+            font=ctk.CTkFont(size=14),
+            fg_color=COLORS["btn_clear_bg"],
+            hover_color=COLORS["border"],
+            text_color=COLORS["text_secondary"],
+            width=36,
+            height=32,
+            corner_radius=6,
+            command=self._toggle_uri_visibility,
+        )
+        self.uri_eye_btn.pack(side="left")
+
+        # Row 2: Database Name + Collection
+        row2 = ctk.CTkFrame(content, fg_color="transparent")
+        row2.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            row2,
+            text="Database:",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color=COLORS["text_secondary"],
+            width=110,
+            anchor="w",
+        ).pack(side="left", padx=(0, 8))
+
+        self._config_db_var = ctk.StringVar(value=self._load_config_value("DATABASE_NAME", "vmix_monitor"))
+        ctk.CTkEntry(
+            row2,
+            textvariable=self._config_db_var,
+            font=ctk.CTkFont(family="Consolas", size=11),
+            fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+            placeholder_text="vmix_monitor",
+            height=32,
+            width=200,
+        ).pack(side="left", padx=(0, 20))
+
+        ctk.CTkLabel(
+            row2,
+            text="Collection:",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            text_color=COLORS["text_secondary"],
+            width=80,
+            anchor="w",
+        ).pack(side="left", padx=(0, 8))
+
+        self._config_col_var = ctk.StringVar(value=self._load_config_value("COLLECTION_NAME", "logs"))
+        ctk.CTkEntry(
+            row2,
+            textvariable=self._config_col_var,
+            font=ctk.CTkFont(family="Consolas", size=11),
+            fg_color=COLORS["bg_input"],
+            border_color=COLORS["border"],
+            text_color=COLORS["text_primary"],
+            placeholder_text="logs",
+            height=32,
+            width=160,
+        ).pack(side="left")
+
+        # Row 3: Buttons + status
+        row3 = ctk.CTkFrame(content, fg_color="transparent")
+        row3.pack(fill="x", pady=(4, 0))
+
+        self.config_test_btn = ctk.CTkButton(
+            row3,
+            text="🔌 Test Kết Nối",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color=COLORS["accent_purple"],
+            hover_color="#9d6fe8",
+            text_color="#ffffff",
+            corner_radius=8,
+            width=140,
+            height=32,
+            command=self._on_test_db_click,
+        )
+        self.config_test_btn.pack(side="left", padx=(0, 8))
+
+        self.config_save_btn = ctk.CTkButton(
+            row3,
+            text="💾 Lưu Config",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color=COLORS["btn_start_bg"],
+            hover_color=COLORS["btn_start_hover"],
+            text_color="#ffffff",
+            corner_radius=8,
+            width=130,
+            height=32,
+            command=self._on_save_config_click,
+        )
+        self.config_save_btn.pack(side="left", padx=(0, 16))
+
+        self.config_status_label = ctk.CTkLabel(
+            row3,
+            text="",
+            font=ctk.CTkFont(family="Consolas", size=11),
+            text_color=COLORS["text_muted"],
+        )
+        self.config_status_label.pack(side="left")
+
+        # Bottom separator
+        ctk.CTkFrame(self.config_panel_frame, fg_color=COLORS["border"], height=1, corner_radius=0).pack(fill="x")
+
+    def _toggle_config_panel(self):
+        """Show/hide the config panel."""
+        if self._config_panel_visible:
+            self.config_panel_frame.pack_forget()
+            self._config_panel_visible = False
+            self.config_toggle_btn.configure(
+                fg_color=COLORS["btn_clear_bg"],
+                text_color=COLORS["text_secondary"],
+                text="⚙ Database",
+            )
+        else:
+            # Insert after control bar separator — before log viewer
+            self.config_panel_frame.pack(fill="x", side="top", before=self._log_container_ref)
+            self._config_panel_visible = True
+            self.config_toggle_btn.configure(
+                fg_color=COLORS["accent_purple"],
+                text_color="#ffffff",
+                text="⚙ Database ▲",
+            )
+
+    def _toggle_uri_visibility(self):
+        """Toggle MongoDB URI show/hide."""
+        if self._uri_hidden:
+            self.config_uri_entry.configure(show="")
+            self.uri_eye_btn.configure(text="🙈")
+            self._uri_hidden = False
+        else:
+            self.config_uri_entry.configure(show="*")
+            self.uri_eye_btn.configure(text="👁")
+            self._uri_hidden = True
+
+    def _load_config_value(self, key: str, default: str = "") -> str:
+        """Load a value from config.py."""
+        try:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("config", os.path.join(project_root, "config.py"))
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                return str(getattr(mod, key, default))
+        except Exception:
+            pass
+        return os.getenv(key, default)
+
+    def _on_test_db_click(self):
+        """Test MongoDB connection in background thread."""
+        uri = self._config_uri_var.get().strip()
+        if not uri:
+            self.config_status_label.configure(text="⚠ URI không được trống!", text_color=COLORS["accent_orange"])
+            return
+        self.config_test_btn.configure(state="disabled", text="⏳ Đang test...")
+        self.config_status_label.configure(text="Đang kết nối...", text_color=COLORS["text_muted"])
+
+        import threading
+        def _test():
+            try:
+                from pymongo import MongoClient
+                kwargs = {"serverSelectionTimeoutMS": 5000}
+                if uri.startswith("mongodb+srv://"):
+                    kwargs["tls"] = True
+                    kwargs["tlsAllowInvalidCertificates"] = True
+                c = MongoClient(uri, **kwargs)
+                c.admin.command("ping")
+                db_name = self._config_db_var.get().strip() or "vmix_monitor"
+                cols = c[db_name].list_collection_names()
+                c.close()
+                msg = f"✓ Kết nối thành công! DB: {db_name} ({len(cols)} collections)"
+                color = COLORS["accent_green"]
+            except Exception as e:
+                msg = f"✗ Lỗi: {e}"
+                color = COLORS["accent_red"]
+            self.root.after(0, lambda: self._set_test_result(msg, color))
+        threading.Thread(target=_test, daemon=True, name="db-test").start()
+
+    def _set_test_result(self, msg: str, color: str):
+        """Update test result on main thread."""
+        self.config_status_label.configure(text=msg, text_color=color)
+        self.config_test_btn.configure(state="normal", text="🔌 Test Kết Nối")
+
+    def _on_save_config_click(self):
+        """Save MongoDB config to config.py."""
+        uri = self._config_uri_var.get().strip()
+        db = self._config_db_var.get().strip() or "vmix_monitor"
+        col = self._config_col_var.get().strip() or "logs"
+
+        if not uri:
+            self.config_status_label.configure(text="⚠ URI không được trống!", text_color=COLORS["accent_orange"])
+            return
+        try:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            config_path = os.path.join(project_root, "config.py")
+
+            # Read existing file to preserve other values (DISCORD_WEBHOOK, PREFIX...)
+            existing_lines = []
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    existing_lines = f.readlines()
+
+            keys_managed = {"MONGODB_URI", "DATABASE_NAME", "COLLECTION_NAME"}
+            new_values = {
+                "MONGODB_URI": uri,
+                "DATABASE_NAME": db,
+                "COLLECTION_NAME": col,
+            }
+            written = set()
+            new_lines = []
+            for line in existing_lines:
+                key = line.split("=")[0].strip().strip('#').strip()
+                if key in keys_managed and not line.strip().startswith("#"):
+                    val = new_values[key]
+                    new_lines.append(f"{key} = \"{val}\"\n")
+                    written.add(key)
+                else:
+                    new_lines.append(line)
+            for k, v in new_values.items():
+                if k not in written:
+                    new_lines.append(f"{k} = \"{v}\"\n")
+
+            with open(config_path, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+
+            self.config_status_label.configure(
+                text=f"✓ Đã lưu vào config.py — Restart server để áp dụng!",
+                text_color=COLORS["accent_green"]
+            )
+            self.config_save_btn.configure(text="✓ Đã Lưu!")
+            self.root.after(2500, lambda: self.config_save_btn.configure(text="💾 Lưu Config"))
+        except Exception as e:
+            self.config_status_label.configure(text=f"✗ Lỗi lưu: {e}", text_color=COLORS["accent_red"])
+
     # ── Control Bar ───────────────────────────────────────────────────────
+
     def _build_control_bar(self):
         bar = ctk.CTkFrame(
             self.main_frame,
@@ -209,7 +520,25 @@ class ServerConsoleUIMixin:
             height=36,
             command=self._on_open_server_click,
         )
-        self.open_server_btn.pack(side="left", padx=(0, 8))
+        self.open_server_btn.pack(side="left", padx=(0, 4))
+
+        # LAN / WAN toggle button
+        self._url_mode = "WAN"   # "WAN" or "LAN"
+        self._wan_ip: str = ""
+        self._lan_ip: str = get_local_ip()
+        self.toggle_ip_btn = ctk.CTkButton(
+            inner,
+            text="WAN",
+            font=ctk.CTkFont(family="Consolas", size=11, weight="bold"),
+            fg_color=COLORS["accent_blue"],
+            hover_color=COLORS["border_focus"],
+            text_color="#ffffff",
+            corner_radius=8,
+            width=52,
+            height=36,
+            command=self._on_toggle_ip_mode,
+        )
+        self.toggle_ip_btn.pack(side="left", padx=(0, 8))
 
         # Separator
         sep_v = ctk.CTkFrame(inner, fg_color=COLORS["border"], width=1)
@@ -267,18 +596,36 @@ class ServerConsoleUIMixin:
         )
         self.copy_btn.pack(side="right", padx=(8, 0))
 
-        initial_ip = get_local_ip()
+        initial_lan = get_local_ip()
         self.server_url_label = ctk.CTkLabel(
             right_info,
-            text=f"http://{initial_ip}:8001",
+            text=f"http://{initial_lan}:8001",
             font=ctk.CTkFont(family="Consolas", size=12, weight="bold"),
             text_color=COLORS["accent_blue"],
         )
         self.server_url_label.pack(side="right", padx=(4, 0))
 
+        # Fetch real WAN IP in background so UI doesn't freeze
+        import threading
+        def _init_wan_label():
+            port = int(os.getenv("PORT", 8001))
+            lan = get_local_ip()
+            try:
+                wan = get_wan_ip(timeout=8.0)
+                try:
+                    self.root.after(0, lambda: self._update_server_url_label(wan, port, lan_ip=lan))
+                except Exception:
+                    pass
+            except Exception:
+                try:
+                    self.root.after(0, lambda: self._update_server_url_label(lan, port, lan_ip=lan))
+                except Exception:
+                    pass
+        threading.Thread(target=_init_wan_label, daemon=True, name="init-wan-label").start()
+
         self.url_title_label = ctk.CTkLabel(
             right_info,
-            text="🌐 LINK SERVER:",
+            text="🌐 NK SEF",
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             text_color=COLORS["text_secondary"],
         )
@@ -301,6 +648,8 @@ class ServerConsoleUIMixin:
             corner_radius=0,
         )
         log_container.pack(fill="both", expand=True, side="top")
+        self._log_container_ref = log_container  # used by _toggle_config_panel
+
 
         # Use a raw tkinter Text widget for maximum performance with large logs
         # wrapped in a CTk frame for styling consistency
@@ -447,16 +796,63 @@ class ServerConsoleUIMixin:
                 print(f"Copy error: {e}")
 
     def _on_open_server_click(self):
-        """Open current server URL in default browser."""
+        """Open current server URL (WAN or LAN depending on toggle) in default browser."""
         import webbrowser
         url = self.server_url_label.cget("text") if hasattr(self, "server_url_label") else ""
         if not url or url == "—":
-            try:
-                from .logic import get_local_ip
-            except ImportError:
-                from logic import get_local_ip
-            url = f"http://{get_local_ip()}:8001"
+            url = f"http://{self._lan_ip}:8001"
         webbrowser.open(url)
+
+    def _on_toggle_ip_mode(self):
+        """Toggle between WAN and LAN URL display."""
+        port = int(os.getenv("PORT", 8001))
+        if self._url_mode == "WAN":
+            # Switch to LAN
+            self._url_mode = "LAN"
+            lan_url = f"http://{self._lan_ip}:{port}" if self._lan_ip else "—"
+            if hasattr(self, "server_url_label"):
+                self.server_url_label.configure(text=lan_url)
+            if hasattr(self, "toggle_ip_btn"):
+                self.toggle_ip_btn.configure(
+                    text="LAN",
+                    fg_color=COLORS["accent_green"],
+                    hover_color=COLORS["btn_start_hover"],
+                )
+            if hasattr(self, "url_title_label"):
+                self.url_title_label.configure(text="🖧 NK SEF")
+        else:
+            # Switch to WAN
+            self._url_mode = "WAN"
+            wan_url = f"http://{self._wan_ip}:{port}" if self._wan_ip else f"http://{self._lan_ip}:{port}"
+            if hasattr(self, "server_url_label"):
+                self.server_url_label.configure(text=wan_url)
+            if hasattr(self, "toggle_ip_btn"):
+                self.toggle_ip_btn.configure(
+                    text="WAN",
+                    fg_color=COLORS["accent_blue"],
+                    hover_color=COLORS["border_focus"],
+                )
+            if hasattr(self, "url_title_label"):
+                self.url_title_label.configure(text="🌐 NK SEF")
+
+    def _update_server_url_label(self, ip: str, port: int, lan_ip: str = ""):
+        """Update the server URL label. Called from main thread after WAN IP resolved.
+
+        ip     = WAN IP (or LAN as fallback)
+        lan_ip = LAN IP (optional, to store for toggle)
+        """
+        # Store both IPs for toggle
+        self._wan_ip = ip
+        if lan_ip:
+            self._lan_ip = lan_ip
+
+        # Only update label if currently showing WAN mode
+        if self._url_mode == "WAN":
+            url = f"http://{ip}:{port}"
+            if hasattr(self, "server_url_label"):
+                self.server_url_label.configure(text=url)
+        if hasattr(self, "port_label"):
+            self.port_label.configure(text=f"PORT: {port}")
 
     def _on_start_click(self):
         """Handle Start button click."""

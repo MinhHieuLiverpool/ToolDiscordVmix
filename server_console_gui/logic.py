@@ -10,6 +10,7 @@ import queue
 import sys
 import threading
 import time
+import urllib.request
 from datetime import datetime
 
 import socket
@@ -53,6 +54,106 @@ def get_local_ip() -> str:
         pass
 
     return "127.0.0.1"
+
+
+def get_wan_ip(timeout: float = 5.0) -> str:
+    """Get the public (WAN) IP address of this machine via external API.
+
+    Tries multiple services in order; falls back to LAN IP if all fail.
+    """
+    import sys as _sys
+    services = [
+        "https://api.ipify.org",
+        "https://ifconfig.me/ip",
+        "https://api4.my-ip.io/ip",
+        "https://checkip.amazonaws.com",
+    ]
+    last_err = None
+    for url in services:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "curl/7.68.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                ip = resp.read().decode("utf-8").strip()
+                # Validate it looks like an IP
+                if ip and len(ip.split(".")) == 4:
+                    return ip
+        except Exception as e:
+            last_err = e
+            continue
+    # Fallback to LAN IP if no WAN service responds
+    lan = get_local_ip()
+    raise RuntimeError(f"Tất cả WAN services thất bại (last: {last_err}). Dùng LAN IP: {lan}")
+
+
+def update_web_env(wan_ip: str, port: int, lan_ip: str = "") -> bool:
+    """Update web/.env to point BACKEND URLs at WAN IP and (optionally) LAN IP.
+
+    Writes:
+      VITE_BACKEND_BASE_URL        = http://<wan_ip>:<port>   (for external access)
+      VITE_BACKEND_WS_URL          = ws://<wan_ip>:<port>/ws
+      VITE_BACKEND_BASE_URL_LOCAL  = http://<lan_ip>:<port>   (for same-LAN access)
+      VITE_BACKEND_WS_URL_LOCAL    = ws://<lan_ip>:<port>/ws
+
+    Works both when running from source and when bundled as a PyInstaller EXE.
+    Returns True if the file was updated successfully.
+    """
+    import sys as _sys
+    try:
+        if getattr(_sys, "frozen", False):
+            exe_dir = os.path.dirname(os.path.abspath(_sys.executable))
+            project_root = os.path.dirname(exe_dir)
+        else:
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        env_path = os.path.join(project_root, "web", ".env")
+        if not os.path.exists(env_path):
+            return False
+
+        with open(env_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        # Keys we want to manage
+        managed_keys = {
+            "VITE_BACKEND_BASE_URL",
+            "VITE_BACKEND_WS_URL",
+            "VITE_BACKEND_BASE_URL_LOCAL",
+            "VITE_BACKEND_WS_URL_LOCAL",
+        }
+
+        # Build replacement map
+        replacements: dict[str, str] = {
+            "VITE_BACKEND_BASE_URL": f"VITE_BACKEND_BASE_URL=http://{wan_ip}:{port}\n",
+            "VITE_BACKEND_WS_URL": f"VITE_BACKEND_WS_URL=ws://{wan_ip}:{port}/ws\n",
+        }
+        if lan_ip:
+            replacements["VITE_BACKEND_BASE_URL_LOCAL"] = f"VITE_BACKEND_BASE_URL_LOCAL=http://{lan_ip}:{port}\n"
+            replacements["VITE_BACKEND_WS_URL_LOCAL"] = f"VITE_BACKEND_WS_URL_LOCAL=ws://{lan_ip}:{port}/ws\n"
+
+        new_lines = []
+        written = set()
+        for line in lines:
+            key = line.split("=")[0].strip() if "=" in line else ""
+            if key in managed_keys:
+                if key in replacements:
+                    new_lines.append(replacements[key])
+                    written.add(key)
+                # If key not in replacements (e.g. LOCAL keys when no lan_ip), keep original
+                else:
+                    new_lines.append(line)
+            else:
+                new_lines.append(line)
+
+        # Append any keys that weren't in the file yet
+        for key, value in replacements.items():
+            if key not in written:
+                new_lines.append(value)
+
+        with open(env_path, "w", encoding="utf-8", newline="") as f:
+            f.writelines(new_lines)
+
+        return True
+    except Exception:
+        return False
 
 
 class QueueWriter(io.TextIOBase):
@@ -140,8 +241,8 @@ class ServerConsoleLogicMixin:
         self._start_time = time.time()
         self._log_line_count = 0
 
-        # Disable notifications in dev/GUI mode
-        os.environ["DISABLE_NOTIFICATIONS"] = "1"
+        # NOTE: Notifications được bật bình thường — server này là production local server
+        # Để tắt notification thì set DISABLE_NOTIFICATIONS=1 trong môi trường trước khi chạy
 
         # Redirect stdout/stderr to queue
         sys.stdout = QueueWriter(self.log_queue, self._original_stdout, "stdout")
@@ -196,8 +297,44 @@ class ServerConsoleLogicMixin:
 
             lan_ip = get_local_ip()
             timestamp = datetime.now(VIETNAM_TZ).strftime("%H:%M:%S")
-            self.log_queue.put((timestamp, "system", f"🌐 Web Dashboard tự động sẵn sàng tại: http://{lan_ip}:{PORT}"))
-            self.log_queue.put((timestamp, "system", f"💡 Mẹo: Nếu máy khác không vào được, hãy mở cổng {PORT} trong Windows Firewall."))
+            self.log_queue.put((timestamp, "system", f"🖧  LAN: http://{lan_ip}:{PORT}"))
+
+            # Fetch WAN IP in background to avoid blocking server startup
+            def _fetch_wan_and_notify():
+                try:
+                    wan_ip = get_wan_ip(timeout=8.0)
+                    ts = datetime.now(VIETNAM_TZ).strftime("%H:%M:%S")
+                    self.log_queue.put((ts, "system", f"🌐 WAN: http://{wan_ip}:{PORT}"))
+                    self.log_queue.put((ts, "system", f"🖧  LAN: http://{lan_ip}:{PORT}"))
+                    self.log_queue.put((ts, "system", f"💡 Mẹo: Mở cổng {PORT} trong Windows Firewall & router port-forward để truy cập ngoài mạng."))
+
+                    # Auto-update web/.env: ghi cả WAN + LAN để web tự detect
+                    ok = update_web_env(wan_ip, PORT, lan_ip=lan_ip)
+                    if ok:
+                        self.log_queue.put((ts, "system", f"✓ web/.env đã cập nhật → WAN: {wan_ip}  |  LAN: {lan_ip}"))
+                    else:
+                        self.log_queue.put((ts, "system", "⚠ Không tìm thấy web/.env — cập nhật thủ công."))
+
+                    # Notify the UI label with WAN IP (safe only if root still alive)
+                    try:
+                        self.root.after(0, lambda: self._update_server_url_label(wan_ip, PORT, lan_ip=lan_ip))
+                    except Exception:
+                        pass
+                except RuntimeError as exc:
+                    # get_wan_ip raises RuntimeError when all services fail
+                    ts = datetime.now(VIETNAM_TZ).strftime("%H:%M:%S")
+                    self.log_queue.put((ts, "system", f"⚠ {exc}"))
+                    # Fallback: still update .env with LAN-only
+                    update_web_env(lan_ip, PORT, lan_ip=lan_ip)
+                    try:
+                        self.root.after(0, lambda: self._update_server_url_label(lan_ip, PORT, lan_ip=lan_ip))
+                    except Exception:
+                        pass
+                except Exception as exc:
+                    ts = datetime.now(VIETNAM_TZ).strftime("%H:%M:%S")
+                    self.log_queue.put((ts, "system", f"⚠ Lỗi lấy WAN IP: {exc}"))
+
+            threading.Thread(target=_fetch_wan_and_notify, daemon=True, name="wan-ip-fetch").start()
 
             self._uvicorn_server.run()
         except Exception as e:
