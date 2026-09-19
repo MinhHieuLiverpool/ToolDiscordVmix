@@ -1,11 +1,15 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { useState } from 'react'
 import { getUserPermissions, getUserRole } from '../services/auth'
+import { useLanguage } from '../config/i18n'
 
+// permissionLabel = original Vietnamese label used for permission checks (backend)
+// labelKey = i18n key for display
 const NAV_ITEMS = [
     {
         to: '/dashboard',
-        label: 'Tổng quan',
+        permissionLabel: 'Tổng quan',
+        labelKey: 'sidebar.overview',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="7" height="7" />
@@ -17,7 +21,8 @@ const NAV_ITEMS = [
     },
     {
         to: '/srt',
-        label: 'SRT',
+        permissionLabel: 'SRT',
+        labelKey: 'sidebar.srt',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2L2 7l10 5 10-5-10-5z" />
@@ -27,7 +32,8 @@ const NAV_ITEMS = [
         ),
     },
     {
-        label: 'Stream',
+        permissionLabel: 'Stream',
+        labelKey: 'sidebar.stream',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polygon points="23 7 16 12 23 17 23 7" />
@@ -37,7 +43,8 @@ const NAV_ITEMS = [
         children: [
             {
                 to: '/stream',
-                label: 'Thông số Stream',
+                permissionLabel: 'Thông số Stream',
+                labelKey: 'sidebar.streamParams',
                 icon: (
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="18" y1="20" x2="18" y2="10" />
@@ -48,7 +55,8 @@ const NAV_ITEMS = [
             },
             {
                 to: '/url-key',
-                label: 'URL & Key',
+                permissionLabel: 'URL & Key',
+                labelKey: 'sidebar.urlKey',
                 icon: (
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
@@ -60,7 +68,8 @@ const NAV_ITEMS = [
     },
     {
         to: '/statistics',
-        label: 'Thống kê',
+        permissionLabel: 'Thống kê',
+        labelKey: 'sidebar.statistics',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="20" x2="18" y2="10" />
@@ -71,7 +80,8 @@ const NAV_ITEMS = [
     },
     {
         to: '/vmix-monitor',
-        label: 'Vmix Monitor',
+        permissionLabel: 'Vmix Monitor',
+        labelKey: 'sidebar.vmixMonitor',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
@@ -82,7 +92,8 @@ const NAV_ITEMS = [
     },
     {
         to: '/record-multicorder',
-        label: 'Record & MultiCorder',
+        permissionLabel: 'Record & MultiCorder',
+        labelKey: 'sidebar.recordMulticorder',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" />
@@ -92,7 +103,8 @@ const NAV_ITEMS = [
     },
     {
         to: '/mobile-monitor',
-        label: 'Mobile Monitor',
+        permissionLabel: 'Mobile Monitor',
+        labelKey: 'sidebar.mobileMonitor',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
@@ -102,7 +114,8 @@ const NAV_ITEMS = [
     },
     {
         to: '/viewsync',
-        label: 'ViewSync',
+        permissionLabel: 'ViewSync',
+        labelKey: 'sidebar.viewSync',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="9" />
@@ -114,7 +127,8 @@ const NAV_ITEMS = [
     },
     {
         to: '/speedtest',
-        label: 'Speedtest',
+        permissionLabel: 'Speedtest',
+        labelKey: 'sidebar.speedtest',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="13" r="8" />
@@ -127,7 +141,8 @@ const NAV_ITEMS = [
     },
     {
         to: '/debug-logs',
-        label: 'Debug Log',
+        permissionLabel: 'Debug Log',
+        labelKey: 'sidebar.debugLog',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -140,7 +155,8 @@ const NAV_ITEMS = [
     },
     {
         to: '/create-web-url',
-        label: 'CreateWebURL',
+        permissionLabel: 'CreateWebURL',
+        labelKey: 'sidebar.createWebUrl',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
@@ -152,7 +168,8 @@ const NAV_ITEMS = [
     },
     {
         to: '/game-channels',
-        label: 'Quản lý Kênh',
+        permissionLabel: 'Quản lý Kênh',
+        labelKey: 'sidebar.gameChannels',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -164,7 +181,8 @@ const NAV_ITEMS = [
     },
     {
         to: '/notification',
-        label: 'Notification',
+        permissionLabel: 'Notification',
+        labelKey: 'sidebar.notification',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9z" />
@@ -173,7 +191,8 @@ const NAV_ITEMS = [
         ),
     },
     {
-        label: 'Người dùng',
+        permissionLabel: 'Người dùng',
+        labelKey: 'sidebar.users',
         icon: (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
@@ -183,7 +202,8 @@ const NAV_ITEMS = [
         children: [
             {
                 to: '/account',
-                label: 'Tài khoản',
+                permissionLabel: 'Tài khoản',
+                labelKey: 'sidebar.account',
                 icon: (
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="12" cy="7" r="4" />
@@ -193,7 +213,8 @@ const NAV_ITEMS = [
             },
             {
                 to: '/account/roles',
-                label: 'Phân quyền',
+                permissionLabel: 'Phân quyền',
+                labelKey: 'sidebar.roles',
                 icon: (
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <rect x="3" y="3" width="7" height="7" />
@@ -213,6 +234,7 @@ export default function Sidebar() {
     const location = useLocation()
     const [collapsed, setCollapsed] = useState(false)
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ Stream: true, 'Người dùng': true })
+    const { t } = useLanguage()
 
     const permissions = getUserPermissions()
     const userRole = getUserRole().toLowerCase()
@@ -220,14 +242,14 @@ export default function Sidebar() {
 
     const filteredNavItems = NAV_ITEMS.map((item) => {
         if ('children' in item && item.children) {
-            const filteredChildren = item.children.filter((child) => permissions.includes(child.label) || isAdmin)
+            const filteredChildren = item.children.filter((child) => permissions.includes(child.permissionLabel) || isAdmin)
             if (filteredChildren.length === 0) return null
             return {
                 ...item,
                 children: filteredChildren,
             }
         }
-        if (permissions.includes(item.label) || isAdmin) {
+        if (permissions.includes(item.permissionLabel) || isAdmin) {
             return item
         }
         return null
@@ -244,21 +266,21 @@ export default function Sidebar() {
 
     const renderNavItem = (item: NavItem) => {
         if ('children' in item && item.children) {
-            const isExpanded = expandedGroups[item.label] ?? false
+            const isExpanded = expandedGroups[item.permissionLabel] ?? false
             const groupActive = isGroupActive(item)
 
             return (
-                <div key={item.label} className="sidebar-nav-group">
+                <div key={item.permissionLabel} className="sidebar-nav-group">
                     <button
                         type="button"
                         className={`sidebar-nav-item sidebar-nav-group-toggle ${groupActive ? 'sidebar-nav-group-active' : ''}`}
-                        onClick={() => toggleGroup(item.label)}
-                        title={item.label}
+                        onClick={() => toggleGroup(item.permissionLabel)}
+                        title={t(item.labelKey)}
                     >
                         <span className="sidebar-nav-icon">{item.icon}</span>
                         {!collapsed && (
                             <>
-                                <span className="sidebar-nav-text">{item.label}</span>
+                                <span className="sidebar-nav-text">{t(item.labelKey)}</span>
                                 <svg
                                     className={`sidebar-nav-chevron ${isExpanded ? 'sidebar-nav-chevron-open' : ''}`}
                                     viewBox="0 0 24 24"
@@ -283,10 +305,10 @@ export default function Sidebar() {
                                     className={({ isActive }) =>
                                         `sidebar-nav-item sidebar-nav-child ${isActive ? 'sidebar-nav-active' : ''}`
                                     }
-                                    title={child.label}
+                                    title={t(child.labelKey)}
                                 >
                                     <span className="sidebar-nav-icon sidebar-nav-child-icon">{child.icon}</span>
-                                    <span className="sidebar-nav-text">{child.label}</span>
+                                    <span className="sidebar-nav-text">{t(child.labelKey)}</span>
                                 </NavLink>
                             ))}
                         </div>
@@ -307,10 +329,10 @@ export default function Sidebar() {
                 className={({ isActive }) =>
                     `sidebar-nav-item ${isActive ? 'sidebar-nav-active' : ''}`
                 }
-                title={item.label}
+                title={t(item.labelKey)}
             >
                 <span className="sidebar-nav-icon">{item.icon}</span>
-                {!collapsed && <span className="sidebar-nav-text">{item.label}</span>}
+                {!collapsed && <span className="sidebar-nav-text">{t(item.labelKey)}</span>}
             </NavLink>
         )
     }
@@ -335,7 +357,7 @@ export default function Sidebar() {
                         type="button"
                         className="sidebar-toggle-btn"
                         onClick={() => setCollapsed(true)}
-                        title="Thu gọn"
+                        title={t('sidebar.collapse')}
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="15 18 9 12 15 6" />
@@ -346,7 +368,7 @@ export default function Sidebar() {
 
             {/* Navigation */}
             <nav className="sidebar-nav">
-                <div className="sidebar-nav-label">{collapsed ? '—' : 'MENU'}</div>
+                <div className="sidebar-nav-label">{collapsed ? '—' : t('sidebar.menu')}</div>
                 {filteredNavItems.map((item) => renderNavItem(item))}
             </nav>
 
@@ -357,7 +379,7 @@ export default function Sidebar() {
                         type="button"
                         className="sidebar-toggle-btn sidebar-toggle-btn-bottom"
                         onClick={() => setCollapsed(false)}
-                        title="Mở rộng"
+                        title={t('sidebar.expand')}
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="9 18 15 12 9 6" />
@@ -370,3 +392,4 @@ export default function Sidebar() {
         </aside>
     )
 }
+

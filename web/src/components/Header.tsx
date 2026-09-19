@@ -1,4 +1,5 @@
 import type { BackendLogItem } from '../services/api'
+import { useLanguage } from '../config/i18n'
 
 type WsStatus = 'connecting' | 'connected' | 'disconnected'
 
@@ -13,9 +14,10 @@ export default function Header({
     wsStatus: WsStatus
     onLogout: () => void
 }) {
+    const { t } = useLanguage()
     const totalOffline = rows.length - totalOnline
 
-    const wsLabel = wsStatus === 'connected' ? 'CONNECTED' : wsStatus === 'connecting' ? 'CONNECTING...' : 'DISCONNECTED'
+    const wsLabel = wsStatus === 'connected' ? t('header.connected') : wsStatus === 'connecting' ? t('header.connecting') : t('header.disconnected')
     const wsColorClass = wsStatus === 'connected' ? 'header-ws-ok' : wsStatus === 'connecting' ? 'header-ws-warn' : 'header-ws-err'
 
     return (
@@ -42,17 +44,17 @@ export default function Header({
                 <div className="header-kpi-row">
                     <div className="header-kpi">
                         <span className="header-kpi-number">{rows.length}</span>
-                        <span className="header-kpi-label">TOTAL</span>
+                        <span className="header-kpi-label">{t('header.total')}</span>
                     </div>
                     <div className="header-kpi-divider" />
                     <div className="header-kpi header-kpi-online">
                         <span className="header-kpi-number">{totalOnline}</span>
-                        <span className="header-kpi-label">ONLINE</span>
+                        <span className="header-kpi-label">{t('header.online')}</span>
                     </div>
                     <div className="header-kpi-divider" />
                     <div className="header-kpi header-kpi-offline">
                         <span className="header-kpi-number">{totalOffline}</span>
-                        <span className="header-kpi-label">OFFLINE</span>
+                        <span className="header-kpi-label">{t('header.offline')}</span>
                     </div>
                 </div>
             </div>
@@ -65,7 +67,7 @@ export default function Header({
                 </div>
                 <button className="logout-btn" type="button" onClick={onLogout}>
                     <span style={{ fontSize: '1.1rem', marginRight: '4px' }}>⎋</span>
-                    LOGOUT
+                    {t('auth.logout')}
                 </button>
             </div>
         </div>

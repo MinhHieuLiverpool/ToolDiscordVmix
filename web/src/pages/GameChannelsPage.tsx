@@ -5,6 +5,7 @@ import { showToast } from '../components/ui/Toast'
 import Dialog from '../components/ui/Dialog'
 import { getMobileDisplayName, getMobileIdentifiers, getMobileStableKey } from '../utils/mobileDevice'
 import { hasActionPermission } from '../services/auth'
+import { useLanguage } from '../config/i18n'
 import axios from 'axios'
 
 const MODULE_KEY = 'Quản lý Kênh'
@@ -13,9 +14,12 @@ interface MobileDeviceOption {
     key: string
     label: string
     ids: string[]
+    ip?: string
+    localIp?: string
 }
 
 export default function GameChannelsPage() {
+    const { t } = useLanguage()
     const { allRows, gameAssignments, loadAssignments } = useDashboardContext()
     
     const [loading, setLoading] = useState(false)
@@ -34,10 +38,13 @@ export default function GameChannelsPage() {
                     rawData.forEach((item: any) => {
                         const key = getMobileStableKey(item)
                         if (!key) return
+                        const ip = item.localIp || item.serverIp || ''
                         byKey.set(key, {
                             key,
                             label: getMobileDisplayName(item),
                             ids: getMobileIdentifiers(item),
+                            ip,
+                            localIp: item.localIp || '',
                         })
                     })
                     const opts = Array.from(byKey.values()).sort((a, b) => a.label.localeCompare(b.label))
@@ -57,6 +64,14 @@ export default function GameChannelsPage() {
     // Form inputs state
     const [gameName, setGameName] = useState('')
     const [selectedMachines, setSelectedMachines] = useState<string[]>([])
+    const [modalMachineSearch, setModalMachineSearch] = useState('')
+
+    // Reset machine search when modal closes
+    useEffect(() => {
+        if (!showCreateModal && !showEditModal) {
+            setModalMachineSearch('')
+        }
+    }, [showCreateModal, showEditModal])
 
     // List of unique machine names from backend logs
     const allMachineNames = useMemo(() => {
@@ -64,17 +79,58 @@ export default function GameChannelsPage() {
         return Array.from(new Set(names)).sort()
     }, [allRows])
 
-    // PC options: stored key = machine name (stable), label = name_edit (fallback name)
+    // PC options: stored key = machine name (stable), label = name_edit (fallback name), ip, ipwan, port
     const pcMachines = useMemo(() => {
-        const byName = new Map<string, { key: string; label: string }>()
+        const byName = new Map<string, { key: string; label: string; name: string; nameEdit: string; ip: string; ipwan: string; port: string }>()
         allRows.forEach(r => {
             const name = r.data.name
             if (!name) return
-            const label = (r.data.name_edit || '').trim() || name
-            byName.set(name, { key: name, label })
+            const nameEdit = (r.data.name_edit || '').trim()
+            const label = nameEdit || name
+            const ip = String(r.data.ip || '').trim()
+            const ipwan = String(r.data.ipwan || '').trim()
+            const port = String(r.data.port || '').trim()
+            byName.set(name, {
+                key: name,
+                label,
+                name,
+                nameEdit,
+                ip,
+                ipwan,
+                port,
+            })
         })
         return Array.from(byName.values()).sort((a, b) => a.label.localeCompare(b.label))
     }, [allRows])
+
+    // Filtered PC machines for modal checklist (search by name, nameEdit, IP, IPWAN, port)
+    const filteredPcMachines = useMemo(() => {
+        if (!modalMachineSearch.trim()) return pcMachines
+        const term = modalMachineSearch.toLowerCase().trim()
+        return pcMachines.filter(m =>
+            m.label.toLowerCase().includes(term) ||
+            m.key.toLowerCase().includes(term) ||
+            m.name.toLowerCase().includes(term) ||
+            m.nameEdit.toLowerCase().includes(term) ||
+            m.ip.toLowerCase().includes(term) ||
+            m.ipwan.toLowerCase().includes(term) ||
+            (m.port && m.port.toLowerCase().includes(term)) ||
+            (m.ip && m.port && `${m.ip}:${m.port}`.includes(term))
+        )
+    }, [pcMachines, modalMachineSearch])
+
+    // Filtered Mobile devices for modal checklist (search by name, IDs, localIp, serverIp)
+    const filteredMobileDevices = useMemo(() => {
+        if (!modalMachineSearch.trim()) return mobileDevices
+        const term = modalMachineSearch.toLowerCase().trim()
+        return mobileDevices.filter(d =>
+            d.label.toLowerCase().includes(term) ||
+            d.key.toLowerCase().includes(term) ||
+            d.ids.some(id => id.toLowerCase().includes(term)) ||
+            (d.ip && d.ip.toLowerCase().includes(term)) ||
+            (d.localIp && d.localIp.toLowerCase().includes(term))
+        )
+    }, [mobileDevices, modalMachineSearch])
 
     // Toggle machine selection for checklist (PC machines, matched by exact name)
     const handleToggleMachineSelection = (name: string) => {
@@ -132,11 +188,23 @@ export default function GameChannelsPage() {
     }
 
     const handleSelectAll = () => {
-        setSelectedMachines([...allMachineNames, ...mobileDevices.map(d => d.key)])
+        if (modalMachineSearch.trim()) {
+            const pcKeys = filteredPcMachines.map(p => p.key)
+            const mobKeys = filteredMobileDevices.map(d => d.key)
+            setSelectedMachines(prev => Array.from(new Set([...prev, ...pcKeys, ...mobKeys])))
+        } else {
+            setSelectedMachines([...allMachineNames, ...mobileDevices.map(d => d.key)])
+        }
     }
 
     const handleDeselectAll = () => {
-        setSelectedMachines([])
+        if (modalMachineSearch.trim()) {
+            const pcKeys = new Set(filteredPcMachines.map(p => p.key))
+            const mobIds = new Set(filteredMobileDevices.flatMap(d => d.ids))
+            setSelectedMachines(prev => prev.filter(m => !pcKeys.has(m) && !mobIds.has(m)))
+        } else {
+            setSelectedMachines([])
+        }
     }
 
     // Handlers
@@ -287,15 +355,15 @@ export default function GameChannelsPage() {
                 }
             `}</style>
             <div className="page-header" style={{ marginBottom: '1.5rem' }}>
-                <h2 className="page-title page-title-compact">Quản lý Kênh</h2>
-                <p className="page-description page-description-compact">Quản lý danh sách các kênh game và chỉ định máy trực thuộc mỗi kênh.</p>
+                <h2 className="page-title page-title-compact">{t('channels.title')}</h2>
+                <p className="page-description page-description-compact">{t('channels.subtitle')}</p>
             </div>
 
             <section className="card-light account-card">
                 <div className="account-card-header">
                     <div>
-                        <h3 className="account-card-title account-card-title-compact">Kênh Game</h3>
-                        <p className="account-card-subtitle account-card-subtitle-compact">Danh sách các kênh game đang hoạt động trong hệ thống.</p>
+                        <h3 className="account-card-title account-card-title-compact">{t('channels.cardTitle')}</h3>
+                        <p className="account-card-subtitle account-card-subtitle-compact">{t('channels.cardSubtitle')}</p>
                     </div>
                     {canAdd && (
                         <button
@@ -307,13 +375,13 @@ export default function GameChannelsPage() {
                                 setShowCreateModal(true)
                             }}
                         >
-                            Thêm kênh mới
+                            {t('channels.addNew')}
                         </button>
                     )}
                 </div>
 
                 {gameAssignments.length === 0 ? (
-                    <div className="account-empty">Chưa có kênh game nào được tạo. Nhấp "Thêm kênh mới" để bắt đầu.</div>
+                    <div className="account-empty">{t('channels.emptyList')}</div>
                 ) : (
                     <div className="account-table-wrap">
                         <table className="account-table account-table-compact">
@@ -325,10 +393,10 @@ export default function GameChannelsPage() {
                             </colgroup>
                             <thead>
                                 <tr>
-                                    <th>Tên Kênh</th>
-                                    <th>Hiển Thị</th>
-                                    <th>Các Máy Thuộc Kênh</th>
-                                    <th>Hành Động</th>
+                                    <th>{t('channels.thName')}</th>
+                                    <th>{t('channels.thVisibility')}</th>
+                                    <th>{t('channels.thMachines')}</th>
+                                    <th>{t('channels.thActions')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -396,7 +464,7 @@ export default function GameChannelsPage() {
                                                     })
                                                 ) : (
                                                     <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.75rem' }}>
-                                                        (Chưa chọn máy nào)
+                                                        {t('channels.noMachinesSelected')}
                                                     </span>
                                                 )}
                                             </div>
@@ -414,7 +482,7 @@ export default function GameChannelsPage() {
                                                         }}
                                                         onClick={() => handleOpenEdit(assignment.game, assignment.machines)}
                                                     >
-                                                        Sửa
+                                                        {t('common.edit')}
                                                     </button>
                                                 )}
                                                 {canDelete && (
@@ -428,7 +496,7 @@ export default function GameChannelsPage() {
                                                         }}
                                                         onClick={() => handleDeleteChannel(assignment.game)}
                                                     >
-                                                        Xóa
+                                                        {t('common.delete')}
                                                     </button>
                                                 )}
                                                 {!canEdit && !canDelete && (
@@ -448,19 +516,20 @@ export default function GameChannelsPage() {
             <Dialog
                 open={showCreateModal}
                 onClose={() => setShowCreateModal(false)}
-                title="Tạo Kênh Mới"
+                title={t('channels.createModalTitle')}
+                maxWidth="1200px"
             >
                 <form onSubmit={handleCreateChannel} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                     <div>
                         <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.5rem' }}>
-                            Tên Kênh Mới * (Không dùng dropdown, nhập tự do)
+                            {t('channels.channelNameLabel')}
                         </label>
                         <div className="table-search-wrap" style={{ maxWidth: '100%', boxSizing: 'border-box' }}>
                             <input
                                 type="text"
                                 required
                                 className="table-search-input"
-                                placeholder="Nhập tên kênh (ví dụ: Kênh Game A)"
+                                placeholder={t('channels.channelNamePlaceholder')}
                                 value={gameName}
                                 onChange={(e) => setGameName(e.target.value)}
                             />
@@ -470,7 +539,7 @@ export default function GameChannelsPage() {
                     <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                             <label style={{ flex: 1, fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>
-                                Chọn các máy trực thuộc kênh này
+                                {t('channels.selectMachinesLabel')}
                             </label>
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
                                 <button
@@ -487,7 +556,7 @@ export default function GameChannelsPage() {
                                         color: '#475569'
                                     }}
                                 >
-                                    Chọn tất cả
+                                    {t('channels.selectAll')}
                                 </button>
                                 <button
                                     type="button"
@@ -503,59 +572,89 @@ export default function GameChannelsPage() {
                                         color: '#475569'
                                     }}
                                 >
-                                    Bỏ chọn tất cả
+                                    {t('channels.deselectAll')}
                                 </button>
                             </div>
+                        </div>
+
+                        {/* Search machines inside Create modal */}
+                        <div className="table-search-wrap" style={{ maxWidth: '100%', boxSizing: 'border-box', marginBottom: '0.75rem' }}>
+                            <svg className="table-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="11" cy="11" r="8" />
+                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                            </svg>
+                            <input
+                                type="text"
+                                className="table-search-input"
+                                placeholder={t('channels.searchMachinesPlaceholder')}
+                                value={modalMachineSearch}
+                                onChange={(e) => setModalMachineSearch(e.target.value)}
+                            />
+                            {modalMachineSearch && (
+                                <button
+                                    type="button"
+                                    onClick={() => setModalMachineSearch('')}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', color: '#94a3b8', fontSize: '0.8rem' }}
+                                >
+                                    ✕
+                                </button>
+                            )}
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
-                                    Máy tính ({allMachineNames.length})
+                                    {t('channels.pcSection')} ({filteredPcMachines.length}/{allMachineNames.length})
                                 </label>
-                                {allMachineNames.length === 0 ? (
+                                {filteredPcMachines.length === 0 ? (
                                     <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
-                                        Không tìm thấy máy tính nào.
+                                        {modalMachineSearch ? t('channels.noMachinesMatch') : t('channels.noPcFound')}
                                     </div>
                                 ) : (
                                     <div
                                         style={{
                                             display: 'grid',
-                                            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                                            gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
                                             gap: '0.5rem',
                                             padding: '0.75rem',
                                             background: '#f8fafc',
                                             borderRadius: '10px',
                                             border: '1px solid #e2e8f0',
-                                            maxHeight: '140px',
+                                            maxHeight: '220px',
                                             overflowY: 'auto'
                                         }}
                                     >
-                                        {pcMachines.map(({ key, label }) => (
+                                        {filteredPcMachines.map(({ key, label, ip }) => (
                                             <label
                                                 key={key}
                                                 style={{
                                                     display: 'flex',
                                                     alignItems: 'center',
-                                                    gap: '0.5rem',
+                                                    gap: '0.45rem',
                                                     cursor: 'pointer',
                                                     fontSize: '0.75rem',
                                                     color: '#334155',
                                                     userSelect: 'none',
-                                                    padding: '0.2rem 0.4rem',
+                                                    padding: '0.25rem 0.4rem',
                                                     borderRadius: '6px',
-                                                    background: selectedMachines.includes(key) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                                    background: selectedMachines.includes(key) ? 'rgba(99, 102, 241, 0.05)' : 'transparent',
+                                                    border: selectedMachines.includes(key) ? '1px solid rgba(99, 102, 241, 0.2)' : '1px solid transparent'
                                                 }}
                                             >
                                                 <input
                                                     type="checkbox"
                                                     checked={selectedMachines.includes(key)}
                                                     onChange={() => handleToggleMachineSelection(key)}
-                                                    style={{ accentColor: '#4f46e5', width: '14px', height: '14px', cursor: 'pointer' }}
+                                                    style={{ accentColor: '#4f46e5', width: '14px', height: '14px', cursor: 'pointer', flexShrink: 0 }}
                                                 />
-                                                <span style={{ fontWeight: selectedMachines.includes(key) ? 700 : 500 }}>
+                                                <span style={{ fontWeight: selectedMachines.includes(key) ? 700 : 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                     {label}
                                                 </span>
+                                                {ip && (
+                                                    <span style={{ fontSize: '0.68rem', color: '#94a3b8', fontFamily: 'monospace', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                                        ({ip})
+                                                    </span>
+                                                )}
                                             </label>
                                         ))}
                                     </div>
@@ -564,27 +663,27 @@ export default function GameChannelsPage() {
 
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
-                                    Thiết bị Mobile ({mobileDevices.length})
+                                    {t('channels.mobileSection')} ({filteredMobileDevices.length}/{mobileDevices.length})
                                 </label>
-                                {mobileDevices.length === 0 ? (
+                                {filteredMobileDevices.length === 0 ? (
                                     <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
-                                        Không tìm thấy thiết bị mobile nào.
+                                        {modalMachineSearch ? t('channels.noMachinesMatch') : t('channels.noMobileFound')}
                                     </div>
                                 ) : (
                                     <div
                                         style={{
                                             display: 'grid',
-                                            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                                            gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
                                             gap: '0.5rem',
                                             padding: '0.75rem',
                                             background: '#f8fafc',
                                             borderRadius: '10px',
                                             border: '1px solid #e2e8f0',
-                                            maxHeight: '140px',
+                                            maxHeight: '220px',
                                             overflowY: 'auto'
                                         }}
                                     >
-                                        {mobileDevices.map(opt => {
+                                        {filteredMobileDevices.map(opt => {
                                             const checked = isMobileSelected(opt)
                                             return (
                                             <label
@@ -592,25 +691,31 @@ export default function GameChannelsPage() {
                                                 style={{
                                                     display: 'flex',
                                                     alignItems: 'center',
-                                                    gap: '0.5rem',
+                                                    gap: '0.45rem',
                                                     cursor: 'pointer',
                                                     fontSize: '0.75rem',
                                                     color: '#334155',
                                                     userSelect: 'none',
-                                                    padding: '0.2rem 0.4rem',
+                                                    padding: '0.25rem 0.4rem',
                                                     borderRadius: '6px',
-                                                    background: checked ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                                    background: checked ? 'rgba(99, 102, 241, 0.05)' : 'transparent',
+                                                    border: checked ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid transparent'
                                                 }}
                                             >
                                                 <input
                                                     type="checkbox"
                                                     checked={checked}
                                                     onChange={() => handleToggleMobileSelection(opt)}
-                                                    style={{ accentColor: '#10b981', width: '14px', height: '14px', cursor: 'pointer' }}
+                                                    style={{ accentColor: '#10b981', width: '14px', height: '14px', cursor: 'pointer', flexShrink: 0 }}
                                                 />
-                                                <span style={{ fontWeight: checked ? 700 : 500 }}>
+                                                <span style={{ fontWeight: checked ? 700 : 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                     {opt.label}
                                                 </span>
+                                                {opt.ip && (
+                                                    <span style={{ fontSize: '0.68rem', color: '#94a3b8', fontFamily: 'monospace', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                                        ({opt.ip})
+                                                    </span>
+                                                )}
                                             </label>
                                             )
                                         })}
@@ -627,14 +732,14 @@ export default function GameChannelsPage() {
                             onClick={() => setShowCreateModal(false)}
                             disabled={loading}
                         >
-                            Hủy
+                            {t('common.cancel')}
                         </button>
                         <button
                             type="submit"
                             className="account-action-btn"
                             disabled={loading}
                         >
-                            {loading ? 'Đang lưu...' : 'Lưu cấu hình'}
+                            {loading ? t('channels.saving') : t('channels.saveConfig')}
                         </button>
                     </div>
                 </form>
@@ -647,12 +752,13 @@ export default function GameChannelsPage() {
                     setShowEditModal(false)
                     setEditingGame(null)
                 }}
-                title={`Chỉnh sửa kênh: ${editingGame}`}
+                title={t('channels.editModalTitle', { name: editingGame || '' })}
+                maxWidth="1200px"
             >
                 <form onSubmit={handleEditChannel} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                     <div>
                         <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '0.5rem' }}>
-                            Tên Kênh (Không thể sửa)
+                            {t('channels.channelNameDisabled')}
                         </label>
                         <div className="table-search-wrap" style={{ maxWidth: '100%', background: '#f8fafc', color: '#64748b', boxSizing: 'border-box' }}>
                             <input
@@ -668,7 +774,7 @@ export default function GameChannelsPage() {
                     <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                             <label style={{ flex: 1, fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>
-                                Chọn các máy trực thuộc kênh này
+                                {t('channels.selectMachinesLabel')}
                             </label>
                             <div style={{ display: 'flex', gap: '0.5rem' }}>
                                 <button
@@ -685,7 +791,7 @@ export default function GameChannelsPage() {
                                         color: '#475569'
                                     }}
                                 >
-                                    Chọn tất cả
+                                    {t('channels.selectAll')}
                                 </button>
                                 <button
                                     type="button"
@@ -701,59 +807,89 @@ export default function GameChannelsPage() {
                                         color: '#475569'
                                     }}
                                 >
-                                    Bỏ chọn tất cả
+                                    {t('channels.deselectAll')}
                                 </button>
                             </div>
+                        </div>
+
+                        {/* Search machines inside Edit modal */}
+                        <div className="table-search-wrap" style={{ maxWidth: '100%', boxSizing: 'border-box', marginBottom: '0.75rem' }}>
+                            <svg className="table-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="11" cy="11" r="8" />
+                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                            </svg>
+                            <input
+                                type="text"
+                                className="table-search-input"
+                                placeholder={t('channels.searchMachinesPlaceholder')}
+                                value={modalMachineSearch}
+                                onChange={(e) => setModalMachineSearch(e.target.value)}
+                            />
+                            {modalMachineSearch && (
+                                <button
+                                    type="button"
+                                    onClick={() => setModalMachineSearch('')}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', color: '#94a3b8', fontSize: '0.8rem' }}
+                                >
+                                    ✕
+                                </button>
+                            )}
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
-                                    Máy tính ({allMachineNames.length})
+                                    {t('channels.pcSection')} ({filteredPcMachines.length}/{allMachineNames.length})
                                 </label>
-                                {allMachineNames.length === 0 ? (
+                                {filteredPcMachines.length === 0 ? (
                                     <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
-                                        Không tìm thấy máy tính nào.
+                                        {modalMachineSearch ? t('channels.noMachinesMatch') : t('channels.noPcFound')}
                                     </div>
                                 ) : (
                                     <div
                                         style={{
                                             display: 'grid',
-                                            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                                            gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
                                             gap: '0.5rem',
                                             padding: '0.75rem',
                                             background: '#f8fafc',
                                             borderRadius: '10px',
                                             border: '1px solid #e2e8f0',
-                                            maxHeight: '140px',
+                                            maxHeight: '220px',
                                             overflowY: 'auto'
                                         }}
                                     >
-                                        {pcMachines.map(({ key, label }) => (
+                                        {filteredPcMachines.map(({ key, label, ip }) => (
                                             <label
                                                 key={key}
                                                 style={{
                                                     display: 'flex',
                                                     alignItems: 'center',
-                                                    gap: '0.5rem',
+                                                    gap: '0.45rem',
                                                     cursor: 'pointer',
                                                     fontSize: '0.75rem',
                                                     color: '#334155',
                                                     userSelect: 'none',
-                                                    padding: '0.2rem 0.4rem',
+                                                    padding: '0.25rem 0.4rem',
                                                     borderRadius: '6px',
-                                                    background: selectedMachines.includes(key) ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                                    background: selectedMachines.includes(key) ? 'rgba(99, 102, 241, 0.05)' : 'transparent',
+                                                    border: selectedMachines.includes(key) ? '1px solid rgba(99, 102, 241, 0.2)' : '1px solid transparent'
                                                 }}
                                             >
                                                 <input
                                                     type="checkbox"
                                                     checked={selectedMachines.includes(key)}
                                                     onChange={() => handleToggleMachineSelection(key)}
-                                                    style={{ accentColor: '#4f46e5', width: '14px', height: '14px', cursor: 'pointer' }}
+                                                    style={{ accentColor: '#4f46e5', width: '14px', height: '14px', cursor: 'pointer', flexShrink: 0 }}
                                                 />
-                                                <span style={{ fontWeight: selectedMachines.includes(key) ? 700 : 500 }}>
+                                                <span style={{ fontWeight: selectedMachines.includes(key) ? 700 : 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                     {label}
                                                 </span>
+                                                {ip && (
+                                                    <span style={{ fontSize: '0.68rem', color: '#94a3b8', fontFamily: 'monospace', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                                        ({ip})
+                                                    </span>
+                                                )}
                                             </label>
                                         ))}
                                     </div>
@@ -762,27 +898,27 @@ export default function GameChannelsPage() {
 
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
-                                    Thiết bị Mobile ({mobileDevices.length})
+                                    {t('channels.mobileSection')} ({filteredMobileDevices.length}/{mobileDevices.length})
                                 </label>
-                                {mobileDevices.length === 0 ? (
+                                {filteredMobileDevices.length === 0 ? (
                                     <div style={{ padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic', textAlign: 'center' }}>
-                                        Không tìm thấy thiết bị mobile nào.
+                                        {modalMachineSearch ? t('channels.noMachinesMatch') : t('channels.noMobileFound')}
                                     </div>
                                 ) : (
                                     <div
                                         style={{
                                             display: 'grid',
-                                            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                                            gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
                                             gap: '0.5rem',
                                             padding: '0.75rem',
                                             background: '#f8fafc',
                                             borderRadius: '10px',
                                             border: '1px solid #e2e8f0',
-                                            maxHeight: '140px',
+                                            maxHeight: '220px',
                                             overflowY: 'auto'
                                         }}
                                     >
-                                        {mobileDevices.map(opt => {
+                                        {filteredMobileDevices.map(opt => {
                                             const checked = isMobileSelected(opt)
                                             return (
                                             <label
@@ -790,25 +926,31 @@ export default function GameChannelsPage() {
                                                 style={{
                                                     display: 'flex',
                                                     alignItems: 'center',
-                                                    gap: '0.5rem',
+                                                    gap: '0.45rem',
                                                     cursor: 'pointer',
                                                     fontSize: '0.75rem',
                                                     color: '#334155',
                                                     userSelect: 'none',
-                                                    padding: '0.2rem 0.4rem',
+                                                    padding: '0.25rem 0.4rem',
                                                     borderRadius: '6px',
-                                                    background: checked ? 'rgba(99, 102, 241, 0.05)' : 'transparent'
+                                                    background: checked ? 'rgba(99, 102, 241, 0.05)' : 'transparent',
+                                                    border: checked ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid transparent'
                                                 }}
                                             >
                                                 <input
                                                     type="checkbox"
                                                     checked={checked}
                                                     onChange={() => handleToggleMobileSelection(opt)}
-                                                    style={{ accentColor: '#10b981', width: '14px', height: '14px', cursor: 'pointer' }}
+                                                    style={{ accentColor: '#10b981', width: '14px', height: '14px', cursor: 'pointer', flexShrink: 0 }}
                                                 />
-                                                <span style={{ fontWeight: checked ? 700 : 500 }}>
+                                                <span style={{ fontWeight: checked ? 700 : 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                                     {opt.label}
                                                 </span>
+                                                {opt.ip && (
+                                                    <span style={{ fontSize: '0.68rem', color: '#94a3b8', fontFamily: 'monospace', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                                        ({opt.ip})
+                                                    </span>
+                                                )}
                                             </label>
                                             )
                                         })}
@@ -821,10 +963,10 @@ export default function GameChannelsPage() {
                     {offlineMachines.length > 0 && (
                         <div>
                             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#64748b', marginBottom: '0.25rem' }}>
-                                Thiết bị đang offline ({offlineMachines.length})
+                                {t('channels.offlineSection')} ({offlineMachines.length})
                             </label>
                             <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '0 0 0.5rem' }}>
-                                Đang được gán vào kênh nhưng hiện không online. Vẫn giữ trong kênh; nhấn ✕ nếu muốn gỡ.
+                                {t('channels.offlineDesc')}
                             </p>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                                 {offlineMachines.map(({ key, label }) => (
@@ -862,10 +1004,10 @@ export default function GameChannelsPage() {
                     {staleMachines.length > 0 && (
                         <div>
                             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#dc2626', marginBottom: '0.25rem' }}>
-                                Mục cũ / đã đổi tên ({staleMachines.length})
+                                {t('channels.legacySection')} ({staleMachines.length})
                             </label>
                             <p style={{ fontSize: '0.7rem', color: '#94a3b8', margin: '0 0 0.5rem' }}>
-                                Các mục này không còn khớp thiết bị nào. Nhấn ✕ để gỡ và tick lại thiết bị hiện tại ở trên.
+                                {t('channels.legacyDesc')}
                             </p>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                                 {staleMachines.map(name => (
@@ -909,14 +1051,14 @@ export default function GameChannelsPage() {
                             }}
                             disabled={loading}
                         >
-                            Hủy
+                            {t('common.cancel')}
                         </button>
                         <button
                             type="submit"
                             className="account-action-btn"
                             disabled={loading}
                         >
-                            {loading ? 'Đang lưu...' : 'Lưu cấu hình'}
+                            {loading ? t('channels.saving') : t('channels.saveConfig')}
                         </button>
                     </div>
                 </form>

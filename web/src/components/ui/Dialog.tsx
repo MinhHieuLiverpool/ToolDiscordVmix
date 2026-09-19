@@ -1,14 +1,18 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useLanguage } from '../../config/i18n'
 
 interface DialogProps {
     open: boolean
     onClose: () => void
     title: string
     children: ReactNode
+    maxWidth?: string
+    panelStyle?: React.CSSProperties
 }
 
-export default function Dialog({ open, onClose, title, children }: DialogProps) {
+export default function Dialog({ open, onClose, title, children, maxWidth, panelStyle }: DialogProps) {
+    const { t } = useLanguage()
     const overlayRef = useRef<HTMLDivElement>(null)
     const panelRef = useRef<HTMLDivElement>(null)
 
@@ -35,16 +39,23 @@ export default function Dialog({ open, onClose, title, children }: DialogProps) 
                 if (e.target === overlayRef.current) onClose()
             }}
         >
-            <div className="dialog-panel" ref={panelRef}>
+            <div
+                className="dialog-panel"
+                ref={panelRef}
+                style={{
+                    ...(maxWidth ? { maxWidth } : {}),
+                    ...panelStyle
+                }}
+            >
                 <div className="dialog-header">
                     <h3 className="dialog-title">{title}</h3>
                     <button
                         type="button"
                         className="dialog-close-btn"
                         onClick={onClose}
-                        aria-label="Close"
+                        aria-label={t('common.close')}
                     >
-                        Đóng
+                        {t('common.close')}
                     </button>
                 </div>
                 <div className="dialog-body">

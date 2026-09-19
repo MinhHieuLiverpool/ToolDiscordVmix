@@ -6,6 +6,7 @@ import Dialog from '../components/ui/Dialog'
 import { MODULE_PERMISSIONS, ACTION_LABELS, actionPermissionKey } from '../config/permissions'
 import type { PermissionAction } from '../config/permissions'
 import { hasActionPermission } from '../services/auth'
+import { useLanguage } from '../config/i18n'
 
 const MODULE_KEY = 'Phân quyền'
 
@@ -126,6 +127,7 @@ function PermissionMatrix({
 }
 
 export default function RolePage() {
+    const { t } = useLanguage()
     const [roles, setRoles] = useState<BackendRoleItem[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState('')
@@ -268,8 +270,8 @@ export default function RolePage() {
             <section className="card-light account-card">
                 <div className="account-card-header">
                     <div>
-                        <h3 className="account-card-title">Vai trò</h3>
-                        <p className="account-card-subtitle">Nhóm các quyền truy cập menu được phân bổ cho tài khoản.</p>
+                        <h3 className="account-card-title">{t('roles.title')}</h3>
+                        <p className="account-card-subtitle">{t('roles.subtitle')}</p>
                     </div>
                     {canAdd && (
                         <button
@@ -277,17 +279,17 @@ export default function RolePage() {
                             type="button"
                             onClick={() => setShowCreateModal(true)}
                         >
-                            Thêm vai trò
+                            {t('roles.addNew')}
                         </button>
                     )}
                 </div>
 
                 {loading ? (
-                    <div className="account-empty">Đang tải danh sách vai trò...</div>
+                    <div className="account-empty">{t('common.loading')}</div>
                 ) : error ? (
                     <div className="account-empty">{error}</div>
                 ) : roles.length === 0 ? (
-                    <div className="account-empty">Chưa có vai trò nào được định nghĩa.</div>
+                    <div className="account-empty">{t('common.noData')}</div>
                 ) : (
                     <div className="account-table-wrap">
                         <table className="account-table">
@@ -299,10 +301,10 @@ export default function RolePage() {
                             </colgroup>
                             <thead>
                                 <tr>
-                                    <th>Mã vai trò</th>
-                                    <th>Tên vai trò</th>
-                                    <th>Quyền truy cập</th>
-                                    <th>Hành động</th>
+                                    <th>Key</th>
+                                    <th>{t('roles.roleName')}</th>
+                                    <th>{t('roles.moduleAccess')}</th>
+                                    <th>{t('common.actions')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -377,7 +379,7 @@ export default function RolePage() {
                                                                 setShowEditModal(true)
                                                             }}
                                                         >
-                                                            Sửa
+                                                            {t('common.edit')}
                                                         </button>
                                                     )}
                                                     {canDelete && (
@@ -398,7 +400,7 @@ export default function RolePage() {
                                                             }}
                                                             onClick={() => handleDeleteRole(role.role_key)}
                                                         >
-                                                            Xóa
+                                                            {t('common.delete')}
                                                         </button>
                                                     )}
                                                     {!canEdit && !canDelete && (

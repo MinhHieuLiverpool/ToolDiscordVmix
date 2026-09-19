@@ -4157,6 +4157,24 @@ async def check_alerts_loop():
                 w_status = webhook.get("statusnotification", 1 if webhook.get("enabled", True) else 0)
                 if w_status != 1:
                     continue
+
+                # Schedule check: nếu bật lịch hoạt động, chỉ gửi cảnh báo trong khung giờ [schedule_start, schedule_end]
+                if webhook.get("schedule_enabled"):
+                    try:
+                        s_start = str(webhook.get("schedule_start") or "08:00").strip()
+                        s_end = str(webhook.get("schedule_end") or "22:00").strip()
+                        now_hm = datetime.now().strftime("%H:%M")
+                        if s_start and s_end:
+                            if s_start <= s_end:
+                                # Khung giờ ban ngày: VD 08:00 đến 22:00
+                                if not (s_start <= now_hm <= s_end):
+                                    continue
+                            else:
+                                # Khung giờ qua đêm: VD 22:00 đến 06:00 sáng hôm sau
+                                if not (now_hm >= s_start or now_hm <= s_end):
+                                    continue
+                    except Exception as _sch_err:
+                        print(f"Schedule check error for webhook {w_id}: {_sch_err}")
                     
                 target_devices = webhook.get("devices")
                 if target_devices is None:
@@ -4579,7 +4597,10 @@ async def save_webhook(payload: dict):
             "rules": payload.get("rules", []),
             "alert_cooldown": alert_cooldown,
             "srt_auto_send": bool(payload.get("srt_auto_send", False)),
-            "srt_streams": payload.get("srt_streams", ["all"])
+            "srt_streams": payload.get("srt_streams", ["all"]),
+            "schedule_enabled": bool(payload.get("schedule_enabled", False)),
+            "schedule_start": str(payload.get("schedule_start", "08:00")).strip(),
+            "schedule_end": str(payload.get("schedule_end", "22:00")).strip()
         }
         if not doc["name"] or not doc["url"]:
             return JSONResponse(status_code=400, content={"status": "error", "message": "Name and URL are required"})

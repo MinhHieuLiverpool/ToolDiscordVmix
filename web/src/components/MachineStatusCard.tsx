@@ -16,6 +16,7 @@ import Dialog from './ui/Dialog'
 import { renderSrtCard, renderStreamCard, renderRecordCard, renderMultiRecordCard } from './DialogHelpers'
 import { hasActionPermission } from '../services/auth'
 import { showToast } from './ui/Toast'
+import { useLanguage } from '../config/i18n'
 
 
 export default function MachineStatusCard({
@@ -31,6 +32,7 @@ export default function MachineStatusCard({
     wanNameMap?: Map<string, string>
     onWanConfigSaved?: () => void
 }) {
+    const { t } = useLanguage()
     const canEditName = hasActionPermission('Tổng quan', 'edit')
     const isOn = (value: unknown): boolean => ['ONLINE', 'ON', '1', 'TRUE', 'RUNNING', 'LIVE', 'ACTIVE'].includes(String(value || '').toUpperCase())
 
@@ -297,12 +299,12 @@ export default function MachineStatusCard({
                                     <button
                                         onClick={handleStartEdit}
                                         className="opacity-0 group-hover:opacity-60 focus:opacity-60 text-slate-400 hover:text-rose-400 text-[9px] font-bold uppercase tracking-wider flex items-center gap-1 transition-all"
-                                        title="Đặt tên hiển thị"
+                                        title={t('machineCard.setDisplayName')}
                                     >
                                         <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                         </svg>
-                                        Đặt tên hiển thị
+                                        {t('machineCard.setDisplayName')}
                                     </button>
                                 </div>
                             )
@@ -333,20 +335,20 @@ export default function MachineStatusCard({
                                 type="button"
                                 onClick={handleOpenWanModal}
                                 className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 border border-amber-500/30 transition-all shrink-0 flex items-center gap-1"
-                                title="Cấu hình Tên nhà mạng cho IP WAN này"
+                                title={t('machineCard.wanConfigTitle')}
                             >
                                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                 </svg>
-                                <span>{wanName ? wanName : 'Cấu hình WAN'}</span>
+                                <span>{wanName ? wanName : t('machineCard.configWan')}</span>
                             </button>
                         )}
                     </div>
                 </div>
                 {wanName && (
                     <div className="info-row">
-                        <span className="info-label">Nhà mạng</span>
+                        <span className="info-label">{t('machineCard.isp')}</span>
                         <span className="info-value font-bold text-amber-500 dark:text-amber-400">{wanName}</span>
                     </div>
                 )}

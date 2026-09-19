@@ -4,6 +4,7 @@ import { showToast } from '../components/ui/Toast'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { getUserRole, isAuthenticated, hasActionPermission } from '../services/auth'
 import { getMobileIdentifiers, machinesIncludeDevice } from '../utils/mobileDevice'
+import { useLanguage } from '../config/i18n'
 
 // Types based on the backend data structure
 export interface MobileLogItem {
@@ -134,6 +135,7 @@ function PingRowCompact({ label, value }: { label: string; value: string }) {
 }
 
 function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem; index: number; onNameUpdated?: () => void }) {
+  const { t } = useLanguage()
   const canEditName = hasActionPermission('Mobile Monitor', 'edit')
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(item.name_device || '')
@@ -199,19 +201,19 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                               value={editValue}
                               onChange={(e) => setEditValue(e.target.value)}
                               className="text-[12px] px-2 py-1.5 border rounded-[10px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-rose-600 dark:text-rose-400 focus:outline-none focus:border-indigo-500 w-full font-black uppercase"
-                              placeholder="TÊN THIẾT BỊ..."
+                              placeholder={t('mobile.deviceNamePlaceholder') || 'TÊN THIẾT BỊ...'}
                               autoFocus
                               onKeyDown={(e) => {
                                   if (e.key === 'Enter') handleSave()
                                   if (e.key === 'Escape') setIsEditing(false)
                               }}
                           />
-                          <button onClick={handleSave} className="text-emerald-500 hover:text-emerald-600 shrink-0" title="Lưu">
+                          <button onClick={handleSave} className="text-emerald-500 hover:text-emerald-600 shrink-0" title={t('common.save')}>
                               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3.5">
                                   <polyline points="20 6 9 17 4 12" />
                               </svg>
                           </button>
-                          <button onClick={() => setIsEditing(false)} className="text-rose-500 hover:text-rose-600 shrink-0" title="Hủy">
+                          <button onClick={() => setIsEditing(false)} className="text-rose-500 hover:text-rose-600 shrink-0" title={t('common.cancel')}>
                               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3.5">
                                   <line x1="18" y1="6" x2="6" y2="18" />
                                   <line x1="6" y1="6" x2="18" y2="18" />
@@ -244,7 +246,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                               <span
                                   onClick={() => item.deviceId && copyToClipboard(item.deviceId)}
                                   className="text-[10px] font-mono text-slate-400 hover:text-sky-500 cursor-pointer transition-colors break-all"
-                                  title="Click để copy Device ID"
+                                  title={t('mobile.clickToCopyId') || 'Click để copy Device ID'}
                               >
                                   ID: {item.deviceId || '-'}
                               </span>
@@ -258,7 +260,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                           ? 'bg-emerald-50 text-emerald-500 border-emerald-100 dark:bg-emerald-950/20 dark:border-emerald-900/30'
                           : 'bg-slate-50 text-slate-400 border-slate-100 dark:bg-slate-800/40 dark:border-slate-800'
                   }`}>
-                      {isOnline ? 'ON' : 'OFF'}
+                      {isOnline ? t('header.online') : t('header.offline')}
                   </span>
                   <span className="text-[10px] font-bold text-sky-500 bg-sky-50 dark:bg-sky-950/30 border border-sky-100 dark:border-sky-900/20 px-1.5 py-0.5 rounded-[4px] leading-none">
                       {item.networkType || '-'}
@@ -336,7 +338,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
 
           {/* Bandwidth Speed */}
           <div className="mb-2.5">
-              <div className="text-[11px] font-bold text-slate-400 tracking-wide uppercase mb-1 leading-none">Băng thông</div>
+              <div className="text-[11px] font-bold text-slate-400 tracking-wide uppercase mb-1 leading-none">{t('statistics.bandwidth')}</div>
               <div className="grid grid-cols-2 gap-1.5">
                   <div className="flex items-center justify-between p-1.5 bg-pink-50/10 dark:bg-pink-950/5 rounded-[10px]">
                       <span className="text-[9.5px] font-bold text-pink-400 uppercase tracking-wider">TX</span>
@@ -354,7 +356,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
           <div className="mb-2.5 bg-slate-50/30 dark:bg-slate-900/10 p-2 rounded-[10px]">
               <div className="flex justify-between items-center text-[11px] mb-1 leading-none">
                   <span className="font-bold text-slate-500 dark:text-slate-400">
-                      Pin & Nhiệt
+                      {t('mobile.battery')} & {t('mobile.temp')}
                   </span>
                   {item.isCharging && (
                       <span className={`text-[9.5px] font-black tracking-wider px-1.5 py-0.5 rounded leading-none ${
@@ -363,8 +365,8 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
                               : 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/50 dark:border-emerald-900/30'
                       }`}>
                           {item.chargingMode === 'Bypass' || item.chargeSource === 'AC'
-                              ? '⚡ SẠC NHÁNH (AC)'
-                              : `SẠC THƯỜNG (${item.chargeSource || 'DC'})`}
+                              ? t('mobile.bypassCharging')
+                              : `${t('mobile.normalCharging')} (${item.chargeSource || 'DC'})`}
                       </span>
                   )}
               </div>
@@ -404,6 +406,7 @@ function MobileDeviceCard({ item, index, onNameUpdated }: { item: MobileLogItem;
 }
 
 export default function MobileMonitorPage() {
+  const { t } = useLanguage()
   const [logs, setLogs] = useState<MobileLogItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -530,7 +533,7 @@ export default function MobileMonitorPage() {
   // List of channels for filter dropdown (only display active/ON channels)
   const games = useMemo(() => {
     const list = [
-      { id: '__all__', label: 'Tất cả Game' }
+      { id: '__all__', label: t('overview.allGames') }
     ]
     if (gameAssignments) {
       gameAssignments.forEach((assignment: any) => {
@@ -540,9 +543,9 @@ export default function MobileMonitorPage() {
       })
     }
     return list
-  }, [gameAssignments])
+  }, [gameAssignments, t])
 
-  const selectedGameLabel = games.find(g => g.id === selectedGame)?.label || 'Chọn Game'
+  const selectedGameLabel = games.find(g => g.id === selectedGame)?.label || t('overview.selectGame')
 
   // Filter logs based on search term, network type, game assignments and visibility filter
   const filteredLogs = useMemo(() => {
@@ -662,7 +665,7 @@ export default function MobileMonitorPage() {
           <input
             className="w-full pl-9 pr-4 py-2.5 bg-white dark:bg-slate-900/45 border border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700/60 focus:border-indigo-500 dark:focus:border-indigo-500/70 focus:outline-none rounded-[10px] text-xs font-semibold text-slate-800 dark:text-slate-100 transition-all shadow-sm"
             type="text"
-            placeholder="Tìm theo tên điện thoại, ID, IP hoặc Loại mạng..."
+            placeholder={t('mobile.searchPlaceholder')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -736,9 +739,9 @@ export default function MobileMonitorPage() {
               className="flex items-center justify-between pl-3 pr-8 py-2.5 bg-white dark:bg-slate-900/45 border border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700/60 focus:border-indigo-500 dark:focus:border-indigo-500/70 focus:outline-none rounded-[10px] text-xs font-semibold text-slate-800 dark:text-slate-100 transition-all shadow-sm cursor-pointer min-w-[110px]"
             >
               <span>
-                {visibilityFilter === 'all' && 'Tất cả'}
-                {visibilityFilter === 'visible' && 'Hiện'}
-                {visibilityFilter === 'hidden' && 'Ẩn'}
+                {visibilityFilter === 'all' && t('common.all')}
+                {visibilityFilter === 'visible' && t('common.visible')}
+                {visibilityFilter === 'hidden' && t('common.hidden')}
               </span>
               <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
                 <svg className={`h-3.5 w-3.5 transition-transform duration-200 ${isVisibilityDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -755,9 +758,9 @@ export default function MobileMonitorPage() {
                 />
                 <div className="absolute right-0 mt-1.5 w-full min-w-[110px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[10px] shadow-lg py-1.5 z-20 animate-in fade-in slide-in-from-top-1 duration-150">
                   {[
-                    { value: 'all', label: 'Tất cả' },
-                    { value: 'visible', label: 'Hiện' },
-                    { value: 'hidden', label: 'Ẩn' }
+                    { value: 'all', label: t('common.all') },
+                    { value: 'visible', label: t('common.visible') },
+                    { value: 'hidden', label: t('common.hidden') }
                   ].map((opt) => (
                     <button
                       key={opt.value}
@@ -798,10 +801,10 @@ export default function MobileMonitorPage() {
             className="flex items-center justify-between pl-3 pr-8 py-2.5 bg-white dark:bg-slate-900/45 border border-slate-200 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700/60 focus:border-indigo-500 dark:focus:border-indigo-500/70 focus:outline-none rounded-[10px] text-xs font-semibold text-slate-800 dark:text-slate-100 transition-all shadow-sm cursor-pointer min-w-[130px]"
           >
             <span>
-              {networkFilter === 'all' && 'Tất cả mạng'}
-              {networkFilter === 'lan' && 'LAN'}
-              {networkFilter === 'wifi' && 'Wifi'}
-              {networkFilter === 'mobile' && 'Mạng di động'}
+              {networkFilter === 'all' && t('mobile.filterAll')}
+              {networkFilter === 'lan' && t('mobile.filterLan')}
+              {networkFilter === 'wifi' && t('mobile.filterWifi')}
+              {networkFilter === 'mobile' && t('mobile.filterMobile')}
             </span>
             <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
               <svg className={`h-3.5 w-3.5 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -819,10 +822,10 @@ export default function MobileMonitorPage() {
               />
               <div className="absolute right-0 mt-1.5 w-full min-w-[140px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[10px] shadow-lg py-1.5 z-20 animate-in fade-in slide-in-from-top-1 duration-150">
                 {[
-                  { value: 'all', label: 'Tất cả mạng' },
-                  { value: 'lan', label: 'LAN' },
-                  { value: 'wifi', label: 'Wifi' },
-                  { value: 'mobile', label: 'Mạng di động' }
+                  { value: 'all', label: t('mobile.filterAll') },
+                  { value: 'lan', label: t('mobile.filterLan') },
+                  { value: 'wifi', label: t('mobile.filterWifi') },
+                  { value: 'mobile', label: t('mobile.filterMobile') }
                 ].map((opt) => (
                   <button
                     key={opt.value}
@@ -860,7 +863,7 @@ export default function MobileMonitorPage() {
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
           </svg>
-          Làm mới
+          {t('common.refresh')}
         </button>
       </div>
 
@@ -871,7 +874,7 @@ export default function MobileMonitorPage() {
         </div>
       ) : filteredLogs.length === 0 ? (
         <div className="bg-white dark:bg-slate-900/45 border border-slate-100 dark:border-slate-800/80 rounded-[10px] p-12 text-center text-slate-400 font-bold shadow-sm">
-          Không tìm thấy thiết bị di động nào phù hợp.
+          {t('mobile.noData')}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">

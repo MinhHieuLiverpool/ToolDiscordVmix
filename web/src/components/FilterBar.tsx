@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { DeviceFilter, TimeFilter } from '../types'
+import { useLanguage } from '../config/i18n'
 
 export default function FilterBar({
     deviceFilter,
@@ -8,8 +9,8 @@ export default function FilterBar({
     setActiveView,
     machineOptions,
     onRefresh,
-    dailyLabel = 'Cả ngày',
-    dailyDesc = '15 phút avg',
+    dailyLabel,
+    dailyDesc,
 }: {
     deviceFilter: DeviceFilter
     setDeviceFilter: (v: DeviceFilter) => void
@@ -20,9 +21,13 @@ export default function FilterBar({
     dailyLabel?: string
     dailyDesc?: string
 }) {
+    const { t } = useLanguage()
     const [dropdownOpen, setDropdownOpen] = useState(false)
     const [searchTerm, setSearchTerm] = useState('')
     const dropdownRef = useRef<HTMLDivElement>(null)
+
+    const resolvedDailyLabel = dailyLabel || t('filter.timeDaily')
+    const resolvedDailyDesc = dailyDesc || t('filter.timeDailyDesc')
 
     // Close dropdown on outside click
     useEffect(() => {
@@ -40,7 +45,7 @@ export default function FilterBar({
     )
 
     const selectedLabel = deviceFilter === '__all__'
-        ? 'Tất cả máy'
+        ? t('filter.allMachines')
         : machineOptions.find((opt) => opt.id === deviceFilter)?.label ?? deviceFilter
 
     return (
@@ -48,7 +53,7 @@ export default function FilterBar({
             {/* Custom Dropdown */}
             <div className="filter-group">
                 <label className="filter-label" htmlFor="device-filter">
-                    Bộ lọc máy
+                    {t('filter.machineFilter')}
                 </label>
                 <div className="custom-dropdown" ref={dropdownRef}>
                     <button
@@ -68,7 +73,7 @@ export default function FilterBar({
                                 <input
                                     className="dropdown-search"
                                     type="text"
-                                    placeholder="Tìm kiếm máy..."
+                                    placeholder={t('filter.searchMachinePlaceholder')}
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     autoFocus
@@ -85,7 +90,7 @@ export default function FilterBar({
                                     }}
                                 >
                                     <span className="option-dot option-dot-all" />
-                                    Tất cả máy
+                                    {t('filter.allMachines')}
                                     <span className="option-count">{machineOptions.length}</span>
                                 </button>
                                 {filteredOptions.map((opt) => (
@@ -104,7 +109,7 @@ export default function FilterBar({
                                     </button>
                                 ))}
                                 {filteredOptions.length === 0 && (
-                                    <div className="dropdown-empty">Không tìm thấy máy nào</div>
+                                    <div className="dropdown-empty">{t('common.noData')}</div>
                                 )}
                             </div>
                         </div>
@@ -115,7 +120,7 @@ export default function FilterBar({
             {/* View Navigation Buttons - text only, no icons */}
             <div className="filter-group">
                 <label className="filter-label">
-                    Chế độ xem
+                    {t('common.view')}
                 </label>
                 <div className="view-nav-buttons">
                     <button
@@ -124,15 +129,15 @@ export default function FilterBar({
                         onClick={() => setActiveView('realtime')}
                     >
                         <span className="view-nav-label">Realtime</span>
-                        <span className="view-nav-desc">3 phút</span>
+                        <span className="view-nav-desc">3 min</span>
                     </button>
                     <button
                         type="button"
                         className={`view-nav-btn ${activeView === 'daily' ? 'view-nav-active' : ''}`}
                         onClick={() => setActiveView('daily')}
                     >
-                        <span className="view-nav-label">{dailyLabel}</span>
-                        <span className="view-nav-desc">{dailyDesc}</span>
+                        <span className="view-nav-label">{resolvedDailyLabel}</span>
+                        <span className="view-nav-desc">{resolvedDailyDesc}</span>
                     </button>
                 </div>
             </div>

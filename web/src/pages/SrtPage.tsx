@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { normalizeSrtList, type BackendSrtItem } from '../services/api'
 import { toOnOff, renderTypePill } from '../components/DialogHelpers'
+import { useLanguage } from '../config/i18n'
 
 interface MachineGroup {
     machineName: string
@@ -10,6 +11,7 @@ interface MachineGroup {
 }
 
 export default function SrtPage() {
+    const { t } = useLanguage()
     const { rows, loading, error } = useDashboardContext()
     const [searchTerm, setSearchTerm] = useState('')
 
@@ -50,8 +52,8 @@ export default function SrtPage() {
         return (
             <>
                 <div className="page-header">
-                    <h2 className="page-title">SRT</h2>
-                    <p className="page-description">Bảng SRT từ tất cả các máy.</p>
+                    <h2 className="page-title">{t('srt.title')}</h2>
+                    <p className="page-description">{t('srt.description')}</p>
                 </div>
                 <div className="loading-skeleton-table">
                     {Array.from({ length: 5 }).map((_, i) => (
@@ -66,7 +68,7 @@ export default function SrtPage() {
         return (
             <>
                 <div className="page-header">
-                    <h2 className="page-title">SRT</h2>
+                    <h2 className="page-title">{t('srt.title')}</h2>
                 </div>
                 <div className="card-light error-card-light">{error}</div>
             </>
@@ -76,23 +78,23 @@ export default function SrtPage() {
     return (
         <>
             <div className="page-header">
-                <h2 className="page-title">SRT</h2>
-                <p className="page-description">Tổng hợp thông tin SRT từ tất cả các máy trong hệ thống.</p>
+                <h2 className="page-title">{t('srt.title')}</h2>
+                <p className="page-description">{t('srt.description')}</p>
             </div>
 
             {/* Summary Cards */}
             <div className="srt-summary-row">
                 <div className="summary-card">
                     <span className="summary-card-num">{totalSrt}</span>
-                    <span className="summary-card-label">Tổng SRT</span>
+                    <span className="summary-card-label">{t('srt.totalStreams')}</span>
                 </div>
                 <div className="summary-card summary-card-online">
                     <span className="summary-card-num">{totalOnline}</span>
-                    <span className="summary-card-label">Đang chạy</span>
+                    <span className="summary-card-label">{t('srt.running')}</span>
                 </div>
                 <div className="summary-card summary-card-offline">
                     <span className="summary-card-num">{totalOffline}</span>
-                    <span className="summary-card-label">Tắt</span>
+                    <span className="summary-card-label">{t('srt.stopped')}</span>
                 </div>
             </div>
 
@@ -106,7 +108,7 @@ export default function SrtPage() {
                     <input
                         className="table-search-input"
                         type="text"
-                        placeholder="Tìm theo tên máy, IP, tên SRT..."
+                        placeholder={t('srt.searchPlaceholder')}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -120,22 +122,22 @@ export default function SrtPage() {
                         <table className="data-table compact-table">
                             <thead>
                                 <tr>
-                                    <th>Máy</th>
+                                    <th>{t('srt.thMachine')}</th>
                                     <th>IP</th>
-                                    <th>Tên SRT</th>
-                                    <th>Port</th>
-                                    <th>Type</th>
-                                    <th>Host</th>
+                                    <th>{t('srt.thName')}</th>
+                                    <th>{t('srt.thPort')}</th>
+                                    <th>{t('srt.thType')}</th>
+                                    <th>{t('srt.thHost')}</th>
                                     <th>Stream ID</th>
                                     <th>Quality</th>
-                                    <th>Trạng thái</th>
+                                    <th>{t('srt.thStatus')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filteredGroups.length === 0 ? (
                                     <tr>
                                         <td colSpan={9} className="table-empty-cell">
-                                            Không có dữ liệu SRT.
+                                            {t('srt.noData')}
                                         </td>
                                     </tr>
                                 ) : (

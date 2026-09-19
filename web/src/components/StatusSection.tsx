@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import StatusByMachinePage from '../pages/status/StatusByMachinePage'
 import StatusByTablePage from '../pages/status/StatusByTablePage'
 import type { BackendLogItem } from '../services/api'
+import { useLanguage } from '../config/i18n'
 
 type StatusViewMode = 'machine' | 'table'
 
@@ -18,6 +19,7 @@ export default function StatusSection({
     error: string
     isEditMode?: boolean
 }) {
+    const { t } = useLanguage()
     const [viewMode, setViewMode] = useState<StatusViewMode>('machine')
 
     useEffect(() => {
@@ -35,7 +37,7 @@ export default function StatusSection({
         <section className="cards-section">
             <div className="status-header-row">
                 <h2 className="section-title status-section-title">
-                    <span className="gradient-text">Trạng thái máy</span>
+                    <span className="gradient-text">{t('statusSection.title')}</span>
                 </h2>
 
                 <div className="status-view-nav" role="tablist" aria-label="Machine status view mode">
@@ -46,7 +48,7 @@ export default function StatusSection({
                         className={`status-view-btn ${viewMode === 'machine' ? 'status-view-btn-active' : ''}`}
                         onClick={() => setViewMode('machine')}
                     >
-                        Theo từng máy
+                        {t('statusSection.byMachine')}
                     </button>
                     <button
                         type="button"
@@ -55,7 +57,7 @@ export default function StatusSection({
                         className={`status-view-btn ${viewMode === 'table' ? 'status-view-btn-active' : ''}`}
                         onClick={() => setViewMode('table')}
                     >
-                        Bảng tổng hợp
+                        {t('statusSection.byTable')}
                     </button>
                 </div>
             </div>

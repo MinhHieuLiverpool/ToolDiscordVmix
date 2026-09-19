@@ -5,8 +5,10 @@ import { showToast } from '../components/ui/Toast'
 import { getDownloadDebugLogsUrl } from '../services/api'
 import Dialog from '../components/ui/Dialog'
 import { hasActionPermission } from '../services/auth'
+import { useLanguage } from '../config/i18n'
 
 export default function DebugLogPage() {
+    const { t } = useLanguage()
     const navigate = useNavigate()
     const { debugLogs, clearDebugLogs, gameAssignments } = useDashboardContext()
     const canImport = hasActionPermission('Debug Log', 'add')
@@ -75,9 +77,9 @@ export default function DebugLogPage() {
     return (
         <>
             <div className="page-header">
-                <h2 className="page-title">Debug Log</h2>
+                <h2 className="page-title">{t('debugLog.title')}</h2>
                 <p className="page-description">
-                    Theo dõi tất cả các thông số phản hồi thời gian thực từ các máy qua kết nối WebSocket.
+                    {t('debugLog.desc')}
                 </p>
             </div>
 
@@ -90,7 +92,7 @@ export default function DebugLogPage() {
                     <input
                         className="table-search-input"
                         type="text"
-                        placeholder="Lọc log theo tên máy, IP, thông số..."
+                        placeholder={t('debugLog.searchPlaceholder')}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -112,7 +114,7 @@ export default function DebugLogPage() {
                             cursor: 'pointer'
                         }}
                     >
-                        <option value="__all__">Tất cả Kênh</option>
+                        <option value="__all__">{t('debugLog.allChannels')}</option>
                         {gameAssignments?.filter((a: any) => a.visible_status !== 'OFF').map((assignment: any) => (
                             <option key={assignment.game} value={assignment.game}>
                                 {assignment.game}
@@ -126,7 +128,7 @@ export default function DebugLogPage() {
                             onClick={() => navigate('/debug-logs/import')}
                             style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
                         >
-                            Import File Debug
+                            {t('debugLog.importFile')}
                         </button>
                     )}
                     <button
@@ -135,7 +137,7 @@ export default function DebugLogPage() {
                         onClick={handleDownloadDbLogs}
                         style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', borderColor: '#6366f1', color: '#6366f1' }}
                     >
-                        Download Logs
+                        {t('debugLog.downloadLogs')}
                     </button>
                     <button
                         className="viewsync-outline-btn"
@@ -144,7 +146,7 @@ export default function DebugLogPage() {
                         disabled={filteredLogs.length === 0}
                         style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
                     >
-                        Copy Logs
+                        {t('debugLog.copyLogs')}
                     </button>
                     {canClear && (
                         <button
@@ -154,7 +156,7 @@ export default function DebugLogPage() {
                             disabled={logs.length === 0}
                             style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', borderColor: 'rgba(239, 68, 68, 0.4)', color: '#ef4444' }}
                         >
-                            Xóa Logs
+                            {t('debugLog.clearLogs')}
                         </button>
                     )}
                 </div>
@@ -174,7 +176,7 @@ export default function DebugLogPage() {
                 >
                     {filteredLogs.length === 0 ? (
                         <div style={{ color: '#52525b', textAlign: 'center', padding: '4rem 0', fontSize: '0.85rem' }}>
-                            {searchTerm ? 'Không tìm thấy log phù hợp.' : 'Chưa có log debug nào được ghi nhận.'}
+                            {searchTerm ? t('debugLog.noLogsFound') : t('debugLog.noLogs')}
                         </div>
                     ) : (
                         filteredLogs.map((log, index) => {

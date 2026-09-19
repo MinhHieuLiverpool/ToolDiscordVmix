@@ -5,6 +5,7 @@ import { BACKEND_BASE_URL } from '../config/constants'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { normalizeSrtList } from '../services/api'
 import { hasActionPermission } from '../services/auth'
+import { useLanguage } from '../config/i18n'
 
 const MODULE_KEY = 'Notification'
 
@@ -28,6 +29,9 @@ interface WebhookItem {
   alert_cooldown?: number
   srt_auto_send?: boolean
   srt_streams?: string[]
+  schedule_enabled?: boolean
+  schedule_start?: string
+  schedule_end?: string
 }
 
 interface DeviceOption {
@@ -38,28 +42,28 @@ interface DeviceOption {
 
 // Available standard parameters to choose/tick
 const DEFAULT_PARAMETERS = [
-  { parameter: 'isOnline', label: 'Đổi trạng thái kết nối (ON/OFF)', operator: '=', defaultValue: 'off' },
-  { parameter: 'temperature', label: 'Nhiệt độ CPU/Pin quá cao (°C)', operator: '>', defaultValue: '45' },
-  { parameter: 'cpuLoad', label: 'Tải CPU quá cao (%)', operator: '>', defaultValue: '85' },
-  { parameter: 'memory', label: 'Sử dụng RAM quá cao (%)', operator: '>', defaultValue: '90' },
-  { parameter: 'gpu', label: 'Sử dụng GPU quá cao (Desktop %)', operator: '>', defaultValue: '90' },
-  { parameter: 'fps', label: 'Khung hình FPS quá thấp (Mobile)', operator: '<', defaultValue: '40' },
-  { parameter: 'packetLoss', label: 'Mất gói Packet Loss quá cao (Mobile %)', operator: '>', defaultValue: '5' },
-  { parameter: 'networkChange', label: 'Đổi loại mạng (Mobile: LAN/WiFi/4G)', operator: '=', defaultValue: 'any' },
-  { parameter: 'status', label: 'Trạng thái luồng SRT bị ngắt (OFF)', operator: '=', defaultValue: 'OFF' },
-  { parameter: 'stream_health', label: 'Stream Health cảnh báo (VÀNG)', operator: '=', defaultValue: 'VÀNG' },
-  { parameter: 'stream_dropped', label: 'Stream Source Drop quá cao (frames)', operator: '>', defaultValue: '100' },
-  { parameter: 'vmix_recording', label: 'Dừng Ghi hình vMix (Record OFF)', operator: '=', defaultValue: 'False' },
-  { parameter: 'vmix_streaming', label: 'Dừng Phát sóng vMix (Stream OFF)', operator: '=', defaultValue: 'False' },
-  { parameter: 'vmix_external', label: 'Tắt External Output vMix', operator: '=', defaultValue: 'False' },
-  { parameter: 'vmix_multicorder', label: 'Tắt MultiCorder vMix', operator: '=', defaultValue: 'False' },
+  { parameter: 'isOnline', labelKey: 'params.isOnline', operator: '=', defaultValue: 'off' },
+  { parameter: 'temperature', labelKey: 'params.temperature', operator: '>', defaultValue: '45' },
+  { parameter: 'cpuLoad', labelKey: 'params.cpuLoad', operator: '>', defaultValue: '85' },
+  { parameter: 'memory', labelKey: 'params.memory', operator: '>', defaultValue: '90' },
+  { parameter: 'gpu', labelKey: 'params.gpu', operator: '>', defaultValue: '90' },
+  { parameter: 'fps', labelKey: 'params.fps', operator: '<', defaultValue: '40' },
+  { parameter: 'packetLoss', labelKey: 'params.packetLoss', operator: '>', defaultValue: '5' },
+  { parameter: 'networkChange', labelKey: 'params.networkChange', operator: '=', defaultValue: 'any' },
+  { parameter: 'status', labelKey: 'params.status', operator: '=', defaultValue: 'OFF' },
+  { parameter: 'stream_health', labelKey: 'params.stream_health', operator: '=', defaultValue: 'VÀNG' },
+  { parameter: 'stream_dropped', labelKey: 'params.stream_dropped', operator: '>', defaultValue: '100' },
+  { parameter: 'vmix_recording', labelKey: 'params.vmix_recording', operator: '=', defaultValue: 'False' },
+  { parameter: 'vmix_streaming', labelKey: 'params.vmix_streaming', operator: '=', defaultValue: 'False' },
+  { parameter: 'vmix_external', labelKey: 'params.vmix_external', operator: '=', defaultValue: 'False' },
+  { parameter: 'vmix_multicorder', labelKey: 'params.vmix_multicorder', operator: '=', defaultValue: 'False' },
 ]
 
 // State-transition parameters use a single dropdown instead of operator + value.
 const ONLINE_TRANSITIONS = [
-  { value: 'off', label: 'ON → OFF (mất kết nối)' },
-  { value: 'on', label: 'OFF → ON (kết nối lại)' },
-  { value: 'any', label: 'Cả hai chiều (ON ↔ OFF)' },
+  { value: 'off', labelKey: 'onlineTransitions.off' },
+  { value: 'on', labelKey: 'onlineTransitions.on' },
+  { value: 'any', labelKey: 'onlineTransitions.any' },
 ]
 
 // Map legacy stored isOnline values to the new transition tokens.
@@ -71,13 +75,13 @@ function normalizeOnlineValue(v: string): string {
 }
 
 const NETWORK_TRANSITIONS = [
-  { value: 'any', label: 'Bất kỳ thay đổi nào' },
-  { value: 'lan>wifi', label: 'LAN → WiFi' },
-  { value: 'lan>mobile', label: 'LAN → Mạng di động' },
-  { value: 'wifi>lan', label: 'WiFi → LAN' },
-  { value: 'wifi>mobile', label: 'WiFi → Mạng di động' },
-  { value: 'mobile>lan', label: 'Mạng di động → LAN' },
-  { value: 'mobile>wifi', label: 'Mạng di động → WiFi' },
+  { value: 'any', labelKey: 'networkTransitions.any' },
+  { value: 'lan>wifi', labelKey: 'networkTransitions.lan>wifi' },
+  { value: 'lan>mobile', labelKey: 'networkTransitions.lan>mobile' },
+  { value: 'wifi>lan', labelKey: 'networkTransitions.wifi>lan' },
+  { value: 'wifi>mobile', labelKey: 'networkTransitions.wifi>mobile' },
+  { value: 'mobile>lan', labelKey: 'networkTransitions.mobile>lan' },
+  { value: 'mobile>wifi', labelKey: 'networkTransitions.mobile>wifi' },
 ]
 
 export default function NotificationPage() {
@@ -113,7 +117,13 @@ export default function NotificationPage() {
   // SRT trigger states
   const [sendingSrt, setSendingSrt] = useState(false)
 
+  // Schedule states
+  const [whScheduleEnabled, setWhScheduleEnabled] = useState(false)
+  const [whScheduleStart, setWhScheduleStart] = useState('08:00')
+  const [whScheduleEnd, setWhScheduleEnd] = useState('22:00')
+
   const { rows, gameAssignments } = useDashboardContext()
+  const { t } = useLanguage()
 
   useEffect(() => {
     fetchData()
@@ -131,7 +141,7 @@ export default function NotificationPage() {
       if (devRes.data.status === 'success') setDevices(devRes.data.data)
     } catch (err: any) {
       console.error(err)
-      showToast('Lỗi tải dữ liệu cấu hình thông báo!', 'error')
+      showToast(t('notification.loadError'), 'error')
     } finally {
       setLoading(false)
     }
@@ -171,6 +181,9 @@ export default function NotificationPage() {
       }
       setWhSrtAutoSend(!!wh.srt_auto_send)
       setWhSrtStreams(wh.srt_streams || ['all'])
+      setWhScheduleEnabled(!!wh.schedule_enabled)
+      setWhScheduleStart(wh.schedule_start || '08:00')
+      setWhScheduleEnd(wh.schedule_end || '22:00')
       
       if (wh.rules && Array.isArray(wh.rules)) {
         wh.rules.forEach(r => {
@@ -195,6 +208,9 @@ export default function NotificationPage() {
       setWhChannels([])
       setWhSrtAutoSend(false)
       setWhSrtStreams(['all'])
+      setWhScheduleEnabled(false)
+      setWhScheduleStart('08:00')
+      setWhScheduleEnd('22:00')
     }
     
     setRuleStates(initialRuleStates)
@@ -204,7 +220,7 @@ export default function NotificationPage() {
   const handleSaveWebhook = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!whName.trim() || !whUrl.trim()) {
-      showToast('Vui lòng nhập Tên kênh và Đường dẫn Webhook!', 'error')
+      showToast(t('notification.nameUrlRequired'), 'error')
       return
     }
 
@@ -213,14 +229,14 @@ export default function NotificationPage() {
       devicesPayload = ['all']
     } else if (deviceMode === 'channels') {
       if (whChannels.length === 0) {
-        showToast('Vui lòng chọn ít nhất một kênh!', 'error')
+        showToast(t('notification.selectOneChannel'), 'error')
         return
       }
       devicesPayload = whChannels.map(g => `channel:${g}`)
     } else {
       const picked = whDevices.filter(d => d !== 'all')
       if (picked.length === 0) {
-        showToast('Vui lòng chọn ít nhất một thiết bị!', 'error')
+        showToast(t('notification.selectOneDevice'), 'error')
         return
       }
       devicesPayload = picked
@@ -249,30 +265,33 @@ export default function NotificationPage() {
         rules: assembledRules,
         alert_cooldown: 60,
         srt_auto_send: whSrtAutoSend,
-        srt_streams: whSrtStreams
+        srt_streams: whSrtStreams,
+        schedule_enabled: whScheduleEnabled,
+        schedule_start: whScheduleStart,
+        schedule_end: whScheduleEnd
       }
       
       const response = await axios.post(`${BACKEND_BASE_URL}/api/notifications/webhooks`, payload)
       if (response.data.status === 'success') {
-        showToast(editingWebhook ? 'Cập nhật Webhook thành công!' : 'Thêm Webhook mới thành công!', 'success')
+        showToast(editingWebhook ? t('notification.updateSuccess') : t('notification.addSuccess'), 'success')
         setModalOpen(false)
         fetchData()
       }
     } catch (err: any) {
-      showToast('Lỗi lưu cấu hình Webhook!', 'error')
+      showToast(t('notification.saveError'), 'error')
     }
   }
 
   const handleDeleteWebhook = async (id: string) => {
-    if (!window.confirm('Bạn có chắc chắn muốn xóa kênh Webhook này?')) return
+    if (!window.confirm(t('notification.deleteConfirm'))) return
     try {
       const response = await axios.delete(`${BACKEND_BASE_URL}/api/notifications/webhooks/${id}`)
       if (response.data.status === 'success') {
-        showToast('Đã xóa kênh Webhook thành công!', 'success')
+        showToast(t('notification.deleteSuccess'), 'success')
         fetchData()
       }
     } catch (err) {
-      showToast('Lỗi khi xóa Webhook!', 'error')
+      showToast(t('notification.deleteError'), 'error')
     }
   }
 
@@ -283,12 +302,13 @@ export default function NotificationPage() {
       })
       if (response.data.status === 'success') {
         const newStatus = response.data.statusnotification
-        const srtNote = response.data.srt_sent ? ' (đã gửi báo cáo SRT)' : ''
-        showToast(`Đã ${newStatus === 1 ? 'bật' : 'tắt'} kênh Webhook thành công!${srtNote}`, 'success')
+        const srtNote = response.data.srt_sent ? t('notification.toggleSrtSent') : ''
+        const action = newStatus === 1 ? t('common.on') : t('common.off')
+        showToast(`${action} Webhook${srtNote}`, 'success')
         fetchData()
       }
     } catch (err) {
-      showToast('Lỗi thay đổi trạng thái Webhook!', 'error')
+      showToast(t('notification.toggleError'), 'error')
     }
   }
 
@@ -296,11 +316,11 @@ export default function NotificationPage() {
     try {
       const res = await axios.post(`${BACKEND_BASE_URL}/api/notifications/webhooks/enable-all`)
       if (res.data.status === 'success') {
-        showToast(res.data.message || 'Đã bật tất cả kênh Webhook!', 'success')
+        showToast(res.data.message || t('notification.enableAllSuccess'), 'success')
         fetchData()
       }
     } catch (err) {
-      showToast('Lỗi bật tất cả Webhook!', 'error')
+      showToast(t('notification.enableAllError'), 'error')
     }
   }
 
@@ -372,10 +392,10 @@ export default function NotificationPage() {
     try {
       const res = await axios.post(`${BACKEND_BASE_URL}/api/notifications/srt-settings/send-all`)
       if (res.data.status === 'success') {
-        showToast(res.data.message || 'Đã gửi báo cáo SRT thành công!', 'success')
+        showToast(res.data.message || t('notification.srtSendSuccess'), 'success')
       }
     } catch (err: any) {
-      showToast(err.response?.data?.message || 'Lỗi gửi danh sách SRT!', 'error')
+      showToast(err.response?.data?.message || t('notification.srtSendError'), 'error')
     } finally {
       setSendingSrt(false)
     }
@@ -417,10 +437,10 @@ export default function NotificationPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-200 dark:border-slate-800 gap-4">
         <div>
           <h1 className="text-2xl font-black text-rose-600 dark:text-rose-500 uppercase tracking-wider flex items-center gap-2">
-            🔔 Kênh Thông Báo & Cảnh Báo
+            {t('notification.title')}
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Thiết lập các liên kết Webhook (Discord / Seatalk), chỉ định các thiết bị cần theo dõi và tick chọn các điều kiện cảnh báo chi tiết.
+            {t('notification.subtitle')}
           </p>
         </div>
         
@@ -433,14 +453,14 @@ export default function NotificationPage() {
             {sendingSrt ? (
               <>
                 <div className="w-3.5 h-3.5 border-2 border-slate-300 border-t-indigo-600 rounded-full animate-spin"></div>
-                Đang gửi SRT...
+                {t('notification.sendingSrt')}
               </>
             ) : (
               <>
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                 </svg>
-                Báo cáo SRT ngay
+                {t('notification.sendSrtNow')}
               </>
             )}
           </button>
@@ -452,7 +472,7 @@ export default function NotificationPage() {
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              Bật tất cả kênh
+              {t('notification.enableAll')}
             </button>
           )}
           {canAdd && (
@@ -464,7 +484,7 @@ export default function NotificationPage() {
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
-              Tạo kênh thông báo mới
+              {t('notification.createNew')}
             </button>
           )}
         </div>
@@ -473,7 +493,7 @@ export default function NotificationPage() {
       {loading ? (
         <div className="flex flex-col items-center justify-center py-20">
           <div className="w-8 h-8 border-4 border-slate-200 border-t-indigo-600 rounded-full animate-spin mb-3"></div>
-          <span className="text-xs font-bold text-slate-400">Đang tải cấu hình thông báo...</span>
+          <span className="text-xs font-bold text-slate-400">{t('notification.loadingConfig')}</span>
         </div>
       ) : (
         <>
@@ -482,9 +502,9 @@ export default function NotificationPage() {
             <svg className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9z" />
             </svg>
-            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">Chưa có kênh thông báo nào</h3>
+            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">{t('notification.noWebhooks')}</h3>
             <p className="text-xs text-slate-400 mt-1 max-w-sm">
-              Tạo một kênh liên kết Webhook đến Discord hoặc SeaTalk và cấu hình các rule giám sát đi kèm.
+              {t('notification.noWebhooksDesc')}
             </p>
           </div>
         ) : (
@@ -493,11 +513,11 @@ export default function NotificationPage() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    <th className="py-3 px-5">Tên kênh & Nền tảng</th>
-                    <th className="py-3 px-5">Thiết bị áp dụng</th>
-                    <th className="py-3 px-5">Điều kiện cảnh báo</th>
-                    <th className="py-3 px-5 w-28 text-center">Hoạt động</th>
-                    <th className="py-3 px-5 w-28 text-right">Thao tác</th>
+                    <th className="py-3 px-5">{t('notification.channelAndPlatform')}</th>
+                    <th className="py-3 px-5">{t('notification.appliedDevices')}</th>
+                    <th className="py-3 px-5">{t('notification.alertConditions')}</th>
+                    <th className="py-3 px-5 w-28 text-center">{t('notification.active')}</th>
+                    <th className="py-3 px-5 w-28 text-right">{t('common.actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-900">
@@ -529,7 +549,7 @@ export default function NotificationPage() {
                           <div className="flex flex-wrap gap-1 max-w-xs">
                             {wh.devices?.includes('all') ? (
                               <span className="text-[10px] px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950/25 text-indigo-600 dark:text-indigo-400 rounded font-bold border border-indigo-100 dark:border-indigo-900/30">
-                                Tất cả thiết bị
+                                {t('notification.allDevices')}
                               </span>
                             ) : wh.devices?.length ? (
                               wh.devices.map(dId => {
@@ -549,7 +569,7 @@ export default function NotificationPage() {
                                 )
                               })
                             ) : (
-                              <span className="text-[10px] text-slate-400 italic">Không áp dụng</span>
+                              <span className="text-[10px] text-slate-400 italic">{t('notification.noDevicesApplied')}</span>
                             )}
                           </div>
                         </td>
@@ -559,18 +579,19 @@ export default function NotificationPage() {
                             {wh.rules && Array.isArray(wh.rules) && activeRulesCount > 0 ? (
                               wh.rules.filter(r => r.enabled).map(r => {
                                 const matchingParam = DEFAULT_PARAMETERS.find(dp => dp.parameter === r.parameter);
+                                const paramLabel = matchingParam ? t(matchingParam.labelKey) : r.parameter;
                                 return (
                                   <span
                                     key={r.parameter}
                                     className="text-[10px] px-1.5 py-0.5 bg-rose-50 dark:bg-rose-950/15 text-rose-600 dark:text-rose-400 rounded font-mono font-bold border border-rose-100 dark:border-rose-900/25 mr-1 mb-1 inline-block"
-                                    title={matchingParam?.label}
+                                    title={paramLabel}
                                   >
                                     📌 {r.parameter} {r.operator} {r.value}
                                   </span>
                                 )
                               })
                             ) : (
-                              <span className="text-[10px] text-slate-400 italic">Không có điều kiện nào</span>
+                              <span className="text-[10px] text-slate-400 italic">{t('notification.noConditions')}</span>
                             )}
                           </div>
                         </td>
@@ -584,10 +605,10 @@ export default function NotificationPage() {
                                 ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/30'
                                 : 'bg-slate-100 text-slate-400 border border-slate-200 dark:bg-slate-800/40 dark:border-slate-800'
                             }`}
-                            title={!canToggle ? 'Bạn không có quyền bật/tắt kênh' : (wh.statusnotification !== 0 ? 'Tạm tắt kênh' : 'Bật kênh')}
+                            title={!canToggle ? t('notification.noTogglePermission') : (wh.statusnotification !== 0 ? t('notification.disableChannel') : t('notification.enableChannel'))}
                           >
                             <span className={`w-1.5 h-1.5 rounded-full ${wh.statusnotification !== 0 ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                            {wh.statusnotification !== 0 ? 'Bật' : 'Tắt'}
+                            {wh.statusnotification !== 0 ? t('common.on') : t('common.off')}
                           </button>
                         </td>
 
@@ -597,7 +618,7 @@ export default function NotificationPage() {
                               <button
                                 onClick={() => handleOpenModal(wh)}
                                 className="text-slate-400 hover:text-sky-500 transition-colors p-1"
-                                title="Sửa cấu hình & Rule"
+                                title={t('notification.editTooltip')}
                               >
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -608,7 +629,7 @@ export default function NotificationPage() {
                               <button
                                 onClick={() => handleDeleteWebhook(wh.id)}
                                 className="text-slate-400 hover:text-rose-500 transition-colors p-1"
-                                title="Xóa kênh"
+                                title={t('notification.deleteTooltip')}
                               >
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -637,7 +658,7 @@ export default function NotificationPage() {
           <div className="w-full max-w-4xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[16px] shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
               <h3 className="text-sm font-black text-rose-600 dark:text-rose-500 uppercase tracking-wide">
-                {editingWebhook ? '✏️ Cập nhật Kênh Thông Báo' : '➕ Thêm Kênh Thông Báo Mới'}
+                {editingWebhook ? t('notification.editTitle') : t('notification.addTitle')}
               </h3>
               <button
                 onClick={() => setModalOpen(false)}
@@ -655,18 +676,18 @@ export default function NotificationPage() {
                 {/* Basic info */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block font-bold text-slate-500 uppercase mb-1.5">Tên kênh hiển thị</label>
+                    <label className="block font-bold text-slate-500 uppercase mb-1.5">{t('notification.channelName')}</label>
                     <input
                       type="text"
                       required
                       value={whName}
                       onChange={(e) => setWhName(e.target.value)}
                       className="w-full px-3 py-2 border rounded-[10px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 text-xs font-semibold"
-                      placeholder="VD: Discord Minh Hieu, SeaTalk Nhóm Kỹ Thuật..."
+                      placeholder={t('notification.channelNamePlaceholder')}
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-500 uppercase mb-1.5">Nền tảng</label>
+                    <label className="block font-bold text-slate-500 uppercase mb-1.5">{t('notification.platform')}</label>
                     <div className="flex gap-4 mt-2.5">
                       <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-700 dark:text-slate-300">
                         <input
@@ -695,20 +716,20 @@ export default function NotificationPage() {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-500 uppercase mb-1.5">Đường dẫn Webhook URL</label>
+                  <label className="block font-bold text-slate-500 uppercase mb-1.5">{t('notification.webhookUrl')}</label>
                   <input
                     type="url"
                     required
                     value={whUrl}
                     onChange={(e) => setWhUrl(e.target.value)}
                     className="w-full px-3 py-2 border rounded-[10px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 text-xs font-mono"
-                    placeholder="https://discord.com/api/webhooks/... hoặc https://openapi.seatalk.io/..."
+                    placeholder={t('notification.webhookUrlPlaceholder')}
                   />
                 </div>
 
                 {/* Apply Devices Section */}
                 <div>
-                  <label className="block font-bold text-slate-500 uppercase mb-1.5">Phạm vi áp dụng cho Webhook này</label>
+                  <label className="block font-bold text-slate-500 uppercase mb-1.5">{t('notification.deviceScope')}</label>
 
                   {/* Mode selector: 1 of 3 */}
                   <div className="flex flex-wrap gap-4 mb-3">
@@ -720,7 +741,7 @@ export default function NotificationPage() {
                         onChange={() => setDeviceMode('all')}
                         className="text-indigo-600 focus:ring-indigo-500"
                       />
-                      Tất cả thiết bị
+                      {t('notification.allDevicesMode')}
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-700 dark:text-slate-300">
                       <input
@@ -730,7 +751,7 @@ export default function NotificationPage() {
                         onChange={() => setDeviceMode('devices')}
                         className="text-indigo-600 focus:ring-indigo-500"
                       />
-                      Chọn từng thiết bị
+                      {t('notification.selectDevicesMode')}
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer font-semibold text-slate-700 dark:text-slate-300">
                       <input
@@ -740,20 +761,20 @@ export default function NotificationPage() {
                         onChange={() => setDeviceMode('channels')}
                         className="text-indigo-600 focus:ring-indigo-500"
                       />
-                      Theo kênh
+                      {t('notification.byChannel')}
                     </label>
                   </div>
 
                   {deviceMode === 'all' && (
                     <div className="border border-slate-200 dark:border-slate-800 rounded-[10px] p-3 text-slate-500 dark:text-slate-400 bg-slate-50/50 dark:bg-slate-900/30">
-                      Áp dụng cho <span className="font-bold text-indigo-600 dark:text-indigo-400">tất cả thiết bị</span> (Desktop &amp; Mobile).
+                      {t('notification.allDevicesDesc')} <span className="font-bold text-indigo-600 dark:text-indigo-400">{t('notification.allDevicesBold')}</span> {t('notification.allDevicesDescSuffix')}
                     </div>
                   )}
 
                   {deviceMode === 'devices' && (
                     <div className="border border-slate-200 dark:border-slate-800 rounded-[10px] p-3 max-h-40 overflow-y-auto">
                       {devices.length === 0 ? (
-                        <p className="text-slate-400 italic py-1">Không tìm thấy thiết bị nào.</p>
+                        <p className="text-slate-400 italic py-1">{t('notification.noDevicesFound')}</p>
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
                           {devices.map(dev => (
@@ -778,7 +799,7 @@ export default function NotificationPage() {
                   {deviceMode === 'channels' && (
                     <div className="border border-slate-200 dark:border-slate-800 rounded-[10px] p-3 max-h-40 overflow-y-auto">
                       {(!gameAssignments || gameAssignments.length === 0) ? (
-                        <p className="text-slate-400 italic py-1">Chưa có kênh nào. Hãy tạo kênh ở trang Quản lý Kênh.</p>
+                        <p className="text-slate-400 italic py-1">{t('notification.noChannelsFound')}</p>
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
                           {gameAssignments.map(a => (
@@ -792,7 +813,7 @@ export default function NotificationPage() {
                               <span className="flex items-center gap-1.5 truncate">
                                 <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
                                 {a.game}
-                                <span className="text-[10px] text-slate-400">({(a.machines || []).length} máy)</span>
+                                <span className="text-[10px] text-slate-400">({(a.machines || []).length} {t('notification.machines')})</span>
                               </span>
                             </label>
                           ))}
@@ -808,8 +829,8 @@ export default function NotificationPage() {
                 <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4">
                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-[10px] mb-3">
                     <div>
-                      <span className="block font-bold text-slate-700 dark:text-slate-300">Kích hoạt Auto Send SRT</span>
-                      <span className="text-[11px] text-slate-400">Tự động giám sát và thông báo trạng thái luồng SRT (ON/OFF) gửi tới Webhook này.</span>
+                      <span className="block font-bold text-slate-700 dark:text-slate-300">{t('notification.srtAutoSendTitle')}</span>
+                      <span className="text-[11px] text-slate-400">{t('notification.srtAutoSendDesc')}</span>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -824,7 +845,7 @@ export default function NotificationPage() {
 
                   {whSrtAutoSend && (
                     <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
-                      <span className="block font-bold text-slate-500 uppercase">Chọn danh sách SRT cần theo dõi:</span>
+                      <span className="block font-bold text-slate-500 uppercase">{t('notification.srtSelectStreams')}</span>
                       <div className="border border-slate-200 dark:border-slate-800 rounded-[10px] p-3 max-h-48 overflow-y-auto space-y-2 bg-slate-50/50 dark:bg-slate-900/30 text-xs">
                         <label className="flex items-center gap-2 font-bold text-indigo-600 dark:text-indigo-400 cursor-pointer mb-2">
                           <input
@@ -833,11 +854,11 @@ export default function NotificationPage() {
                             onChange={() => handleSrtStreamSelect('all')}
                             className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
                           />
-                          Tất cả các luồng SRT
+                          {t('notification.srtAllStreams')}
                         </label>
                         
                         {allAvailableSrts.length === 0 ? (
-                          <p className="text-slate-400 italic py-1">Không có luồng SRT nào hoạt động hoặc được tìm thấy.</p>
+                          <p className="text-slate-400 italic py-1">{t('notification.srtNoStreams')}</p>
                         ) : (
                           <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-lg">
                             <table className="w-full text-left border-collapse bg-white dark:bg-slate-900">
@@ -851,10 +872,10 @@ export default function NotificationPage() {
                                       className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
                                     />
                                   </th>
-                                  <th className="py-2 px-3">Tên máy</th>
-                                  <th className="py-2 px-3">Tên SRT</th>
-                                  <th className="py-2 px-3">Port</th>
-                                  <th className="py-2 px-3">Type</th>
+                                  <th className="py-2 px-3">{t('notification.srtMachineName')}</th>
+                                  <th className="py-2 px-3">{t('notification.srtName')}</th>
+                                  <th className="py-2 px-3">{t('notification.srtPort')}</th>
+                                  <th className="py-2 px-3">{t('notification.srtType')}</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -911,20 +932,70 @@ export default function NotificationPage() {
                   )}
                 </div>
 
+                {/* Schedule Config */}
+                <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4">
+                  <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-[10px] mb-3">
+                    <div>
+                      <span className="block font-bold text-slate-700 dark:text-slate-300">{t('notification.scheduleTitle')}</span>
+                      <span className="text-[11px] text-slate-400">{t('notification.scheduleDesc')}</span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={whScheduleEnabled}
+                        onChange={(e) => setWhScheduleEnabled(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-slate-300 dark:bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </label>
+                  </div>
+
+                  {whScheduleEnabled && (
+                    <div className="space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block font-bold text-slate-500 uppercase mb-1.5 text-[10px]">{t('notification.scheduleStart')}</label>
+                          <input
+                            type="time"
+                            value={whScheduleStart}
+                            onChange={(e) => setWhScheduleStart(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-[10px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 text-xs font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-bold text-slate-500 uppercase mb-1.5 text-[10px]">{t('notification.scheduleEnd')}</label>
+                          <input
+                            type="time"
+                            value={whScheduleEnd}
+                            onChange={(e) => setWhScheduleEnd(e.target.value)}
+                            className="w-full px-3 py-2 border rounded-[10px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 text-xs font-bold"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/15 border border-amber-200 dark:border-amber-900/25 rounded-[10px] text-[11px] text-amber-700 dark:text-amber-400">
+                        <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>{t('notification.scheduleInfo')}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* Checked parameter conditions */}
                 <div>
                   <label className="block font-bold text-slate-500 uppercase mb-1.5">
-                    Tick chọn và thiết lập điều kiện cảnh báo gửi tới Webhook này
+                    {t('notification.rulesTitle')}
                   </label>
                   <div className="border border-slate-200 dark:border-slate-800 rounded-[10px] overflow-hidden">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                          <th className="py-2 px-3 text-center w-12">Dùng</th>
-                          <th className="py-2 px-3">Nội dung cảnh báo</th>
-                          <th className="py-2 px-3 w-24">Phép toán</th>
-                          <th className="py-2 px-3 w-28">Ngưỡng</th>
-                          <th className="py-2 px-3 w-28">Quét lại (giây)</th>
+                          <th className="py-2 px-3 text-center w-12">{t('notification.ruleUse')}</th>
+                          <th className="py-2 px-3">{t('notification.ruleContent')}</th>
+                          <th className="py-2 px-3 w-24">{t('notification.ruleOperator')}</th>
+                          <th className="py-2 px-3 w-28">{t('notification.ruleThreshold')}</th>
+                          <th className="py-2 px-3 w-28">{t('notification.ruleRescan')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-900">
@@ -942,7 +1013,7 @@ export default function NotificationPage() {
                               </td>
                               <td className="py-2.5 px-3">
                                 <span className={`font-semibold ${state.enabled ? 'text-slate-800 dark:text-slate-100 font-bold' : 'text-slate-400 dark:text-slate-500'}`}>
-                                  {p.label}
+                                  {t(p.labelKey)}
                                 </span>
                                 <span className="block text-[9.5px] text-slate-400 font-mono mt-0.5">
                                   Key: {p.parameter}
@@ -956,8 +1027,8 @@ export default function NotificationPage() {
                                     onChange={(e) => handleRuleStateChange(p.parameter, 'value', e.target.value)}
                                     className="w-full px-2 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-bold text-[11px] disabled:opacity-50"
                                   >
-                                    {NETWORK_TRANSITIONS.map(t => (
-                                      <option key={t.value} value={t.value}>{t.label}</option>
+                                    {NETWORK_TRANSITIONS.map(nt => (
+                                      <option key={nt.value} value={nt.value}>{t(nt.labelKey)}</option>
                                     ))}
                                   </select>
                                 </td>
@@ -969,8 +1040,8 @@ export default function NotificationPage() {
                                     onChange={(e) => handleRuleStateChange(p.parameter, 'value', e.target.value)}
                                     className="w-full px-2 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-bold text-[11px] disabled:opacity-50"
                                   >
-                                    {ONLINE_TRANSITIONS.map(t => (
-                                      <option key={t.value} value={t.value}>{t.label}</option>
+                                    {ONLINE_TRANSITIONS.map(ot => (
+                                      <option key={ot.value} value={ot.value}>{t(ot.labelKey)}</option>
                                     ))}
                                   </select>
                                 </td>
@@ -1029,13 +1100,13 @@ export default function NotificationPage() {
                   onClick={() => setModalOpen(false)}
                   className="px-4 py-2 text-xs font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 rounded-[10px] transition-all"
                 >
-                  Hủy bỏ
+                  {t('common.cancel')}
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-[10px] shadow-sm transition-all"
                 >
-                  {editingWebhook ? 'Lưu cập nhật' : 'Thêm mới'}
+                  {editingWebhook ? t('notification.saveUpdate') : t('notification.addNew')}
                 </button>
               </div>
             </form>

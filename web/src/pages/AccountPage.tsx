@@ -4,6 +4,7 @@ import type { BackendRoleItem } from '../services/api'
 import { showToast } from '../components/ui/Toast'
 import Dialog from '../components/ui/Dialog'
 import { hasActionPermission } from '../services/auth'
+import { useLanguage } from '../config/i18n'
 
 const MODULE_KEY = 'Tài khoản'
 
@@ -19,6 +20,7 @@ interface AccountItem {
 }
 
 export default function AccountPage() {
+    const { t } = useLanguage()
     const [accounts, setAccounts] = useState<AccountItem[]>([])
     const [roles, setRoles] = useState<BackendRoleItem[]>([])
     const [loading, setLoading] = useState(true)
@@ -274,8 +276,8 @@ export default function AccountPage() {
             <section className="card-light account-card">
                 <div className="account-card-header">
                     <div>
-                        <h3 className="account-card-title">Tài khoản</h3>
-                        <p className="account-card-subtitle">Danh sách người dùng đang truy cập hệ thống.</p>
+                        <h3 className="account-card-title">{t('accounts.title')}</h3>
+                        <p className="account-card-subtitle">{t('accounts.subtitle')}</p>
                     </div>
                     {canAdd && (
                         <button
@@ -283,17 +285,17 @@ export default function AccountPage() {
                             type="button"
                             onClick={() => setShowCreateModal(true)}
                         >
-                            Thêm tài khoản
+                            {t('accounts.addNew')}
                         </button>
                     )}
                 </div>
 
                 {loading ? (
-                    <div className="account-empty">Đang tải dữ liệu tài khoản...</div>
+                    <div className="account-empty">{t('common.loading')}</div>
                 ) : error ? (
                     <div className="account-empty">{error}</div>
                 ) : accounts.length === 0 ? (
-                    <div className="account-empty">Chưa có dữ liệu tài khoản.</div>
+                    <div className="account-empty">{t('common.noData')}</div>
                 ) : (
                     <div className="account-table-wrap">
                         <table className="account-table">
@@ -309,14 +311,14 @@ export default function AccountPage() {
                             </colgroup>
                             <thead>
                                 <tr>
-                                    <th>Tài khoản</th>
-                                    <th>Email</th>
-                                    <th>Số điện thoại</th>
-                                    <th>Vai trò</th>
-                                    <th>Kênh truy cập</th>
-                                    <th>Trạng thái</th>
-                                    <th>Mật khẩu</th>
-                                    <th>Hành động</th>
+                                    <th>{t('accounts.thUsername')}</th>
+                                    <th>{t('accounts.thEmail')}</th>
+                                    <th>{t('accounts.thPhone')}</th>
+                                    <th>{t('accounts.thRole')}</th>
+                                    <th>{t('accounts.thAllowedChannels')}</th>
+                                    <th>{t('accounts.thStatus')}</th>
+                                    <th>{t('auth.password')}</th>
+                                    <th>{t('common.actions')}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -357,7 +359,7 @@ export default function AccountPage() {
                                                         padding: '0.15rem 0.35rem',
                                                         borderRadius: '4px'
                                                     }}>
-                                                        Tất cả
+                                                        {t('accounts.allChannels')}
                                                     </span>
                                                 ) : account.allowed_channels && account.allowed_channels.length > 0 ? (
                                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', maxWidth: '200px' }}>
@@ -450,7 +452,7 @@ export default function AccountPage() {
                                                                 setShowEditModal(true)
                                                             }}
                                                         >
-                                                            Sửa
+                                                            {t('common.edit')}
                                                         </button>
                                                     )}
                                                     {canLock && (
@@ -475,7 +477,7 @@ export default function AccountPage() {
                                                             })}
                                                             onClick={() => handleToggleLock(account)}
                                                         >
-                                                            {account.is_locked ? 'Mở khóa' : 'Khóa'}
+                                                            {account.is_locked ? t('accounts.unlockAccount') : t('accounts.lockAccount')}
                                                         </button>
                                                     )}
                                                     {canDelete && (
@@ -496,7 +498,7 @@ export default function AccountPage() {
                                                             }}
                                                             onClick={() => handleDeleteAccount(account.username)}
                                                         >
-                                                            Xóa
+                                                            {t('common.delete')}
                                                         </button>
                                                     )}
                                                     {!canEdit && !canLock && !canDelete && (
@@ -517,7 +519,7 @@ export default function AccountPage() {
             <Dialog
                 open={showCreateModal}
                 onClose={() => setShowCreateModal(false)}
-                title="Thêm tài khoản mới"
+                title={t('accounts.addNew')}
             >
                 <form onSubmit={handleCreateAccount} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div>

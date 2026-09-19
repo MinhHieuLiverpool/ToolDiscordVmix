@@ -11,6 +11,7 @@ import {
 } from '../../services/api'
 import Dialog from '../../components/ui/Dialog'
 import { renderSrtCard, renderStreamCard, renderRecordCard, renderMultiRecordCard } from '../../components/DialogHelpers'
+import { useLanguage } from '../../config/i18n'
 
 
 function toOnOff(value: unknown): string {
@@ -34,6 +35,7 @@ export default function StatusByTablePage({
   loading: boolean
   error: string
 }) {
+  const { t } = useLanguage()
   const [dialogState, setDialogState] = useState<{
     type: 'srt' | 'stream' | 'ffmpeg' | 'record' | null
     machineIndex: number
@@ -55,7 +57,7 @@ export default function StatusByTablePage({
   }
 
   if (rows.length === 0) {
-    return <div className="glass-card empty-card">Chưa có dữ liệu từ backend.</div>
+    return <div className="glass-card empty-card">{t('machineCard.noData')}</div>
   }
 
   const currentItem = dialogState.machineIndex >= 0 ? rows[dialogState.machineIndex] : null
@@ -70,17 +72,17 @@ export default function StatusByTablePage({
     <>
       <div className="status-table-wrap glass-card">
         <div className="status-table-toolbar">
-          <div className="status-table-title">Bảng tổng hợp</div>
-          <div className="status-table-meta">{rows.length} máy</div>
+          <div className="status-table-title">{t('machineCard.summaryTable')}</div>
+          <div className="status-table-meta">{rows.length} {t('machineCard.machines')}</div>
         </div>
-        <div className="status-table-scroll-hint">Cuộn ngang để xem đầy đủ cột · giữ Shift + lăn chuột để cuộn nhanh</div>
+        <div className="status-table-scroll-hint">{t('machineCard.scrollHint')}</div>
         <div className="status-table-scroll-shell">
           <div className="status-table-scroll">
             <table className="status-table">
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>Máy</th>
+                  <th>{t('common.machine')}</th>
                   <th>timestamp</th>
                   <th>IP</th>
                   <th>WAN</th>
@@ -102,7 +104,7 @@ export default function StatusByTablePage({
                   <th>LIVE</th>
                   <th>EXT</th>
                   <th>Resolution</th>
-                  <th>Actions</th>
+                  <th>{t('common.actions')}</th>
                 </tr>
               </thead>
               <tbody>

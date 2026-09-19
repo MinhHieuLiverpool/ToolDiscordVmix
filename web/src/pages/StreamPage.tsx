@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { normalizeStreamList, type BackendStreamItem } from '../services/api'
 import { formatBitrate, toOnOff } from '../components/DialogHelpers'
+import { useLanguage } from '../config/i18n'
 
 interface MachineStreamGroup {
     machineName: string
@@ -10,6 +11,7 @@ interface MachineStreamGroup {
 }
 
 export default function StreamPage() {
+    const { t } = useLanguage()
     const { rows, loading, error } = useDashboardContext()
     const [searchTerm, setSearchTerm] = useState('')
 
@@ -50,8 +52,8 @@ export default function StreamPage() {
         return (
             <>
                 <div className="page-header">
-                    <h2 className="page-title">Stream</h2>
-                    <p className="page-description">Thông số stream từ tất cả các máy.</p>
+                    <h2 className="page-title">{t('stream.title')}</h2>
+                    <p className="page-description">{t('stream.description')}</p>
                 </div>
                 <div className="loading-skeleton-table">
                     {Array.from({ length: 5 }).map((_, i) => (
@@ -66,7 +68,7 @@ export default function StreamPage() {
         return (
             <>
                 <div className="page-header">
-                    <h2 className="page-title">Stream</h2>
+                    <h2 className="page-title">{t('stream.title')}</h2>
                 </div>
                 <div className="card-light error-card-light">{error}</div>
             </>
@@ -76,23 +78,23 @@ export default function StreamPage() {
     return (
         <>
             <div className="page-header">
-                <h2 className="page-title">Stream</h2>
-                <p className="page-description">Tổng hợp thông số stream từ tất cả các máy trong hệ thống.</p>
+                <h2 className="page-title">{t('stream.title')}</h2>
+                <p className="page-description">{t('stream.description')}</p>
             </div>
 
             {/* Summary Cards */}
             <div className="srt-summary-row">
                 <div className="summary-card">
                     <span className="summary-card-num">{totalStreams}</span>
-                    <span className="summary-card-label">Tổng Stream</span>
+                    <span className="summary-card-label">{t('stream.totalStreams')}</span>
                 </div>
                 <div className="summary-card summary-card-online">
                     <span className="summary-card-num">{totalRunning}</span>
-                    <span className="summary-card-label">Đang chạy</span>
+                    <span className="summary-card-label">{t('stream.running')}</span>
                 </div>
                 <div className="summary-card summary-card-offline">
                     <span className="summary-card-num">{totalStopped}</span>
-                    <span className="summary-card-label">Dừng</span>
+                    <span className="summary-card-label">{t('stream.stopped')}</span>
                 </div>
             </div>
 
@@ -106,7 +108,7 @@ export default function StreamPage() {
                     <input
                         className="table-search-input"
                         type="text"
-                        placeholder="Tìm theo tên máy, IP, tên stream..."
+                        placeholder={t('stream.searchPlaceholder')}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -120,7 +122,7 @@ export default function StreamPage() {
                         <table className="data-table">
                             <thead>
                                 <tr>
-                                    <th>Máy</th>
+                                    <th>{t('stream.thMachine')}</th>
                                     <th>IP</th>
                                     <th>Stream</th>
                                     <th>Runtime</th>
@@ -141,7 +143,7 @@ export default function StreamPage() {
                                 {filteredGroups.length === 0 ? (
                                     <tr>
                                         <td colSpan={15} className="table-empty-cell">
-                                            Không có dữ liệu Stream.
+                                            {t('stream.noData')}
                                         </td>
                                     </tr>
                                 ) : (

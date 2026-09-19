@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback } from 'react'
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { normalizeStreamKeysList, type BackendStreamKeyItem } from '../services/api'
 import { CopyButton } from '../components/DialogHelpers'
+import { useLanguage } from '../config/i18n'
 
 interface MachineStreamKeyGroup {
     machineName: string
@@ -32,6 +33,7 @@ function maskKey(key: string): string {
 }
 
 export default function UrlKeyPage() {
+    const { t } = useLanguage()
     const { rows, loading, error } = useDashboardContext()
     const [searchTerm, setSearchTerm] = useState('')
     // Track which keys are revealed: "gi-ki" => true
@@ -85,8 +87,8 @@ export default function UrlKeyPage() {
         return (
             <>
                 <div className="page-header">
-                    <h2 className="page-title">URL & Key</h2>
-                    <p className="page-description">Stream URL và Key từ tất cả các máy.</p>
+                    <h2 className="page-title">{t('urlKey.title')}</h2>
+                    <p className="page-description">{t('urlKey.description')}</p>
                 </div>
                 <div className="loading-skeleton-table">
                     {Array.from({ length: 5 }).map((_, i) => (
@@ -101,7 +103,7 @@ export default function UrlKeyPage() {
         return (
             <>
                 <div className="page-header">
-                    <h2 className="page-title">URL & Key</h2>
+                    <h2 className="page-title">{t('urlKey.title')}</h2>
                 </div>
                 <div className="card-light error-card-light">{error}</div>
             </>
@@ -111,23 +113,23 @@ export default function UrlKeyPage() {
     return (
         <>
             <div className="page-header">
-                <h2 className="page-title">URL & Key</h2>
-                <p className="page-description">Tổng hợp URL và stream key từ tất cả các máy trong hệ thống.</p>
+                <h2 className="page-title">{t('urlKey.title')}</h2>
+                <p className="page-description">{t('urlKey.description')}</p>
             </div>
 
             {/* Summary Cards */}
             <div className="srt-summary-row">
                 <div className="summary-card">
                     <span className="summary-card-num">{filteredGroups.length}</span>
-                    <span className="summary-card-label">Máy</span>
+                    <span className="summary-card-label">{t('common.machine')}</span>
                 </div>
                 <div className="summary-card summary-card-online">
                     <span className="summary-card-num">{totalKeys}</span>
-                    <span className="summary-card-label">Tổng Stream</span>
+                    <span className="summary-card-label">{t('urlKey.totalKeys')}</span>
                 </div>
                 <div className="summary-card" style={{ borderColor: 'rgba(99,102,241,.2)' }}>
                     <span className="summary-card-num" style={{ color: '#6366f1' }}>{totalWithUrl}</span>
-                    <span className="summary-card-label">Có URL</span>
+                    <span className="summary-card-label">{t('urlKey.hasUrl')}</span>
                 </div>
             </div>
 
@@ -141,7 +143,7 @@ export default function UrlKeyPage() {
                     <input
                         className="table-search-input"
                         type="text"
-                        placeholder="Tìm theo tên máy, IP, URL, key..."
+                        placeholder={t('urlKey.searchPlaceholder')}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -155,19 +157,19 @@ export default function UrlKeyPage() {
                         <table className="data-table">
                             <thead>
                                 <tr>
-                                    <th>Máy</th>
+                                    <th>{t('urlKey.thMachine')}</th>
                                     <th>IP</th>
-                                    <th>Stream</th>
-                                    <th>URL</th>
-                                    <th>Key</th>
-                                    <th style={{ width: 60, textAlign: 'center' }}>Xem</th>
+                                    <th>{t('urlKey.thStream')}</th>
+                                    <th>{t('urlKey.thUrl')}</th>
+                                    <th>{t('urlKey.thKey')}</th>
+                                    <th style={{ width: 60, textAlign: 'center' }}>{t('common.view')}</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filteredGroups.length === 0 ? (
                                     <tr>
                                         <td colSpan={6} className="table-empty-cell">
-                                            Không có dữ liệu URL & Key.
+                                            {t('urlKey.noData')}
                                         </td>
                                     </tr>
                                 ) : (

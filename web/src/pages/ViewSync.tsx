@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { hasActionPermission } from '../services/auth'
+import { useLanguage } from '../config/i18n'
 
 type VideoItem = {
     id: string
@@ -29,15 +30,6 @@ const LAYOUTS: LayoutOption[] = [
     { id: 'l9', name: '4 x 3', max: 10, columns: 4, rows: 3 },
 ]
 
-function extractVideoId(url: string): string | null {
-    const liveMatch = url.match(/(?:youtube\.com\/live\/)([^#&?]{11})/i)
-    if (liveMatch) return liveMatch[1]
-
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/
-    const match = url.match(regExp)
-    return match && match[2].length === 11 ? match[2] : null
-}
-
 function formatTime(seconds: number) {
     const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0
     const minutes = Math.floor(safeSeconds / 60)
@@ -60,90 +52,73 @@ function buildShareUrl(videos: VideoItem[]) {
     return `${window.location.origin}${window.location.pathname}?${params.toString()}`
 }
 
-function buildMultiUrl(videos: VideoItem[], layout: string) {
-    const params = buildParams(videos, layout)
-    return `${window.location.origin}/viewsync/multi?${params.toString()}`
-}
-
 export default function ViewSyncPage() {
+    const { t } = useLanguage()
     const canAdd = hasActionPermission('ViewSync', 'add')
     const canDelete = hasActionPermission('ViewSync', 'delete')
     const [videos, setVideos] = useState<VideoItem[]>([])
     const [newVideoUrl, setNewVideoUrl] = useState('')
-    const [shareUrl, setShareUrl] = useState('')
-    const [currentTime] = useState(0)
     const [layoutId, setLayoutId] = useState<string>('auto')
+    const [shareUrl, setShareUrl] = useState<string>('')
 
     useEffect(() => {
-        if (!window.name) {
-            window.name = 'viewsync-main'
-        }
         const params = new URLSearchParams(window.location.search)
-        if (params.get('mode') === 'multi') {
-            params.delete('mode')
-            const nextUrl = `${window.location.origin}/viewsync/multi?${params.toString()}`
-            window.location.replace(nextUrl)
+        const parsed: VideoItem[] = []
+        let index = 0
+        while (params.has(`video${index}`)) {
+            const url = params.get(`video${index}`) || ''
+            const startTime = Number(params.get(`start${index}`) || 0)
+            if (url) {
+                parsed.push({
+                    id: `${Date.now()}-${index}`,
+                    url,
+                    title: `Video ${index + 1}`,
+                    startTime,
+                })
+            }
+            index += 1
+        }
+        if (parsed.length > 0) {
+            setVideos(parsed)
+            const paramLayout = params.get('layout')
+            if (paramLayout) setLayoutId(paramLayout)
         }
     }, [])
 
     useEffect(() => {
-        if (videos.length === 0) {
-            setShareUrl('')
-            return
-        }
-        setShareUrl(buildShareUrl(videos))
+        setShareUrl(videos.length > 0 ? buildShareUrl(videos) : '')
     }, [videos])
 
     const addVideo = () => {
         const trimmed = newVideoUrl.trim()
         if (!trimmed) return
-        if (videos.length >= 10) {
-            alert('Tối đa 10 video.')
-            return
-        }
-        
-        let videoId = extractVideoId(trimmed)
-        const isYouTube = !!videoId
-
-        if (!videoId) {
-            // Check if it's a valid URL
-            try {
-                new URL(trimmed)
-                videoId = `custom-${videos.length}`
-            } catch {
-                alert('URL không hợp lệ. Vui lòng nhập link YouTube hoặc link stream trực tiếp (http/https).')
-                return
-            }
-        }
-
-        if (videos.some((video) => video.url === trimmed)) {
-            alert('Video này đã có trong danh sách.')
-            return
-        }
-
-        const newVideo: VideoItem = {
-            id: videoId,
+        if (videos.length >= 10) return
+        const next: VideoItem = {
+            id: `${Date.now()}-${videos.length}`,
             url: trimmed,
-            title: isYouTube ? `YouTube ${videos.length + 1}` : `Live ${videos.length + 1}`,
-            startTime: Math.floor(currentTime),
+            title: `Video ${videos.length + 1}`,
+            startTime: 0,
         }
-        setVideos((prev) => [...prev, newVideo])
+        setVideos((prev) => [...prev, next])
         setNewVideoUrl('')
     }
 
-    const removeVideo = (videoId: string) => {
-        setVideos((prev) => prev.filter((video) => video.id !== videoId))
+    const removeVideo = (id: string) => {
+        setVideos((prev) => prev.filter((item) => item.id !== id))
     }
 
-    const copyShareUrl = () => {
+    const copyShareUrl = async () => {
         if (!shareUrl) return
-        navigator.clipboard.writeText(shareUrl)
+        try {
+            await navigator.clipboard.writeText(shareUrl)
+        } catch {
+            // fallback
+        }
     }
 
     const openMultiView = () => {
-        if (videos.length === 0) return
-        const url = buildMultiUrl(videos, layoutId)
-        window.open(url, 'viewsync-multi', 'width=1200,height=760,scrollbars=yes,resizable=yes')
+        const params = buildParams(videos, layoutId)
+        window.open(`/viewsync/multi?${params.toString()}`, '_blank')
     }
 
     const activeLayout = useMemo(() => {
@@ -171,14 +146,14 @@ export default function ViewSyncPage() {
         <div className="viewsync-shell viewsync-minimal">
             <section className="viewsync-input">
                 <div>
-                    <h3>Add video</h3>
-                    <p>Them link YouTube de tao bo cuc dong bo.</p>
+                    <h3>{t('viewsync.addVideo')}</h3>
+                    <p>{t('viewsync.addVideoDesc')}</p>
                 </div>
                 <div className="viewsync-input-row">
                     <input
                         className="viewsync-input-field"
                         type="text"
-                        placeholder="Nhap YouTube URL..."
+                        placeholder={t('viewsync.placeholder')}
                         value={newVideoUrl}
                         onChange={(event) => setNewVideoUrl(event.target.value)}
                         onKeyDown={(event) => {
@@ -186,17 +161,17 @@ export default function ViewSyncPage() {
                         }}
                     />
                     {canAdd && (
-                        <button className="viewsync-primary-btn" type="button" onClick={addVideo}>Add Video</button>
+                        <button className="viewsync-primary-btn" type="button" onClick={addVideo}>{t('viewsync.addBtn')}</button>
                     )}
                 </div>
                 <div className="viewsync-input-meta">
                     <span>{videos.length} video(s)</span>
                     <div className="viewsync-input-actions">
                         {shareUrl && (
-                            <button className="viewsync-outline-btn" type="button" onClick={copyShareUrl}>Copy Share URL</button>
+                            <button className="viewsync-outline-btn" type="button" onClick={copyShareUrl}>{t('viewsync.copyShareUrl')}</button>
                         )}
                         <button className="viewsync-outline-btn" type="button" onClick={openMultiView} disabled={videos.length === 0}>
-                            Open Multiview
+                            {t('viewsync.openMultiview')}
                         </button>
                     </div>
                 </div>
@@ -208,14 +183,14 @@ export default function ViewSyncPage() {
             <section className="viewsync-preview">
                 <div className="viewsync-preview-header">
                     <div>
-                        <h3>Video Layout</h3>
-                        <p>Bo cuc theo so luong video dang hoat dong.</p>
+                        <h3>{t('viewsync.videoLayout')}</h3>
+                        <p>{t('viewsync.videoLayoutDesc')}</p>
                     </div>
                 </div>
                 {videos.length === 0 ? (
                     <div className="viewsync-empty">
-                        <h4>Chua co video nao</h4>
-                        <p>Nhap YouTube URL de bat dau dong bo.</p>
+                        <h4>{t('viewsync.noVideos')}</h4>
+                        <p>{t('viewsync.noVideosDesc')}</p>
                     </div>
                 ) : (
                     <div className="viewsync-video-grid" style={gridStyle}>
@@ -237,7 +212,7 @@ export default function ViewSyncPage() {
                                     <span>Start: {formatTime(item.startTime)}</span>
                                     {canDelete && (
                                         <button className="viewsync-remove-btn" type="button" onClick={() => removeVideo(item.id)}>
-                                            Remove
+                                            {t('viewsync.remove')}
                                         </button>
                                     )}
                                 </div>

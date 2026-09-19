@@ -6,6 +6,7 @@ import {
     type RecordItem, 
     type MultiRecordItem 
 } from '../services/api'
+import { useLanguage } from '../config/i18n'
 
 function renderStatusPill(val: string | undefined) {
     if (!val) return <span style={{ color: '#94a3b8' }}>-</span>
@@ -53,6 +54,7 @@ interface FlatMultiRecordItem extends MultiRecordItem {
 }
 
 export default function RecordMulticorderPage() {
+    const { t } = useLanguage()
     const { 
         rows, 
         loading, 
@@ -79,7 +81,7 @@ export default function RecordMulticorderPage() {
 
     const games = useMemo(() => {
         const list = [
-            { id: '__all__', label: 'Tất cả Game' }
+            { id: '__all__', label: t('overview.allGames') }
         ]
         if (gameAssignments) {
             gameAssignments.forEach((assignment: any) => {
@@ -89,9 +91,9 @@ export default function RecordMulticorderPage() {
             })
         }
         return list
-    }, [gameAssignments])
+    }, [gameAssignments, t])
 
-    const selectedLabel = games.find(g => g.id === selectedGame)?.label || 'Chọn Game'
+    const selectedLabel = games.find(g => g.id === selectedGame)?.label || t('overview.selectGame')
 
     // ONLY get machines that have standard record OR multicorder configurations
     const filteredRows = useMemo(() => {
@@ -148,8 +150,8 @@ export default function RecordMulticorderPage() {
             <>
                 <div className="page-header flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
-                        <h2 className="page-title">Record & MultiCorder</h2>
-                        <p className="page-description">Thông số và cấu hình ghi vMix từ tất cả các máy.</p>
+                        <h2 className="page-title">{t('record.title')}</h2>
+                        <p className="page-description">{t('record.description')}</p>
                     </div>
                 </div>
                 <div className="vmix-grid" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -165,7 +167,7 @@ export default function RecordMulticorderPage() {
         return (
             <>
                 <div className="page-header">
-                    <h2 className="page-title">Record & MultiCorder</h2>
+                    <h2 className="page-title">{t('record.title')}</h2>
                 </div>
                 <div className="card-light error-card-light">{error}</div>
             </>
@@ -176,15 +178,15 @@ export default function RecordMulticorderPage() {
         <>
             <div className="page-header flex flex-col md:flex-row justify-between items-start md:items-center gap-4" style={{ marginBottom: '1.5rem' }}>
                 <div>
-                    <h2 className="page-title">Record & MultiCorder</h2>
-                    <p className="page-description">Cấu hình ghi thông thường (Standard Record) và ghi đa kênh (MultiCorder) của vMix theo thời gian thực.</p>
+                    <h2 className="page-title">{t('record.title')}</h2>
+                    <p className="page-description">{t('record.description')}</p>
                 </div>
 
                 {/* Game Filter */}
                 <div className="flex items-center gap-3 flex-wrap">
                     {!isGameLocked ? (
                         <div className="flex items-center gap-2">
-                            <span className="text-xs font-semibold text-slate-400">Kênh Game:</span>
+                            <span className="text-xs font-semibold text-slate-400">{t('overview.gameChannel')}</span>
                             <div className="custom-dropdown" ref={dropdownRef} style={{ minWidth: '180px' }}>
                                 <button
                                     type="button"
@@ -221,7 +223,7 @@ export default function RecordMulticorderPage() {
                     ) : (
                         selectedGame !== '__all__' ? (
                             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-900 rounded-lg">
-                                <span className="text-xs font-semibold text-slate-400">Kênh Game:</span>
+                                <span className="text-xs font-semibold text-slate-400">{t('overview.gameChannel')}</span>
                                 <span className="text-xs font-bold text-purple-600 dark:text-purple-400">{selectedLabel}</span>
                             </div>
                         ) : null
@@ -231,7 +233,7 @@ export default function RecordMulticorderPage() {
 
             {filteredRows.length === 0 ? (
                 <div className="card-light" style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8' }}>
-                    Chưa có dữ liệu từ backend hoặc không tìm thấy máy có cấu hình phù hợp.
+                    {t('record.noData')}
                 </div>
             ) : (
                 /* Consolidated Grid Table summary view directly */
@@ -240,31 +242,31 @@ export default function RecordMulticorderPage() {
                     {/* Consolidated Record Table */}
                     <div className="card-light table-card" style={{ padding: '1.5rem', border: '1px solid rgba(226, 232, 240, 0.8)' }}>
                         <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            BẢNG TỔNG HỢP RECORD (STANDARD RECORDING)
+                            {t('record.standardTitle')}
                         </h3>
                         {flatRecords.length === 0 ? (
-                            <div style={{ padding: '1.5rem', textAlign: 'center', color: '#94a3b8' }}>Không có cấu hình ghi.</div>
+                            <div style={{ padding: '1.5rem', textAlign: 'center', color: '#94a3b8' }}>{t('record.noStandardData')}</div>
                         ) : (
                             <div className="table-scroll-shell" style={{ border: '1px solid #e2e8f0', borderRadius: '8px' }}>
                                 <div className="table-scroll">
                                     <table className="data-table compact-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                                         <thead>
                                             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569', minWidth: '120px' }}>Máy</th>
+                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569', minWidth: '120px' }}>{t('record.thMachine')}</th>
                                                 <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569', minWidth: '120px' }}>IP</th>
-                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Profile</th>
-                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Đường dẫn lưu file</th>
-                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Định dạng</th>
-                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Độ phân giải</th>
-                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>FPS</th>
-                                                <th style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>V.Bitrate</th>
-                                                <th style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>A.Bitrate</th>
-                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Delay</th>
-                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>HW Accel</th>
-                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Audio</th>
-                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Ch</th>
-                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Src Ch</th>
-                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Frag</th>
+                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>{t('record.thProfile')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>{t('record.thPath')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>{t('record.thFormat')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>{t('record.thResolution')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>{t('record.thFps')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>{t('record.thVBitrate')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>{t('record.thABitrate')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>{t('record.thDelay')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>{t('record.thHwAccel')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>{t('record.thAudio')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>{t('record.thCh')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>{t('record.thSrcCh')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>{t('record.thFrag')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -307,27 +309,27 @@ export default function RecordMulticorderPage() {
                     {/* Consolidated MultiCorder Table */}
                     <div className="card-light table-card" style={{ padding: '1.5rem', border: '1px solid rgba(226, 232, 240, 0.8)' }}>
                         <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            BẢNG TỔNG HỢP MULTICORDER
+                            {t('record.multiTitle')}
                         </h3>
                         {flatMultiRecords.length === 0 ? (
-                            <div style={{ padding: '1.5rem', textAlign: 'center', color: '#94a3b8' }}>Không có cấu hình MultiCorder.</div>
+                            <div style={{ padding: '1.5rem', textAlign: 'center', color: '#94a3b8' }}>{t('record.noMultiData')}</div>
                         ) : (
                             <div className="table-scroll-shell" style={{ border: '1px solid #e2e8f0', borderRadius: '8px' }}>
                                 <div className="table-scroll">
                                     <table className="data-table compact-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                                         <thead>
                                             <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569', minWidth: '120px' }}>Máy</th>
+                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569', minWidth: '120px' }}>{t('record.thMachine')}</th>
                                                 <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569', minWidth: '120px' }}>IP</th>
-                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Source Name</th>
-                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Trạng thái</th>
-                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Thư mục lưu</th>
-                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Định dạng</th>
-                                                <th style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>V.Bitrate</th>
-                                                <th style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>A.Bitrate</th>
-                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Audio Src</th>
-                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Interval</th>
-                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Show All</th>
+                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>{t('record.thSourceName')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>{t('record.thStatus')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>{t('record.thFolder')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>{t('record.thFormat')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>{t('record.thVBitrate')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>{t('record.thABitrate')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>{t('record.thAudioSrc')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>{t('record.thInterval')}</th>
+                                                <th style={{ padding: '10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>{t('record.thShowAll')}</th>
                                             </tr>
                                         </thead>
                                         <tbody>

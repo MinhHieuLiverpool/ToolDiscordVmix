@@ -4,10 +4,13 @@ import ComputersCanvas from '../components/login/ComputersCanvas'
 import StarsCanvas from '../components/login/StarsCanvas'
 import { showToast } from '../components/ui/Toast'
 import { authenticate, isAuthenticated } from '../services/auth'
+import { useLanguage } from '../config/i18n'
+import LanguageToggle from '../components/LanguageToggle'
 import './Login.css'
 
 const LoginPage = () => {
   const navigate = useNavigate()
+  const { t } = useLanguage()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -22,7 +25,7 @@ const LoginPage = () => {
     event.preventDefault()
 
     if (!username.trim() || !password) {
-      showToast('Vui lòng nhập đầy đủ tài khoản và mật khẩu.', 'warning')
+      showToast(t('auth.loginRequired'), 'warning')
       return
     }
 
@@ -31,12 +34,12 @@ const LoginPage = () => {
     const result = await authenticate(username, password)
 
     if (!result.success) {
-      showToast(result.message || 'Tài khoản hoặc mật khẩu không đúng.', 'error')
+      showToast(result.message || t('auth.loginError'), 'error')
       setLoading(false)
       return
     }
 
-    showToast('Đăng nhập thành công! Đang chuyển hướng...', 'success')
+    showToast(t('auth.loginSuccess'), 'success')
     setTimeout(() => {
       navigate('/dashboard', { replace: true })
     }, 800)
@@ -46,10 +49,13 @@ const LoginPage = () => {
     <section className="login-hero">
       <StarsCanvas />
 
-      <nav className="login-nav" aria-label="Header">
+      <nav className="login-nav" aria-label="Header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div className="login-brand">
           <img className="login-corner-icon" src="/favicon.svg" alt="VmixMonitor" />
           <span className="login-brand-title">Vmix Monitor</span>
+        </div>
+        <div style={{ marginRight: '1.5rem' }}>
+          <LanguageToggle />
         </div>
       </nav>
 
@@ -60,11 +66,11 @@ const LoginPage = () => {
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>
-          <h1 className="login-title">Đăng nhập vào Dashboard VmixMonitor</h1>
+          <h1 className="login-title">{t('auth.loginTitle')}</h1>
           <input
             className="login-input"
             type="text"
-            placeholder="Tài khoản"
+            placeholder={t('auth.username')}
             autoComplete="username"
             value={username}
             onChange={(event) => setUsername(event.target.value)}
@@ -73,7 +79,7 @@ const LoginPage = () => {
           <input
             className="login-input"
             type="password"
-            placeholder="Mật khẩu"
+            placeholder={t('auth.password')}
             autoComplete="current-password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
@@ -83,10 +89,10 @@ const LoginPage = () => {
             {loading ? (
               <span className="login-btn-loading">
                 <span className="login-spinner" />
-                Đang xử lý...
+                {t('auth.loggingIn')}
               </span>
             ) : (
-              'Đăng nhập'
+              t('auth.loginButton')
             )}
           </button>
         </form>

@@ -2,6 +2,7 @@
 import { useDashboardContext } from '../hooks/useDashboardContext'
 import { toNumber } from '../types'
 import type { BackendLogItem } from '../services/api'
+import { useLanguage } from '../config/i18n'
 
 function checkOn(value: unknown): boolean {
     const text = String(value || '').toUpperCase()
@@ -43,6 +44,7 @@ function StatusIndicator({ label, isOn, colorOn, colorOff }: { label: string; is
 }
 
 function MachineMonitorCard({ item, index }: { item: BackendLogItem; index: number }) {
+    const { t } = useLanguage()
     const appOn = checkOn(item.data.statusapp)
     const recOn = checkOn(item.data.vmix_recording)
     const liveOn = checkOn(item.data.vmix_streaming)
@@ -70,7 +72,7 @@ function MachineMonitorCard({ item, index }: { item: BackendLogItem; index: numb
             {/* Header */}
             <div className="vmix-card-header">
                 <div>
-                    <h3 className="vmix-card-name">{item.data.name || 'Unknown Device'}</h3>
+                    <h3 className="vmix-card-name">{item.data.name || t('vmix.unknownDevice')}</h3>
                     <p className="vmix-card-ip mono">{item.data.ip || '-'}:{item.data.port || '-'}</p>
                 </div>
                 <span className={`pill-light ${appOn ? 'pill-light-on' : 'pill-light-off'}`}>
@@ -79,7 +81,7 @@ function MachineMonitorCard({ item, index }: { item: BackendLogItem; index: numb
             </div>
 
             {/* PC Metrics */}
-            <div className="vmix-section-label">Thông số PC</div>
+            <div className="vmix-section-label">{t('vmix.pcMetrics')}</div>
             <div className="vmix-metrics-grid">
                 <MetricBadge label="CPU" value={cpuVal !== null ? `${cpuVal.toFixed(0)}` : '-'} unit="%" isHigh={cpuHigh} />
                 <MetricBadge label="RAM" value={ramVal !== null ? `${ramVal.toFixed(0)}` : '-'} unit="%" isHigh={ramHigh} />
@@ -88,7 +90,7 @@ function MachineMonitorCard({ item, index }: { item: BackendLogItem; index: numb
             </div>
 
             {/* Vmix Status - with distinct colors */}
-            <div className="vmix-section-label">Vmix Status</div>
+            <div className="vmix-section-label">{t('vmix.vmixStatus')}</div>
             <div className="vmix-status-chips">
                 <StatusIndicator label="REC" isOn={recOn} colorOn="#ef4444" colorOff="#e2e8f0" />
                 <StatusIndicator label="LIVE" isOn={liveOn} colorOn="#10b981" colorOff="#e2e8f0" />
@@ -96,7 +98,7 @@ function MachineMonitorCard({ item, index }: { item: BackendLogItem; index: numb
             </div>
 
             {/* Sender / Receiver */}
-            <div className="vmix-section-label">Vmix Sender / Receiver</div>
+            <div className="vmix-section-label">{t('vmix.senderReceiver')}</div>
             <div className="vmix-metrics-grid vmix-metrics-2col">
                 <div className={`vmix-metric-box ${senderVal > 0 ? 'vmix-metric-active-sender' : ''}`}>
                     <div className="vmix-metric-label">SENDER</div>
@@ -114,19 +116,19 @@ function MachineMonitorCard({ item, index }: { item: BackendLogItem; index: numb
 
             {/* Extra Info */}
             <div className="vmix-extra-row">
-                <span className="vmix-extra-label">Resolution:</span>
+                <span className="vmix-extra-label">{t('vmix.resolution')}:</span>
                 <span className="vmix-extra-value mono">{item.data.resolution || '-'}</span>
             </div>
             <div className="vmix-extra-row">
-                <span className="vmix-extra-label">MAC Address:</span>
+                <span className="vmix-extra-label">{t('vmix.macAddress')}:</span>
                 <span className="vmix-extra-value mono">{item.data.mac_address || '-'}</span>
             </div>
             <div className="vmix-extra-row">
-                <span className="vmix-extra-label">Network Speed:</span>
+                <span className="vmix-extra-label">{t('vmix.networkSpeed')}:</span>
                 <span className="vmix-extra-value">{item.data.network_speed || '-'}</span>
             </div>
             <div className="vmix-extra-row">
-                <span className="vmix-extra-label">WAN IP:</span>
+                <span className="vmix-extra-label">{t('vmix.wanIp')}:</span>
                 <span className="vmix-extra-value mono">{item.data.ipwan || '-'}</span>
             </div>
         </div>
@@ -134,14 +136,15 @@ function MachineMonitorCard({ item, index }: { item: BackendLogItem; index: numb
 }
 
 export default function VmixMonitorPage() {
+    const { t } = useLanguage()
     const { rows, loading, error } = useDashboardContext()
 
     if (loading) {
         return (
             <>
                 <div className="page-header">
-                    <h2 className="page-title">Vmix Monitor</h2>
-                    <p className="page-description">Thông số PC và Vmix Sender/Receiver.</p>
+                    <h2 className="page-title">{t('vmix.title')}</h2>
+                    <p className="page-description">{t('vmix.subtitleShort')}</p>
                 </div>
                 <div className="vmix-grid">
                     {Array.from({ length: 6 }).map((_, i) => (
@@ -156,7 +159,7 @@ export default function VmixMonitorPage() {
         return (
             <>
                 <div className="page-header">
-                    <h2 className="page-title">Vmix Monitor</h2>
+                    <h2 className="page-title">{t('vmix.title')}</h2>
                 </div>
                 <div className="card-light error-card-light">{error}</div>
             </>
@@ -166,13 +169,13 @@ export default function VmixMonitorPage() {
     return (
         <>
             <div className="page-header">
-                <h2 className="page-title">Vmix Monitor</h2>
-                <p className="page-description">Giám sát thông số PC và trạng thái Vmix Sender/Receiver theo thời gian thực.</p>
+                <h2 className="page-title">{t('vmix.title')}</h2>
+                <p className="page-description">{t('vmix.desc')}</p>
             </div>
 
             {rows.length === 0 ? (
                 <div className="card-light" style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
-                    Chưa có dữ liệu.
+                    {t('vmix.noData')}
                 </div>
             ) : (
                 <div className="vmix-grid">
