@@ -361,6 +361,108 @@ def _normalize_payload_list(raw_value):
 
 # Removed SeaTalk webhook from server.py (notifications handled by server_gui_advanced)
 
+def is_webhook_active_now(webhook: dict) -> bool:
+    """
+    Kiểm tra webhook hiện tại có đang được phép gửi thông báo hay không:
+    1. Nếu công tắc statusnotification == 0 (hoặc đã bị tắt ngang) -> KHÔNG ĐƯỢC PHÉP (False)
+    2. Nếu có điền giờ (time_start & time_end) -> Phải nằm trong khung giờ mới được phép (True)
+    3. Nếu không điền giờ -> Mặc định thủ công và đang bật (True)
+    """
+    try:
+        if not isinstance(webhook, dict):
+            return False
+
+        # 1. Nếu công tắc bị tắt (hoặc người dùng bấm tắt ngang) -> Tắt luôn
+        w_status = webhook.get("statusnotification", 1 if webhook.get("enabled", True) else 0)
+        if w_status == 0:
+            return False
+
+        t_start = str(webhook.get("time_start") or webhook.get("schedule_start") or "").strip()
+        t_end = str(webhook.get("time_end") or webhook.get("schedule_end") or "").strip()
+
+        # 2. Nếu CÓ điền giờ: Phải nằm trong khung giờ
+        if t_start and t_end:
+            now_dt = datetime.now(VIETNAM_TZ) if 'VIETNAM_TZ' in globals() else datetime.now()
+            now_hm = now_dt.strftime("%H:%M")
+            if t_start <= t_end:
+                return t_start <= now_hm <= t_end
+            else:
+                return now_hm >= t_start or now_hm <= t_end
+
+        # 3. Nếu KHÔNG điền gì: Đang bật thủ công
+        return True
+    except Exception as e:
+        print(f"Error in is_webhook_active_now: {e}")
+        return True
+
+
+def check_webhook_schedules(webhooks: list):
+    """
+    Tự động cập nhật nút Hoạt động (statusnotification) theo lịch:
+    - Đến giờ bật (vừa bắt đầu vào khung giờ): Tự động BẬT nút hoạt động (statusnotification = 1, enabled = True) và gửi tin nhắn thông báo kích hoạt
+    - Hết giờ bật (vừa ra khỏi khung giờ): Tự động TẮT nút hoạt động (statusnotification = 0, enabled = False)
+    - Nếu trong giờ mà người dùng bấm tắt ngang: Giữ nguyên trạng thái Tắt (statusnotification = 0)
+    """
+    try:
+        now_dt = datetime.now(VIETNAM_TZ) if 'VIETNAM_TZ' in globals() else datetime.now()
+        now_hm = now_dt.strftime("%H:%M")
+
+        for wh in webhooks:
+            t_start = str(wh.get("time_start") or wh.get("schedule_start") or "").strip()
+            t_end = str(wh.get("time_end") or wh.get("schedule_end") or "").strip()
+            if not t_start or not t_end:
+                continue
+
+            if t_start <= t_end:
+                is_in_schedule = t_start <= now_hm <= t_end
+            else:
+                is_in_schedule = now_hm >= t_start or now_hm <= t_end
+
+            prev_state = wh.get("last_schedule_state")
+
+            if is_in_schedule and prev_state != "in":
+                # Đến giờ hoạt động -> Tự động BẬT
+                webhooks_collection.update_one(
+                    {"_id": wh["_id"]},
+                    {"$set": {"statusnotification": 1, "enabled": True, "last_schedule_state": "in"}}
+                )
+                wh["statusnotification"] = 1
+                wh["enabled"] = True
+                wh["last_schedule_state"] = "in"
+                print(f"⏰ [Schedule] Đến giờ ({t_start}): Tự động BẬT kênh '{wh.get('name')}'")
+                
+                try:
+                    send_webhook_enabled_notice(wh)
+                except Exception as _e:
+                    print(f"Error sending enabled notice on schedule: {_e}")
+
+                if wh.get("srt_auto_send"):
+                    try:
+                        wh_id = str(wh.get("_id") or wh.get("id"))
+                        if wh_id in _last_sent_srt_statuses:
+                            del _last_sent_srt_statuses[wh_id]
+                            asyncio.create_task(_mongo_delete_srt_statuses(wh_id))
+                        send_webhook_grouped_srt_status(wh)
+                    except Exception as _e:
+                        print(f"Error sending grouped SRT on schedule: {_e}")
+
+            elif not is_in_schedule and prev_state != "out":
+                # Hết giờ hoạt động -> Tự động TẮT
+                webhooks_collection.update_one(
+                    {"_id": wh["_id"]},
+                    {"$set": {"statusnotification": 0, "enabled": False, "last_schedule_state": "out"}}
+                )
+                wh["statusnotification"] = 0
+                wh["enabled"] = False
+                wh["last_schedule_state"] = "out"
+                print(f"⏰ [Schedule] Hết giờ ({t_end}): Tự động TẮT kênh '{wh.get('name')}'")
+                wh_id = str(wh.get("_id") or wh.get("id"))
+                if wh_id in _last_sent_srt_statuses:
+                    del _last_sent_srt_statuses[wh_id]
+                    asyncio.create_task(_mongo_delete_srt_statuses(wh_id))
+    except Exception as e:
+        print(f"Error in check_webhook_schedules: {e}")
+
 
 def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port: str, status: str,
                                quality: str = "", srt_type: str = "", hostname: str = ""):
@@ -377,10 +479,11 @@ def send_discord_notification(machine_name: str, ipwan: str, srt_name: str, port
     webhooks = []
     try:
         wh_docs = list(db["notification_webhooks"].find({
-            "srt_auto_send": True,
-            "statusnotification": {"$ne": 0}
+            "srt_auto_send": True
         }))
         for wh in wh_docs:
+            if not is_webhook_active_now(wh):
+                continue
             wh_srt_streams = wh.get("srt_streams", ["all"])
             if "all" not in wh_srt_streams and stream_id not in wh_srt_streams:
                 continue  # This webhook doesn't monitor this SRT stream
@@ -3776,7 +3879,11 @@ def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_
         "packetLoss": "Tỷ lệ mất gói (Packet Loss)",
         "status": "Trạng thái SRT output",
         "stream_health": "Trạng thái Stream (Health)",
-        "stream_dropped": "Source Drop (Stream)"
+        "stream_dropped": "Source Drop (Stream)",
+        "vmix_recording": "Ghi hình vMix (Record)",
+        "vmix_streaming": "Phát sóng vMix (Stream)",
+        "vmix_external": "External Output vMix",
+        "vmix_multicorder": "MultiCorder vMix",
     }
     param_name = param_map.get(param, param)
 
@@ -3833,6 +3940,46 @@ def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_
             print(f"✓ Online-state change notification sent to {w_url[:30]}... status: {resp.status_code}")
         except Exception as e:
             print(f"Error sending online-state alert: {e}")
+        return
+
+    # vMix state change (edge-triggered): current_value is {"vmix_param", "vmix_from", "vmix_to"}.
+    _VMIX_PARAM_LABELS = {
+        "vmix_recording": ("GHI HÌNH vMix (Record)", "🎬"),
+        "vmix_streaming": ("PHÁT SÓNG vMix (Stream)", "📡"),
+        "vmix_external": ("EXTERNAL OUTPUT vMix", "🔌"),
+        "vmix_multicorder": ("MULTICORDER vMix", "🎞️"),
+    }
+    if param in _VMIX_PARAM_LABELS and isinstance(current_value, dict):
+        to_on = bool(current_value.get("vmix_to"))
+        vmix_lbl, vmix_icon = _VMIX_PARAM_LABELS[param]
+        if to_on:
+            head = f"{vmix_icon} **{vmix_lbl} ĐÃ BẬT (OFF → ON)**"
+            change_lbl = "OFF → ON (Đã bật)"
+        else:
+            head = f"{vmix_icon} **{vmix_lbl} ĐÃ TẮT (ON → OFF)**"
+            change_lbl = "ON → OFF (Đã tắt)"
+        if w_type == "Discord":
+            content = (
+                f"{head}\n"
+                f"• **Thiết bị:** `{device_name}`\n"
+                f"• **Trạng thái:** {change_lbl}\n"
+                f"• **Thời gian:** `{now_str}`"
+            )
+        else:
+            content = (
+                f"{head}\n\n"
+                f"• **Thiết bị:** **{device_name}**\n\n"
+                f"• **Trạng thái:** {change_lbl}\n\n"
+                f"• **Thời gian:** *{now_str}*"
+            )
+        try:
+            if w_type == "Discord":
+                resp = requests.post(w_url, json={"content": content}, timeout=5)
+            else:
+                resp = requests.post(w_url, json={"tag": "markdown", "markdown": {"content": content}}, timeout=5)
+            print(f"✓ vMix state change ({param}) notification sent to {w_url[:30]}... status: {resp.status_code}")
+        except Exception as e:
+            print(f"Error sending vMix state alert ({param}): {e}")
         return
 
     # Network category change (edge-triggered): current_value is {"net_from", "net_to"}.
@@ -3971,8 +4118,8 @@ def send_rule_notification(webhook: dict, device_name: str, rule: dict, trigger_
         except Exception as e:
             print(f"Error sending Seatalk rule alert: {e}")
 
-def send_webhook_enabled_notice(webhook: dict):
-    """Announce into the webhook that alert mode has just been enabled,
+def send_webhook_enabled_notice(webhook: dict, is_update: bool = False):
+    """Announce into the webhook that alert mode has just been enabled or updated,
     listing the active conditions and the applied scope (all / devices / channels)."""
     import requests
     from datetime import datetime
@@ -3983,7 +4130,7 @@ def send_webhook_enabled_notice(webhook: dict):
         return False
 
     labels = {
-        "isOnline": "Đổi trạng thái kết nối",
+        "isOnline": "Trạng thái kết nối",
         "statusapp": "Trạng thái ứng dụng",
         "temperature": "Nhiệt độ cao",
         "cpuLoad": "Tải CPU cao",
@@ -3992,12 +4139,12 @@ def send_webhook_enabled_notice(webhook: dict):
         "fps": "FPS thấp",
         "packetLoss": "Packet Loss cao",
         "batteryLevel": "Mức pin",
-        "status": "Luồng SRT OFF",
+        "status": "Luồng SRT",
         "networkChange": "Đổi loại mạng",
-        "vmix_recording": "Dừng ghi hình vMix",
-        "vmix_streaming": "Dừng phát sóng vMix",
-        "vmix_external": "Tắt External Output vMix",
-        "vmix_multicorder": "Tắt MultiCorder vMix",
+        "vmix_recording": "Ghi hình vMix (Record)",
+        "vmix_streaming": "Phát sóng vMix (Stream)",
+        "vmix_external": "External Output vMix",
+        "vmix_multicorder": "MultiCorder vMix",
         "stream_health": "Stream Health cảnh báo",
         "stream_dropped": "Stream Source Drop",
     }
@@ -4026,7 +4173,15 @@ def send_webhook_enabled_notice(webhook: dict):
                     cond_lines.append(f"{lbl} ({tv})")
         elif p == "isOnline":
             direction = _normalize_online_direction(val)
-            dir_lbl = {"to_off": "ON → OFF", "to_on": "OFF → ON", "any": "ON ↔ OFF (cả hai chiều)"}.get(direction, "ON → OFF")
+            dir_lbl = {"to_off": "ON → OFF (mất kết nối)", "to_on": "OFF → ON (kết nối lại)", "any": "ON ↔ OFF (cả hai chiều)"}.get(direction, "ON → OFF (mất kết nối)")
+            cond_lines.append(f"{lbl} ({dir_lbl})")
+        elif p in _VMIX_EDGE_PARAMS:
+            direction = _normalize_vmix_direction(val)
+            dir_lbl = {"to_off": "ON → OFF (đã tắt)", "to_on": "OFF → ON (đã bật)", "any": "ON ↔ OFF (cả hai chiều)"}.get(direction, "ON → OFF (đã tắt)")
+            cond_lines.append(f"{lbl} ({dir_lbl})")
+        elif p == "status":
+            direction = _normalize_vmix_direction(val)
+            dir_lbl = {"to_off": "ON → OFF (bị ngắt)", "to_on": "OFF → ON (kết nối lại)", "any": "ON ↔ OFF (cả hai chiều)"}.get(direction, "ON → OFF (bị ngắt)")
             cond_lines.append(f"{lbl} ({dir_lbl})")
         else:
             cond_lines.append(f"{lbl} ({op} {val}{unit})")
@@ -4046,9 +4201,11 @@ def send_webhook_enabled_notice(webhook: dict):
     now_str = datetime.now(VIETNAM_TZ).strftime("%d/%m/%Y %H:%M:%S")
     name = webhook.get("name", "Webhook")
 
+    header = "⚙️ **ĐÃ CẬP NHẬT CẤU HÌNH THÔNG BÁO**" if is_update else "✅ **ĐÃ BẬT chế độ Cảnh báo thiết bị**"
+
     # Use double newlines between lines so SeaTalk (which collapses single "\n") also breaks lines.
     lines = [
-        "✅ **ĐÃ BẬT chế độ Cảnh báo thiết bị**",
+        header,
         f"• **Kênh thông báo:** {name}",
         f"• **Phạm vi áp dụng:** {scope_desc}",
         "• **Các điều kiện cảnh báo đang bật:**",
@@ -4066,10 +4223,11 @@ def send_webhook_enabled_notice(webhook: dict):
             resp = requests.post(w_url, json={"content": body}, timeout=5)
         else:
             resp = requests.post(w_url, json={"tag": "markdown", "markdown": {"content": body}}, timeout=5)
-        print(f"✓ Sent 'alert enabled' notice to {w_url[:30]}... status: {resp.status_code}")
+        action_name = "alert updated" if is_update else "alert enabled"
+        print(f"✓ Sent '{action_name}' notice to {w_url[:30]}... status: {resp.status_code}")
         return True
     except Exception as e:
-        print(f"Error sending 'alert enabled' notice: {e}")
+        print(f"Error sending '{action_name}' notice: {e}")
         return False
 
 
@@ -4119,6 +4277,15 @@ _last_network_categories = {}
 # Tracks last seen online state (bool) per (webhook_id, device_id) for edge-triggered isOnline alerts.
 _last_online_states = {}
 
+# Tracks last seen vMix boolean states per (webhook_id, param, device_id) for edge-triggered vmix alerts.
+_last_vmix_states = {}
+
+# Set of parameters that use edge-triggered vmix ON/OFF transition logic.
+_VMIX_EDGE_PARAMS = {"vmix_recording", "vmix_streaming", "vmix_external", "vmix_multicorder"}
+
+# Tracks last seen SRT stream status per (webhook_id, device_id, srt_key) for edge-triggered status alerts.
+_last_srt_stream_states = {}
+
 def _normalize_online_direction(target_val):
     """Map a rule value to the online transition direction to alert on.
     Returns 'to_off' (ON->OFF), 'to_on' (OFF->ON), or 'any'."""
@@ -4128,6 +4295,17 @@ def _normalize_online_direction(target_val):
     if t in ("on", "true", "1", "online", "to_on"):
         return "to_on"
     # default (includes 'off', 'false', 'offline', 'to_off', empty)
+    return "to_off"
+
+def _normalize_vmix_direction(target_val):
+    """Map a vmix rule value to the desired transition direction.
+    Returns 'to_off' (ON->OFF), 'to_on' (OFF->ON), or 'any'."""
+    t = str(target_val or "").strip().lower()
+    if t in ("any", "both", "change", "all"):
+        return "any"
+    if t in ("on", "true", "1", "to_on"):
+        return "to_on"
+    # default (includes 'off', 'false', '0', 'to_off', empty)
     return "to_off"
 
 
@@ -4140,6 +4318,9 @@ async def check_alerts_loop():
             if not webhooks:
                 await asyncio.sleep(10)
                 continue
+                
+            # Run schedule transition checks (turns ON when schedule arrives, OFF when schedule ends)
+            check_webhook_schedules(webhooks)
                 
             # Load current desktop logs from cache
             desktop_devices = {name: doc for name, doc in _data_cache.items()}
@@ -4154,27 +4335,9 @@ async def check_alerts_loop():
                 
             for webhook in webhooks:
                 w_id = str(webhook["_id"])
-                w_status = webhook.get("statusnotification", 1 if webhook.get("enabled", True) else 0)
-                if w_status != 1:
-                    continue
 
-                # Schedule check: nếu bật lịch hoạt động, chỉ gửi cảnh báo trong khung giờ [schedule_start, schedule_end]
-                if webhook.get("schedule_enabled"):
-                    try:
-                        s_start = str(webhook.get("schedule_start") or "08:00").strip()
-                        s_end = str(webhook.get("schedule_end") or "22:00").strip()
-                        now_hm = datetime.now().strftime("%H:%M")
-                        if s_start and s_end:
-                            if s_start <= s_end:
-                                # Khung giờ ban ngày: VD 08:00 đến 22:00
-                                if not (s_start <= now_hm <= s_end):
-                                    continue
-                            else:
-                                # Khung giờ qua đêm: VD 22:00 đến 06:00 sáng hôm sau
-                                if not (now_hm >= s_start or now_hm <= s_end):
-                                    continue
-                    except Exception as _sch_err:
-                        print(f"Schedule check error for webhook {w_id}: {_sch_err}")
+                if not is_webhook_active_now(webhook):
+                    continue
                     
                 target_devices = webhook.get("devices")
                 if target_devices is None:
@@ -4241,6 +4404,8 @@ async def check_alerts_loop():
                             
                             if param == "isOnline":
                                 current_value = doc.get("statusapp", 0) == 1
+                            elif param in _VMIX_EDGE_PARAMS:
+                                current_value = bool(doc.get(param, False))
                             elif param == "statusapp":
                                 current_value = doc.get("statusapp", 0)
                             elif param == "temperature":
@@ -4293,21 +4458,32 @@ async def check_alerts_loop():
                             elif param in doc:
                                 current_value = doc.get(param)
                                 
-                        # Special check for SRT status (only for desktop)
+                        # Special check for SRT status (only for desktop) – edge-triggered
                         if dev_type == "desktop" and param == "status" and doc.get("SRT"):
                             srt_list = doc.get("SRT", [])
+                            direction = _normalize_vmix_direction(target_val)
                             matching = False
                             for srt_item in srt_list:
-                                s_val = srt_item.get("status", "")
-                                if check_condition(s_val, op, target_val):
-                                    matching = True
-                                    current_value = {
-                                        "srt_name": srt_item.get("nameSRT", srt_item.get("name", "")),
-                                        "port": str(srt_item.get("port", "")),
-                                        "status": s_val,
-                                        "ipwan": doc.get("ipwan", "")
-                                    }
-                                    break
+                                s_val = str(srt_item.get("status", "") or "").strip().upper()
+                                cur_on = s_val not in ("", "OFF", "0", "FALSE")
+                                srt_name = srt_item.get("nameSRT", srt_item.get("name", ""))
+                                port = str(srt_item.get("port", ""))
+                                srt_key = f"{w_id}:status:{dev_id}:{srt_name}:{port}"
+                                prev_on = _last_srt_stream_states.get(srt_key)
+                                _last_srt_stream_states[srt_key] = cur_on
+                                if prev_on is not None and prev_on != cur_on:
+                                    transition = "to_on" if cur_on else "to_off"
+                                    if direction == "any" or direction == transition:
+                                        matching = True
+                                        current_value = {
+                                            "srt_name": srt_name,
+                                            "port": port,
+                                            "status": "ON" if cur_on else "OFF",
+                                            "ipwan": doc.get("ipwan", ""),
+                                            "srt_from": prev_on,
+                                            "srt_to": cur_on
+                                        }
+                                        break
                             is_triggered = matching
                         # Special check for Stream health (only for desktop)
                         elif dev_type == "desktop" and param == "stream_health" and doc.get("stream"):
@@ -4423,6 +4599,20 @@ async def check_alerts_loop():
                                 if target in ("", "any") or target == transition:
                                     is_triggered = True
                                     current_value = {"net_from": prev_cat, "net_to": cur_cat}
+                        elif param in _VMIX_EDGE_PARAMS:
+                            # Edge-triggered: fire only when the vmix boolean state actually flips.
+                            # target_val selects the direction: ON->OFF, OFF->ON, or both.
+                            vmix_key = f"{w_id}:{param}:{dev_id}"
+                            cur_vmix_on = bool(current_value)
+                            prev_vmix_on = _last_vmix_states.get(vmix_key)
+                            _last_vmix_states[vmix_key] = cur_vmix_on
+                            is_triggered = False
+                            if prev_vmix_on is not None and prev_vmix_on != cur_vmix_on:
+                                direction = _normalize_vmix_direction(target_val)
+                                transition = "to_on" if cur_vmix_on else "to_off"
+                                if direction == "any" or direction == transition:
+                                    is_triggered = True
+                                    current_value = {"vmix_param": param, "vmix_from": prev_vmix_on, "vmix_to": cur_vmix_on}
                         else:
                             is_triggered = check_condition(current_value, op, target_val)
                             
@@ -4457,8 +4647,7 @@ async def check_alerts_loop():
             # Check SRT Auto-Send for webhooks (per-item change detection)
             for webhook in webhooks:
                 wh_id = str(webhook.get("_id") or webhook.get("id"))
-                w_status = webhook.get("statusnotification", 1 if webhook.get("enabled", True) else 0)
-                if w_status != 1 or not webhook.get("srt_auto_send"):
+                if not is_webhook_active_now(webhook) or not webhook.get("srt_auto_send"):
                     if wh_id in _last_sent_srt_statuses:
                         del _last_sent_srt_statuses[wh_id]
                         asyncio.create_task(_mongo_delete_srt_statuses(wh_id))
@@ -4565,9 +4754,34 @@ async def get_notification_devices():
 async def get_webhooks():
     try:
         webhooks = list(webhooks_collection.find())
+        check_webhook_schedules(webhooks)
         for w in webhooks:
+            w_id_obj = w["_id"]
             w["id"] = str(w["_id"])
             del w["_id"]
+            t_start = str(w.get("time_start") or w.get("schedule_start") or "").strip()
+            t_end = str(w.get("time_end") or w.get("schedule_end") or "").strip()
+            w["time_start"] = t_start
+            w["time_end"] = t_end
+            w["schedule_start"] = t_start
+            w["schedule_end"] = t_end
+            has_sch = bool(t_start and t_end)
+            w["has_schedule"] = has_sch
+            w["schedule_enabled"] = has_sch
+
+            if has_sch:
+                now_dt = datetime.now(VIETNAM_TZ) if 'VIETNAM_TZ' in globals() else datetime.now()
+                now_hm = now_dt.strftime("%H:%M")
+                if t_start <= t_end:
+                    in_time_window = t_start <= now_hm <= t_end
+                else:
+                    in_time_window = now_hm >= t_start or now_hm <= t_end
+                w["in_time_window"] = in_time_window
+            else:
+                w["in_time_window"] = True
+
+            active_now = is_webhook_active_now(w)
+            w["is_active_now"] = active_now
         return {"status": "success", "data": webhooks}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -4576,16 +4790,31 @@ async def get_webhooks():
 async def save_webhook(payload: dict):
     try:
         w_id = payload.get("id")
-        enabled_val = payload.get("enabled")
-        if enabled_val is None:
-            enabled_val = payload.get("statusnotification", 1) == 1
-        status_notif = 1 if enabled_val is True or enabled_val == 1 else 0
-
         alert_cooldown = payload.get("alert_cooldown", 60)
         try:
             alert_cooldown = int(alert_cooldown)
         except (ValueError, TypeError):
             alert_cooldown = 60
+
+        t_start = str(payload.get("time_start") or payload.get("schedule_start") or "").strip()
+        t_end = str(payload.get("time_end") or payload.get("schedule_end") or "").strip()
+        has_schedule = bool(t_start and t_end)
+
+        if has_schedule:
+            now_dt = datetime.now(VIETNAM_TZ) if 'VIETNAM_TZ' in globals() else datetime.now()
+            now_hm = now_dt.strftime("%H:%M")
+            if t_start <= t_end:
+                in_window = t_start <= now_hm <= t_end
+            else:
+                in_window = now_hm >= t_start or now_hm <= t_end
+            status_notif = 1 if in_window else 0
+            schedule_state = "in" if in_window else "out"
+        else:
+            enabled_val = payload.get("enabled")
+            if enabled_val is None:
+                enabled_val = payload.get("statusnotification", 1) == 1
+            status_notif = 1 if enabled_val is True or enabled_val == 1 else 0
+            schedule_state = None
 
         doc = {
             "name": payload.get("name", "").strip(),
@@ -4598,24 +4827,43 @@ async def save_webhook(payload: dict):
             "alert_cooldown": alert_cooldown,
             "srt_auto_send": bool(payload.get("srt_auto_send", False)),
             "srt_streams": payload.get("srt_streams", ["all"]),
-            "schedule_enabled": bool(payload.get("schedule_enabled", False)),
-            "schedule_start": str(payload.get("schedule_start", "08:00")).strip(),
-            "schedule_end": str(payload.get("schedule_end", "22:00")).strip()
+            "time_start": t_start,
+            "time_end": t_end,
+            "schedule_start": t_start,
+            "schedule_end": t_end,
+            "schedule_enabled": has_schedule,
+            "last_schedule_state": schedule_state,
         }
         if not doc["name"] or not doc["url"]:
             return JSONResponse(status_code=400, content={"status": "error", "message": "Name and URL are required"})
             
         if w_id:
             webhooks_collection.update_one({"_id": ObjectId(w_id)}, {"$set": doc})
+            doc["_id"] = ObjectId(w_id)
+            doc["id"] = w_id
             if w_id in _last_sent_srt_statuses:
                 del _last_sent_srt_statuses[w_id]
                 asyncio.create_task(_mongo_delete_srt_statuses(w_id))
         else:
             result = webhooks_collection.insert_one(doc)
             new_id = str(result.inserted_id)
+            doc["_id"] = result.inserted_id
+            doc["id"] = new_id
             if new_id in _last_sent_srt_statuses:
                 del _last_sent_srt_statuses[new_id]
                 asyncio.create_task(_mongo_delete_srt_statuses(new_id))
+
+        if status_notif == 1:
+            try:
+                send_webhook_enabled_notice(doc, is_update=bool(w_id))
+            except Exception as _e:
+                print(f"Error sending enabled notice on save: {_e}")
+            if doc.get("srt_auto_send"):
+                try:
+                    send_webhook_grouped_srt_status(doc)
+                except Exception as _e:
+                    print(f"Error sending grouped srt on save: {_e}")
+
         return {"status": "success", "message": "Webhook configuration saved successfully"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -4764,16 +5012,16 @@ async def trigger_send_all_srt():
     """Send all SRT status using per-webhook srt_auto_send config"""
     try:
         wh_docs = list(db["notification_webhooks"].find({
-            "srt_auto_send": True,
-            "statusnotification": {"$ne": 0}
+            "srt_auto_send": True
         }))
-        if not wh_docs:
+        active_whs = [wh for wh in wh_docs if is_webhook_active_now(wh)]
+        if not active_whs:
             all_whs = list(db["notification_webhooks"].find())
-            print(f"DEBUG: No webhook with srt_auto_send=True found. Database webhooks: {[{'name': w.get('name'), 'srt_auto_send': w.get('srt_auto_send'), 'statusnotification': w.get('statusnotification')} for w in all_whs]}")
-            return JSONResponse(status_code=400, content={"status": "error", "message": "Không có Webhook nào bật SRT Auto Send!"})
+            print(f"DEBUG: No active webhook with srt_auto_send=True found. Database webhooks: {[{'name': w.get('name'), 'srt_auto_send': w.get('srt_auto_send'), 'is_active': is_webhook_active_now(w)} for w in all_whs]}")
+            return JSONResponse(status_code=400, content={"status": "error", "message": "Không có Webhook nào đang hoạt động và bật SRT Auto Send!"})
             
         sent_count = 0
-        for wh in wh_docs:
+        for wh in active_whs:
             if send_webhook_grouped_srt_status(wh):
                 sent_count += 1
         return {"status": "success", "message": f"Đã gửi báo cáo nhóm SRT cho {sent_count} Webhook thành công!"}

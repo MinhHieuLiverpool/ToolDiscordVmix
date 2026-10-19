@@ -2,10 +2,10 @@
 
 
 a = Analysis(
-    ['D:\\ToolDiscordVmix\\sys_toolkit\\win_toolkit_gui.py'],
+    ['D:\\ToolDiscordVmix\\tool\\sys_toolkit\\win_toolkit_gui.py'],
     pathex=[],
     binaries=[],
-    datas=[('D:\\ToolDiscordVmix\\sys_toolkit\\toolkit_actions.py', '.')],
+    datas=[('D:\\ToolDiscordVmix\\tool\\sys_toolkit\\toolkit_actions.py', '.')],
     hiddenimports=['tkinter', 'tkinter.ttk', 'tkinter.messagebox'],
     hookspath=[],
     hooksconfig={},

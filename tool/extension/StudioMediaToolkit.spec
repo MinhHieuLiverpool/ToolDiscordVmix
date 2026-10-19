@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('D:\\ToolDiscordVmix\\extension\\bin\\ffmpeg.exe', 'bin'), ('D:\\ToolDiscordVmix\\extension\\bin\\deno.exe', 'bin')]
+datas = [('D:\\ToolDiscordVmix\\tool\\extension\\bin\\ffmpeg.exe', 'bin'), ('D:\\ToolDiscordVmix\\tool\\extension\\bin\\deno.exe', 'bin')]
 binaries = []
 hiddenimports = ['PIL.ImageTk', 'requests', 'imageio_ffmpeg', 'tkinter', 'tkinter.ttk', 'tkinter.filedialog', 'tkinter.messagebox']
 tmp_ret = collect_all('yt_dlp')
@@ -23,7 +23,7 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['D:\\ToolDiscordVmix\\extension\\converter_gui.py'],
+    ['D:\\ToolDiscordVmix\\tool\\extension\\converter_gui.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,

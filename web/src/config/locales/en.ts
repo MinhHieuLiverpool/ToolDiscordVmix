@@ -82,6 +82,7 @@ const en: LocaleKeys = {
     users: 'Users',
     account: 'Accounts',
     roles: 'Roles & Perms',
+    extensions: 'Extensions',
     collapse: 'Collapse',
     expand: 'Expand',
   },
@@ -381,7 +382,7 @@ const en: LocaleKeys = {
 
   // ── Notification Page ──
   notification: {
-    title: '🔔 Notification & Alert Channels',
+    title: 'Notification & Alert Channels',
     subtitle: 'Set up Webhook integrations (Discord / Seatalk), assign target devices and customize alert conditions.',
     sendSrtNow: 'Send SRT Report Now',
     sendingSrt: 'Sending SRT...',
@@ -401,8 +402,8 @@ const en: LocaleKeys = {
     enableChannel: 'Enable channel',
     disableChannel: 'Mute channel',
     noTogglePermission: 'You do not have permission to toggle channels',
-    editTitle: '✏️ Update Notification Channel',
-    addTitle: '➕ Add Notification Channel',
+    editTitle: 'Update Notification Channel',
+    addTitle: 'Add Notification Channel',
     channelName: 'Channel Display Name',
     channelNamePlaceholder: 'e.g. Discord Minh Hieu, SeaTalk Tech Team...',
     platform: 'Platform',
@@ -433,8 +434,23 @@ const en: LocaleKeys = {
     ruleOperator: 'Operator',
     ruleThreshold: 'Threshold',
     ruleRescan: 'Cooldown (s)',
-    scheduleTitle: 'Automated Schedule',
-    scheduleDesc: 'Configure active hours to automatically enable/disable notifications for this Webhook.',
+    scheduleTitle: 'Notification Active Schedule',
+    scheduleDesc: 'Configure automated ON/OFF time window (leave empty for manual toggle via switch).',
+    scheduleColumn: 'Active Schedule',
+    timeOn: 'Notification ON time',
+    timeOff: 'Notification OFF time',
+    manualMode: 'Manual toggle',
+    manualModeDesc: 'No time set: Channel operates via manual ON/OFF switch (24/7 when enabled).',
+    clearSchedule: 'Clear time',
+    inSchedule: 'In schedule',
+    outSchedule: 'Outside hours',
+    turnOffNow: 'Mute now',
+    forceStopped: 'Force muted',
+    resume: 'Resume',
+    forceTurnOffTooltip: 'Currently active. Click to mute immediately',
+    resumeTooltip: 'Force muted during schedule. Click to resume',
+    scheduleActiveDesc: 'Automatically turns ON at {start} and OFF at {end} daily.',
+    scheduleIncompleteDesc: 'Please fill both ON time and OFF time (or leave both blank for manual toggle).',
     scheduleEnabled: 'Enable schedule',
     scheduleStart: 'Start time',
     scheduleEnd: 'End time',
@@ -475,17 +491,31 @@ const en: LocaleKeys = {
     fps: 'Frame rate FPS too low (Mobile)',
     packetLoss: 'Packet Loss too high (Mobile %)',
     networkChange: 'Network type change (Mobile: LAN/WiFi/Cellular)',
-    status: 'SRT stream interrupted (OFF)',
+    status: 'SRT stream status change (ON/OFF)',
     stream_health: 'Stream Health warning (YELLOW)',
     stream_dropped: 'Stream Source Drop too high (frames)',
-    vmix_recording: 'Stop vMix Recording (Record OFF)',
-    vmix_streaming: 'Stop vMix Streaming (Stream OFF)',
-    vmix_external: 'Turn off vMix External Output',
-    vmix_multicorder: 'Turn off vMix MultiCorder',
+    vmix_recording: 'vMix Recording status change (ON/OFF)',
+    vmix_streaming: 'vMix Streaming status change (ON/OFF)',
+    vmix_external: 'vMix External Output status change (ON/OFF)',
+    vmix_multicorder: 'vMix MultiCorder status change (ON/OFF)',
   },
 
   // ── Online Transitions ──
   onlineTransitions: {
+    off: 'ON → OFF (Disconnected)',
+    on: 'OFF → ON (Reconnected)',
+    any: 'Both directions (ON ↔ OFF)',
+  },
+
+  // ── vMix State Transitions ──
+  vmixTransitions: {
+    off: 'ON → OFF (Stopped)',
+    on: 'OFF → ON (Started)',
+    any: 'Both directions (ON ↔ OFF)',
+  },
+
+  // ── SRT Status Transitions ──
+  srtTransitions: {
     off: 'ON → OFF (Disconnected)',
     on: 'OFF → ON (Reconnected)',
     any: 'Both directions (ON ↔ OFF)',
@@ -582,6 +612,17 @@ const en: LocaleKeys = {
     label: 'Language',
     vi: 'Tiếng Việt',
     en: 'English',
+  },
+
+  // ── Extensions ──
+  extensions: {
+    title: 'Extensions',
+    desc: 'Download system utility tools and extensions',
+    download: 'Download',
+    studioMediaToolkit: 'Studio Media Toolkit',
+    studioMediaToolkitDesc: 'Professional media conversion and processing toolkit for live broadcasting studios',
+    winAdminToolkit: 'Win Admin Toolkit',
+    winAdminToolkitDesc: 'Windows administration tool: change user passwords, rename computers, and system utilities',
   },
 }
 

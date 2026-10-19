@@ -80,6 +80,7 @@ const vi = {
     users: 'Người dùng',
     account: 'Tài khoản',
     roles: 'Phân quyền',
+    extensions: 'Extensions',
     collapse: 'Thu gọn',
     expand: 'Mở rộng',
   },
@@ -379,7 +380,7 @@ const vi = {
 
   // ── Notification Page ──
   notification: {
-    title: '🔔 Kênh Thông Báo & Cảnh Báo',
+    title: 'Kênh Thông Báo & Cảnh Báo',
     subtitle: 'Thiết lập các liên kết Webhook (Discord / Seatalk), chỉ định các thiết bị cần theo dõi và tick chọn các điều kiện cảnh báo chi tiết.',
     sendSrtNow: 'Báo cáo SRT ngay',
     sendingSrt: 'Đang gửi SRT...',
@@ -399,8 +400,8 @@ const vi = {
     enableChannel: 'Bật kênh',
     disableChannel: 'Tạm tắt kênh',
     noTogglePermission: 'Bạn không có quyền bật/tắt kênh',
-    editTitle: '✏️ Cập nhật Kênh Thông Báo',
-    addTitle: '➕ Thêm Kênh Thông Báo Mới',
+    editTitle: 'Cập nhật Kênh Thông Báo',
+    addTitle: 'Thêm Kênh Thông Báo Mới',
     channelName: 'Tên kênh hiển thị',
     channelNamePlaceholder: 'VD: Discord Minh Hieu, SeaTalk Nhóm Kỹ Thuật...',
     platform: 'Nền tảng',
@@ -431,8 +432,23 @@ const vi = {
     ruleOperator: 'Phép toán',
     ruleThreshold: 'Ngưỡng',
     ruleRescan: 'Quét lại (giây)',
-    scheduleTitle: 'Lịch hoạt động tự động',
-    scheduleDesc: 'Cấu hình thời gian tự động bật/tắt notification cho kênh Webhook này.',
+    scheduleTitle: 'Thời gian hoạt động Notification',
+    scheduleDesc: 'Cấu hình khung giờ tự động bật/tắt notification (để trống để bật/tắt thủ công qua công tắc).',
+    scheduleColumn: 'Thời gian hoạt động',
+    timeOn: 'Thời gian bật notification',
+    timeOff: 'Thời gian tắt notification',
+    manualMode: 'Bật/tắt thủ công',
+    manualModeDesc: 'Không đặt giờ: Mặc định bật/tắt thủ công bằng công tắc (24/7 khi bật).',
+    clearSchedule: 'Xóa giờ',
+    inSchedule: 'Đang trong giờ',
+    outSchedule: 'Ngoài giờ',
+    turnOffNow: 'Tắt ngang',
+    forceStopped: 'Đã tắt ngang',
+    resume: 'Bật lại',
+    forceTurnOffTooltip: 'Đang trong giờ hoạt động. Nhấn để tắt ngang ngay lập tức',
+    resumeTooltip: 'Đã tắt ngang trong khung giờ. Nhấn để bật lại',
+    scheduleActiveDesc: 'Tự động BẬT lúc {start} và TẮT lúc {end} hàng ngày.',
+    scheduleIncompleteDesc: 'Vui lòng điền đủ cả Giờ bật và Giờ tắt (hoặc để trống cả hai để bật/tắt thủ công).',
     scheduleEnabled: 'Kích hoạt lịch hoạt động',
     scheduleStart: 'Giờ bắt đầu',
     scheduleEnd: 'Giờ kết thúc',
@@ -473,18 +489,32 @@ const vi = {
     fps: 'Khung hình FPS quá thấp (Mobile)',
     packetLoss: 'Mất gói Packet Loss quá cao (Mobile %)',
     networkChange: 'Đổi loại mạng (Mobile: LAN/WiFi/4G)',
-    status: 'Trạng thái luồng SRT bị ngắt (OFF)',
+    status: 'Đổi trạng thái luồng SRT (ON/OFF)',
     stream_health: 'Stream Health cảnh báo (VÀNG)',
     stream_dropped: 'Stream Source Drop quá cao (frames)',
-    vmix_recording: 'Dừng Ghi hình vMix (Record OFF)',
-    vmix_streaming: 'Dừng Phát sóng vMix (Stream OFF)',
-    vmix_external: 'Tắt External Output vMix',
-    vmix_multicorder: 'Tắt MultiCorder vMix',
+    vmix_recording: 'Đổi trạng thái Ghi hình vMix (ON/OFF)',
+    vmix_streaming: 'Đổi trạng thái Phát sóng vMix (ON/OFF)',
+    vmix_external: 'Đổi trạng thái External Output vMix (ON/OFF)',
+    vmix_multicorder: 'Đổi trạng thái MultiCorder vMix (ON/OFF)',
   },
 
   // ── Online Transitions ──
   onlineTransitions: {
     off: 'ON → OFF (mất kết nối)',
+    on: 'OFF → ON (kết nối lại)',
+    any: 'Cả hai chiều (ON ↔ OFF)',
+  },
+
+  // ── vMix State Transitions ──
+  vmixTransitions: {
+    off: 'ON → OFF (đã tắt)',
+    on: 'OFF → ON (đã bật)',
+    any: 'Cả hai chiều (ON ↔ OFF)',
+  },
+
+  // ── SRT Status Transitions ──
+  srtTransitions: {
+    off: 'ON → OFF (bị ngắt)',
     on: 'OFF → ON (kết nối lại)',
     any: 'Cả hai chiều (ON ↔ OFF)',
   },
@@ -580,6 +610,17 @@ const vi = {
     label: 'Ngôn ngữ',
     vi: 'Tiếng Việt',
     en: 'English',
+  },
+
+  // ── Extensions ──
+  extensions: {
+    title: 'Extensions',
+    desc: 'Tải xuống các công cụ hỗ trợ dành cho hệ thống',
+    download: 'Tải xuống',
+    studioMediaToolkit: 'Studio Media Toolkit',
+    studioMediaToolkitDesc: 'Bộ công cụ chuyển đổi và xử lý media chuyên nghiệp dành cho studio phát sóng trực tiếp',
+    winAdminToolkit: 'Win Admin Toolkit',
+    winAdminToolkitDesc: 'Công cụ quản trị Windows: đổi mật khẩu user, đổi tên máy tính, và các tiện ích hệ thống',
   },
 } as const
 

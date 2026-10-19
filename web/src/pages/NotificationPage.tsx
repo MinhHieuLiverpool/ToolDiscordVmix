@@ -32,6 +32,11 @@ interface WebhookItem {
   schedule_enabled?: boolean
   schedule_start?: string
   schedule_end?: string
+  time_start?: string
+  time_end?: string
+  has_schedule?: boolean
+  is_active_now?: boolean
+  in_time_window?: boolean
 }
 
 interface DeviceOption {
@@ -50,13 +55,13 @@ const DEFAULT_PARAMETERS = [
   { parameter: 'fps', labelKey: 'params.fps', operator: '<', defaultValue: '40' },
   { parameter: 'packetLoss', labelKey: 'params.packetLoss', operator: '>', defaultValue: '5' },
   { parameter: 'networkChange', labelKey: 'params.networkChange', operator: '=', defaultValue: 'any' },
-  { parameter: 'status', labelKey: 'params.status', operator: '=', defaultValue: 'OFF' },
+  { parameter: 'status', labelKey: 'params.status', operator: '=', defaultValue: 'off' },
   { parameter: 'stream_health', labelKey: 'params.stream_health', operator: '=', defaultValue: 'VÀNG' },
   { parameter: 'stream_dropped', labelKey: 'params.stream_dropped', operator: '>', defaultValue: '100' },
-  { parameter: 'vmix_recording', labelKey: 'params.vmix_recording', operator: '=', defaultValue: 'False' },
-  { parameter: 'vmix_streaming', labelKey: 'params.vmix_streaming', operator: '=', defaultValue: 'False' },
-  { parameter: 'vmix_external', labelKey: 'params.vmix_external', operator: '=', defaultValue: 'False' },
-  { parameter: 'vmix_multicorder', labelKey: 'params.vmix_multicorder', operator: '=', defaultValue: 'False' },
+  { parameter: 'vmix_recording', labelKey: 'params.vmix_recording', operator: '=', defaultValue: 'off' },
+  { parameter: 'vmix_streaming', labelKey: 'params.vmix_streaming', operator: '=', defaultValue: 'off' },
+  { parameter: 'vmix_external', labelKey: 'params.vmix_external', operator: '=', defaultValue: 'off' },
+  { parameter: 'vmix_multicorder', labelKey: 'params.vmix_multicorder', operator: '=', defaultValue: 'off' },
 ]
 
 // State-transition parameters use a single dropdown instead of operator + value.
@@ -66,11 +71,33 @@ const ONLINE_TRANSITIONS = [
   { value: 'any', labelKey: 'onlineTransitions.any' },
 ]
 
+// Transition options for vMix boolean parameters (Recording, Streaming, External, MultiCorder).
+const VMIX_TRANSITIONS = [
+  { value: 'off', labelKey: 'vmixTransitions.off' },
+  { value: 'on', labelKey: 'vmixTransitions.on' },
+  { value: 'any', labelKey: 'vmixTransitions.any' },
+]
+
+// Transition options for SRT status.
+const SRT_STATUS_TRANSITIONS = [
+  { value: 'off', labelKey: 'srtTransitions.off' },
+  { value: 'on', labelKey: 'srtTransitions.on' },
+  { value: 'any', labelKey: 'srtTransitions.any' },
+]
+
 // Map legacy stored isOnline values to the new transition tokens.
 function normalizeOnlineValue(v: string): string {
   const t = String(v || '').trim().toLowerCase()
   if (t === 'on' || t === 'true' || t === 'online' || t === 'to_on') return 'on'
   if (t === 'any' || t === 'both' || t === 'change') return 'any'
+  return 'off'
+}
+
+// Map legacy stored vmix/SRT values to the new transition tokens.
+function normalizeVmixValue(v: string): string {
+  const t = String(v || '').trim().toLowerCase()
+  if (t === 'on' || t === 'true' || t === '1' || t === 'to_on') return 'on'
+  if (t === 'any' || t === 'both' || t === 'change' || t === 'all') return 'any'
   return 'off'
 }
 
@@ -83,6 +110,37 @@ const NETWORK_TRANSITIONS = [
   { value: 'mobile>lan', labelKey: 'networkTransitions.mobile>lan' },
   { value: 'mobile>wifi', labelKey: 'networkTransitions.mobile>wifi' },
 ]
+
+const PARAM_SHORT_NAMES: Record<string, string> = {
+  isOnline: 'Online',
+  status: 'SRT',
+  networkChange: 'Mạng',
+  vmix_recording: 'Record',
+  vmix_streaming: 'Stream',
+  vmix_external: 'External',
+  vmix_multicorder: 'MultiCorder',
+}
+
+function formatRuleBadge(r: RuleCondition, t: (k: string) => string): string {
+  const shortName = PARAM_SHORT_NAMES[r.parameter] || r.parameter
+  if (r.parameter === 'isOnline') {
+    const val = normalizeOnlineValue(r.value)
+    return `${shortName}: ${t(`onlineTransitions.${val}`)}`
+  }
+  if (['vmix_recording', 'vmix_streaming', 'vmix_external', 'vmix_multicorder'].includes(r.parameter)) {
+    const val = normalizeVmixValue(r.value)
+    return `${shortName}: ${t(`vmixTransitions.${val}`)}`
+  }
+  if (r.parameter === 'status') {
+    const val = normalizeVmixValue(r.value)
+    return `${shortName}: ${t(`srtTransitions.${val}`)}`
+  }
+  if (r.parameter === 'networkChange') {
+    const val = r.value || 'any'
+    return `${shortName}: ${t(`networkTransitions.${val}`)}`
+  }
+  return `${r.parameter} ${r.operator} ${r.value}`
+}
 
 export default function NotificationPage() {
   const [webhooks, setWebhooks] = useState<WebhookItem[]>([])
@@ -118,19 +176,22 @@ export default function NotificationPage() {
   const [sendingSrt, setSendingSrt] = useState(false)
 
   // Schedule states
-  const [whScheduleEnabled, setWhScheduleEnabled] = useState(false)
-  const [whScheduleStart, setWhScheduleStart] = useState('08:00')
-  const [whScheduleEnd, setWhScheduleEnd] = useState('22:00')
+  const [whScheduleStart, setWhScheduleStart] = useState('')
+  const [whScheduleEnd, setWhScheduleEnd] = useState('')
 
   const { rows, gameAssignments } = useDashboardContext()
   const { t } = useLanguage()
 
   useEffect(() => {
-    fetchData()
+    fetchData(true)
+    const interval = setInterval(() => {
+      fetchData(false)
+    }, 10000)
+    return () => clearInterval(interval)
   }, [])
 
-  const fetchData = async () => {
-    setLoading(true)
+  const fetchData = async (showLoading = true) => {
+    if (showLoading) setLoading(true)
     try {
       const [whRes, devRes] = await Promise.all([
         axios.get(`${BACKEND_BASE_URL}/api/notifications/webhooks`),
@@ -141,9 +202,9 @@ export default function NotificationPage() {
       if (devRes.data.status === 'success') setDevices(devRes.data.data)
     } catch (err: any) {
       console.error(err)
-      showToast(t('notification.loadError'), 'error')
+      if (showLoading) showToast(t('notification.loadError'), 'error')
     } finally {
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
   }
 
@@ -181,17 +242,24 @@ export default function NotificationPage() {
       }
       setWhSrtAutoSend(!!wh.srt_auto_send)
       setWhSrtStreams(wh.srt_streams || ['all'])
-      setWhScheduleEnabled(!!wh.schedule_enabled)
-      setWhScheduleStart(wh.schedule_start || '08:00')
-      setWhScheduleEnd(wh.schedule_end || '22:00')
+      const sStart = wh.time_start || wh.schedule_start || ''
+      const sEnd = wh.time_end || wh.schedule_end || ''
+      setWhScheduleStart(sStart)
+      setWhScheduleEnd(sEnd)
       
       if (wh.rules && Array.isArray(wh.rules)) {
         wh.rules.forEach(r => {
           if (initialRuleStates[r.parameter]) {
+            let val = r.value
+            if (['vmix_recording', 'vmix_streaming', 'vmix_external', 'vmix_multicorder', 'status'].includes(r.parameter)) {
+              val = normalizeVmixValue(val)
+            } else if (r.parameter === 'isOnline') {
+              val = normalizeOnlineValue(val)
+            }
             initialRuleStates[r.parameter] = {
               enabled: r.enabled,
               operator: r.operator,
-              value: r.value,
+              value: val,
               alert_cooldown: r.alert_cooldown ?? 60
             }
           }
@@ -208,9 +276,8 @@ export default function NotificationPage() {
       setWhChannels([])
       setWhSrtAutoSend(false)
       setWhSrtStreams(['all'])
-      setWhScheduleEnabled(false)
-      setWhScheduleStart('08:00')
-      setWhScheduleEnd('22:00')
+      setWhScheduleStart('')
+      setWhScheduleEnd('')
     }
     
     setRuleStates(initialRuleStates)
@@ -244,16 +311,26 @@ export default function NotificationPage() {
 
     const assembledRules: RuleCondition[] = DEFAULT_PARAMETERS.map(p => {
       const state = ruleStates[p.parameter]
+      let val = state?.value || p.defaultValue
+      if (['vmix_recording', 'vmix_streaming', 'vmix_external', 'vmix_multicorder', 'status'].includes(p.parameter)) {
+        val = normalizeVmixValue(val)
+      } else if (p.parameter === 'isOnline') {
+        val = normalizeOnlineValue(val)
+      }
       return {
         parameter: p.parameter,
         operator: state?.operator || p.operator,
-        value: state?.value || p.defaultValue,
+        value: val,
         enabled: !!state?.enabled,
         alert_cooldown: state?.alert_cooldown !== undefined ? Math.max(10, parseInt(String(state.alert_cooldown)) || 60) : 60
       }
     })
 
     try {
+      const tStart = whScheduleStart.trim()
+      const tEnd = whScheduleEnd.trim()
+      const hasSchedule = Boolean(tStart && tEnd)
+
       const payload = {
         id: editingWebhook?.id,
         name: whName,
@@ -266,9 +343,11 @@ export default function NotificationPage() {
         alert_cooldown: 60,
         srt_auto_send: whSrtAutoSend,
         srt_streams: whSrtStreams,
-        schedule_enabled: whScheduleEnabled,
-        schedule_start: whScheduleStart,
-        schedule_end: whScheduleEnd
+        time_start: tStart,
+        time_end: tEnd,
+        schedule_start: tStart,
+        schedule_end: tEnd,
+        schedule_enabled: hasSchedule
       }
       
       const response = await axios.post(`${BACKEND_BASE_URL}/api/notifications/webhooks`, payload)
@@ -516,6 +595,7 @@ export default function NotificationPage() {
                     <th className="py-3 px-5">{t('notification.channelAndPlatform')}</th>
                     <th className="py-3 px-5">{t('notification.appliedDevices')}</th>
                     <th className="py-3 px-5">{t('notification.alertConditions')}</th>
+                    <th className="py-3 px-5 text-center min-w-[190px]">{t('notification.scheduleColumn')}</th>
                     <th className="py-3 px-5 w-28 text-center">{t('notification.active')}</th>
                     <th className="py-3 px-5 w-28 text-right">{t('common.actions')}</th>
                   </tr>
@@ -557,7 +637,7 @@ export default function NotificationPage() {
                                   const gameName = dId.slice('channel:'.length)
                                   return (
                                     <span key={dId} className="text-[9.5px] px-1.5 py-0.5 bg-purple-50 dark:bg-purple-950/25 text-purple-600 dark:text-purple-400 rounded font-bold border border-purple-100 dark:border-purple-900/30">
-                                      📺 {gameName}
+                                      {gameName}
                                     </span>
                                   )
                                 }
@@ -586,7 +666,7 @@ export default function NotificationPage() {
                                     className="text-[10px] px-1.5 py-0.5 bg-rose-50 dark:bg-rose-950/15 text-rose-600 dark:text-rose-400 rounded font-mono font-bold border border-rose-100 dark:border-rose-900/25 mr-1 mb-1 inline-block"
                                     title={paramLabel}
                                   >
-                                    📌 {r.parameter} {r.operator} {r.value}
+                                    {formatRuleBadge(r, t)}
                                   </span>
                                 )
                               })
@@ -597,19 +677,83 @@ export default function NotificationPage() {
                         </td>
 
                         <td className="py-3.5 px-5 text-center">
-                          <button
-                            onClick={() => canToggle && handleToggleWebhookEnabled(wh)}
-                            disabled={!canToggle}
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-[6px] text-[11px] font-bold transition-all ${!canToggle ? 'cursor-not-allowed opacity-70' : ''} ${
-                              wh.statusnotification !== 0
-                                ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/30'
-                                : 'bg-slate-100 text-slate-400 border border-slate-200 dark:bg-slate-800/40 dark:border-slate-800'
-                            }`}
-                            title={!canToggle ? t('notification.noTogglePermission') : (wh.statusnotification !== 0 ? t('notification.disableChannel') : t('notification.enableChannel'))}
-                          >
-                            <span className={`w-1.5 h-1.5 rounded-full ${wh.statusnotification !== 0 ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                            {wh.statusnotification !== 0 ? t('common.on') : t('common.off')}
-                          </button>
+                          {wh.has_schedule || (wh.time_start && wh.time_end) ? (
+                            <div className="inline-flex flex-col items-center gap-1.5 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[6px] text-[11px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 whitespace-nowrap">
+                                {wh.time_start || wh.schedule_start} - {wh.time_end || wh.schedule_end}
+                              </span>
+                              {(() => {
+                                const inWindow = wh.in_time_window !== undefined
+                                  ? wh.in_time_window
+                                  : (() => {
+                                      const s = wh.time_start || wh.schedule_start || ''
+                                      const e = wh.time_end || wh.schedule_end || ''
+                                      if (!s || !e) return true
+                                      const now = new Date()
+                                      const hm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+                                      return s <= e ? (hm >= s && hm <= e) : (hm >= s || hm <= e)
+                                    })()
+
+                                if (inWindow) {
+                                  const isMuted = wh.statusnotification === 0
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => canToggle && handleToggleWebhookEnabled(wh)}
+                                      disabled={!canToggle}
+                                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-[6px] text-[10.5px] font-bold transition-all shadow-sm whitespace-nowrap shrink-0 ${
+                                        !canToggle
+                                          ? 'cursor-not-allowed opacity-70 bg-slate-100 text-slate-400 border border-slate-200'
+                                          : isMuted
+                                          ? 'cursor-pointer bg-rose-50 text-rose-700 border border-rose-200 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 dark:bg-rose-950/30 dark:text-rose-300 dark:border-rose-800 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-400'
+                                          : 'cursor-pointer bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-800 dark:hover:bg-rose-950/40 dark:hover:text-rose-400'
+                                      }`}
+                                      title={canToggle ? (isMuted ? t('notification.resumeTooltip') : t('notification.forceTurnOffTooltip')) : t('notification.noTogglePermission')}
+                                    >
+                                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isMuted ? 'bg-rose-500' : 'bg-emerald-500 animate-pulse'}`} />
+                                      <span className="whitespace-nowrap">{isMuted ? t('notification.forceStopped') : t('notification.inSchedule')}</span>
+                                      <span className={`text-[10px] font-semibold underline ml-0.5 whitespace-nowrap ${isMuted ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                                        ({isMuted ? t('notification.resume') : t('notification.turnOffNow')})
+                                      </span>
+                                    </button>
+                                  )
+                                }
+
+                                return (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0" />
+                                    {t('notification.outSchedule')}
+                                  </span>
+                                )
+                              })()}
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-[6px] text-[10.5px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-800 whitespace-nowrap">
+                              {t('notification.manualMode')}
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-3.5 px-5 text-center">
+                          {(() => {
+                            const isScheduled = !!(wh.has_schedule || (wh.time_start && wh.time_end));
+                            const isActive = isScheduled ? !!wh.is_active_now : wh.statusnotification !== 0;
+                            return (
+                              <button
+                                onClick={() => canToggle && handleToggleWebhookEnabled(wh)}
+                                disabled={!canToggle}
+                                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-[6px] text-[11px] font-bold transition-all ${!canToggle ? 'cursor-not-allowed opacity-70' : ''} ${
+                                  isActive
+                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/30 shadow-sm'
+                                    : 'bg-slate-100 text-slate-400 border border-slate-200 dark:bg-slate-800/40 dark:border-slate-800'
+                                }`}
+                                title={!canToggle ? t('notification.noTogglePermission') : (isActive ? t('notification.disableChannel') : t('notification.enableChannel'))}
+                              >
+                                <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                                {isActive ? t('common.on') : t('common.off')}
+                              </button>
+                            );
+                          })()}
                         </td>
 
                         <td className="py-3.5 px-5 text-right">
@@ -934,52 +1078,72 @@ export default function NotificationPage() {
 
                 {/* Schedule Config */}
                 <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4">
-                  <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-[10px] mb-3">
+                  <div className="flex items-center justify-between mb-2">
                     <div>
-                      <span className="block font-bold text-slate-700 dark:text-slate-300">{t('notification.scheduleTitle')}</span>
-                      <span className="text-[11px] text-slate-400">{t('notification.scheduleDesc')}</span>
+                      <span className="block font-bold text-xs text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                        {t('notification.scheduleTitle')}
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        {t('notification.scheduleDesc')}
+                      </span>
                     </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={whScheduleEnabled}
-                        onChange={(e) => setWhScheduleEnabled(e.target.checked)}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-slate-300 dark:bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                    </label>
+                    {(whScheduleStart || whScheduleEnd) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWhScheduleStart('')
+                          setWhScheduleEnd('')
+                        }}
+                        className="px-2.5 py-1 text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-[6px] border border-rose-200 dark:border-rose-900/40 transition-colors"
+                      >
+                        {t('notification.clearSchedule')}
+                      </button>
+                    )}
                   </div>
 
-                  {whScheduleEnabled && (
-                    <div className="space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block font-bold text-slate-500 uppercase mb-1.5 text-[10px]">{t('notification.scheduleStart')}</label>
-                          <input
-                            type="time"
-                            value={whScheduleStart}
-                            onChange={(e) => setWhScheduleStart(e.target.value)}
-                            className="w-full px-3 py-2 border rounded-[10px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 text-xs font-bold"
-                          />
-                        </div>
-                        <div>
-                          <label className="block font-bold text-slate-500 uppercase mb-1.5 text-[10px]">{t('notification.scheduleEnd')}</label>
-                          <input
-                            type="time"
-                            value={whScheduleEnd}
-                            onChange={(e) => setWhScheduleEnd(e.target.value)}
-                            className="w-full px-3 py-2 border rounded-[10px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 text-xs font-bold"
-                          />
-                        </div>
+                  <div className="bg-slate-50 dark:bg-slate-900/50 p-3.5 rounded-[10px] border border-slate-200 dark:border-slate-800 space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-bold text-slate-600 dark:text-slate-400 mb-1 text-[11px]">
+                          {t('notification.timeOn')}
+                        </label>
+                        <input
+                          type="time"
+                          value={whScheduleStart}
+                          onChange={(e) => setWhScheduleStart(e.target.value)}
+                          className="w-full px-3 py-2 border rounded-[8px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 text-xs font-mono font-bold"
+                          placeholder="--:--"
+                        />
                       </div>
-                      <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/15 border border-amber-200 dark:border-amber-900/25 rounded-[10px] text-[11px] text-amber-700 dark:text-amber-400">
-                        <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span>{t('notification.scheduleInfo')}</span>
+                      <div>
+                        <label className="block font-bold text-slate-600 dark:text-slate-400 mb-1 text-[11px]">
+                          {t('notification.timeOff')}
+                        </label>
+                        <input
+                          type="time"
+                          value={whScheduleEnd}
+                          onChange={(e) => setWhScheduleEnd(e.target.value)}
+                          className="w-full px-3 py-2 border rounded-[8px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 text-xs font-mono font-bold"
+                          placeholder="--:--"
+                        />
                       </div>
                     </div>
-                  )}
+
+                    {/* Helper status description */}
+                    {whScheduleStart && whScheduleEnd ? (
+                      <div className="px-3 py-2 bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/30 rounded-[8px] text-[11px] text-indigo-700 dark:text-indigo-300 font-medium">
+                        {t('notification.scheduleActiveDesc').replace('{start}', whScheduleStart).replace('{end}', whScheduleEnd)}
+                      </div>
+                    ) : (!whScheduleStart && !whScheduleEnd) ? (
+                      <div className="px-3 py-2 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/30 rounded-[8px] text-[11px] text-emerald-700 dark:text-emerald-300 font-medium">
+                        {t('notification.manualModeDesc')}
+                      </div>
+                    ) : (
+                      <div className="px-3 py-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 rounded-[8px] text-[11px] text-amber-700 dark:text-amber-300 font-medium">
+                        {t('notification.scheduleIncompleteDesc')}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Checked parameter conditions */}
@@ -1042,6 +1206,32 @@ export default function NotificationPage() {
                                   >
                                     {ONLINE_TRANSITIONS.map(ot => (
                                       <option key={ot.value} value={ot.value}>{t(ot.labelKey)}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                              ) : ['vmix_recording', 'vmix_streaming', 'vmix_external', 'vmix_multicorder'].includes(p.parameter) ? (
+                                <td className="py-2.5 px-3" colSpan={2}>
+                                  <select
+                                    value={normalizeVmixValue(state.value)}
+                                    disabled={!state.enabled}
+                                    onChange={(e) => handleRuleStateChange(p.parameter, 'value', e.target.value)}
+                                    className="w-full px-2 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-bold text-[11px] disabled:opacity-50"
+                                  >
+                                    {VMIX_TRANSITIONS.map(vt => (
+                                      <option key={vt.value} value={vt.value}>{t(vt.labelKey)}</option>
+                                    ))}
+                                  </select>
+                                </td>
+                              ) : p.parameter === 'status' ? (
+                                <td className="py-2.5 px-3" colSpan={2}>
+                                  <select
+                                    value={normalizeVmixValue(state.value)}
+                                    disabled={!state.enabled}
+                                    onChange={(e) => handleRuleStateChange(p.parameter, 'value', e.target.value)}
+                                    className="w-full px-2 py-1 border rounded-[6px] border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 font-bold text-[11px] disabled:opacity-50"
+                                  >
+                                    {SRT_STATUS_TRANSITIONS.map(st => (
+                                      <option key={st.value} value={st.value}>{t(st.labelKey)}</option>
                                     ))}
                                   </select>
                                 </td>

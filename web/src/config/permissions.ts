@@ -36,6 +36,7 @@ export const MODULE_PERMISSIONS: ModulePermission[] = [
   { key: 'CreateWebURL', label: 'CreateWebURL', actions: ['add', 'edit', 'delete'] },
   { key: 'Quản lý Kênh', label: 'Quản lý Kênh', actions: ['add', 'edit', 'delete'] },
   { key: 'Notification', label: 'Notification', actions: ['add', 'edit', 'delete', 'toggle'] },
+  { key: 'Extensions', label: 'Extensions', actions: [] },
   { key: 'Tài khoản', label: 'Tài khoản', actions: ['add', 'edit', 'delete', 'lock'] },
   { key: 'Phân quyền', label: 'Phân quyền', actions: ['add', 'edit', 'delete'] },
 ]

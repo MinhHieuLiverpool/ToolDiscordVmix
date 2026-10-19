@@ -22,6 +22,7 @@ import SharedDashboardPage from './pages/SharedDashboardPage'
 import GameChannelsPage from './pages/GameChannelsPage'
 import RecordMulticorderPage from './pages/RecordMulticorderPage'
 import NotificationPage from './pages/NotificationPage'
+import ExtensionsPage from './pages/ExtensionsPage'
 import { isAuthenticated, refreshUserSession } from './services/auth'
 import { Outlet, useParams } from 'react-router-dom'
 import { useEffect, useState, useMemo } from 'react'
@@ -217,6 +218,7 @@ function App() {
           <Route path="/record-multicorder" element={<RecordMulticorderPage />} />
           <Route path="/mobile-monitor" element={<MobileMonitorPage />} />
           <Route path="/notification" element={<NotificationPage />} />
+          <Route path="/extensions" element={<ExtensionsPage />} />
           <Route path="/viewsync" element={<ViewSyncPage />} />
           <Route path="/speedtest" element={<SpeedtestPage />} />
           <Route path="/account" element={<AccountPage />} />
